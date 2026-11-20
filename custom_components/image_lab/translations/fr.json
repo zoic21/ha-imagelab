@@ -1,0 +1,91 @@
+{
+  "title": "Image Lab",
+  "config": {
+    "initiate_flow": {
+      "user": "Ajouter une analyse"
+    },
+    "step": {
+      "user": {
+        "title": "Nouvelle analyse",
+        "data": {
+          "name": "Nom",
+          "module": "Module"
+        },
+        "data_description": {
+          "module": "Cette version teste la source d’image pour le module sélectionné."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurer l’analyse",
+        "data": {
+          "name": "Nom",
+          "module": "Module"
+        }
+      },
+      "source": {
+        "title": "Source de l’image",
+        "data": {
+          "source_type": "Source"
+        }
+      },
+      "select_entity": {
+        "title": "Choisir une entité",
+        "data": {
+          "entity_id": "Entité"
+        }
+      },
+      "upload_image": {
+        "title": "Importer une image",
+        "description": "Choisissez une image JPEG, PNG ou WebP de 10 Mio et 24 mégapixels maximum.",
+        "data": {
+          "file": "Image"
+        }
+      },
+      "replace_image": {
+        "title": "Image importée",
+        "description": "Laissez le champ vide pour garder l’image actuelle, ou choisissez une nouvelle image JPEG, PNG ou WebP de 10 Mio et 24 mégapixels maximum.",
+        "data": {
+          "file": "Nouvelle image"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Saisissez un nom pour cette analyse.",
+      "invalid_entity": "Choisissez une entité correspondant à la source.",
+      "invalid_image": "Choisissez une image fixe JPEG, PNG ou WebP valide.",
+      "image_too_large": "L’image dépasse 10 Mio ou 24 mégapixels.",
+      "profile_not_found": "Cette analyse a été supprimée.",
+      "storage_error": "Impossible d’enregistrer cette image."
+    },
+    "abort": {
+      "profile_not_found": "Cette analyse a été supprimée."
+    }
+  },
+  "selector": {
+    "module": {
+      "options": {
+        "comparison": "Comparaison d’images",
+        "palette": "Palette de couleurs"
+      }
+    },
+    "source_type": {
+      "options": {
+        "camera": "Capture de caméra",
+        "media_player": "Pochette du lecteur multimédia",
+        "upload": "Image importée"
+      }
+    }
+  },
+  "services": {
+    "analyze": {
+      "name": "Exécuter une analyse",
+      "description": "Récupère l’image source et renvoie le résultat de l’analyse.",
+      "fields": {
+        "profile_id": {
+          "name": "Identifiant de l’analyse",
+          "description": "Copiez l’identifiant depuis le panneau Image Lab."
+        }
+      }
+    }
+  }
+}

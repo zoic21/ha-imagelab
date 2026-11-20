@@ -1,0 +1,198 @@
+"""Set up and reconfigure image analyses with native Home Assistant selectors."""
+
+from typing import Any
+from uuid import uuid4
+
+import probatio
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+)
+from homeassistant.const import CONF_ENTITY_ID, CONF_NAME
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
+
+from .analysis import MODULES, resolve_entity_id
+from .const import (
+    CONF_FILE,
+    CONF_IMAGE_KEY,
+    CONF_MODULE,
+    CONF_SOURCE_TYPE,
+    DOMAIN,
+    IMAGE_TYPES,
+    SourceType,
+)
+from .images import ImageError, get_image_storage
+
+
+def _select(options: list[str], translation_key: str) -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(options=options, translation_key=translation_key)
+    )
+
+
+PROFILE_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(CONF_NAME): selector.TextSelector(),
+        probatio.Required(CONF_MODULE): _select(list(MODULES), CONF_MODULE),
+    }
+)
+
+
+class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Create one configuration entry per analysis."""
+
+    VERSION = 1
+
+    _entry: ConfigEntry | None = None
+    _title: str
+    _settings: dict[str, str]
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the name and module."""
+        settings = self._entry.data if self._entry else {}
+        suggested = {**settings, CONF_NAME: self._entry.title} if self._entry else {}
+        errors = {}
+        if user_input is not None:
+            title = user_input[CONF_NAME].strip()
+            if not title:
+                errors[CONF_NAME] = "name_required"
+            else:
+                self._title = title
+                self._settings = {
+                    CONF_MODULE: user_input[CONF_MODULE],
+                    CONF_IMAGE_KEY: settings.get(CONF_IMAGE_KEY) or uuid4().hex,
+                }
+                return await self.async_step_source()
+
+        return self.async_show_form(
+            step_id=self.source if self.source == SOURCE_RECONFIGURE else "user",
+            data_schema=self.add_suggested_values_to_schema(
+                PROFILE_SCHEMA, user_input or suggested
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit an existing analysis without changing its ID."""
+        self._entry = self._get_reconfigure_entry()
+        return await self.async_step_user(user_input)
+
+    async def async_step_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose an image source supported by the module."""
+        sources = MODULES[self._settings[CONF_MODULE]].sources
+        if user_input is not None:
+            self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
+            return await self.async_step_image()
+        previous_source = self._entry.data[CONF_SOURCE_TYPE] if self._entry else None
+        default = previous_source if previous_source in sources else sources[0]
+        return self.async_show_form(
+            step_id="source",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(CONF_SOURCE_TYPE, default=default): _select(
+                        list(sources), CONF_SOURCE_TYPE
+                    )
+                }
+            ),
+        )
+
+    async def async_step_image(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the entity or accept a validated image from the native upload."""
+        source = SourceType(self._settings[CONF_SOURCE_TYPE])
+        previous = (
+            self._entry.data
+            if self._entry and self._entry.data[CONF_SOURCE_TYPE] == source
+            else {}
+        )
+        errors = {}
+        if user_input is not None:
+            if source is SourceType.UPLOAD:
+                errors = await self._async_import(user_input.get(CONF_FILE))
+            else:
+                entity_id = resolve_entity_id(self.hass, user_input[CONF_ENTITY_ID])
+                if not entity_id or not entity_id.startswith(f"{source}."):
+                    errors[CONF_ENTITY_ID] = "invalid_entity"
+                else:
+                    registered = er.async_get(self.hass).async_get(entity_id)
+                    self._settings[CONF_ENTITY_ID] = (
+                        registered.id if registered else entity_id
+                    )
+
+            if not errors:
+                if self._entry is None:
+                    return self.async_create_entry(
+                        title=self._title, data=self._settings
+                    )
+                if (
+                    self.hass.config_entries.async_get_entry(self._entry.entry_id)
+                    is None
+                ):
+                    return self.async_abort(reason="profile_not_found")
+                return self.async_update_and_abort(
+                    self._entry, title=self._title, data=self._settings
+                )
+
+        if source is SourceType.UPLOAD:
+            field = probatio.Optional if previous else probatio.Required
+            schema = probatio.Schema(
+                {
+                    field(CONF_FILE): selector.FileSelector(
+                        selector.FileSelectorConfig(
+                            accept=",".join(IMAGE_TYPES.values())
+                        )
+                    )
+                }
+            )
+            step = "replace_image" if previous else "upload_image"
+        else:
+            schema = self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {
+                        probatio.Required(CONF_ENTITY_ID): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=source)
+                        )
+                    }
+                ),
+                {
+                    CONF_ENTITY_ID: resolve_entity_id(
+                        self.hass, previous.get(CONF_ENTITY_ID)
+                    )
+                },
+            )
+            step = "select_entity"
+
+        # The flow manager calls the displayed step on submission.
+        return self.async_show_form(
+            step_id=step, data_schema=schema, errors=errors, last_step=True
+        )
+
+    async_step_select_entity = async_step_image
+    async_step_upload_image = async_step_image
+    async_step_replace_image = async_step_image
+
+    async def _async_import(self, upload_id: str | None) -> dict[str, str]:
+        if upload_id is None:
+            return {}
+        try:
+            await get_image_storage(self.hass).async_import(
+                self._settings[CONF_IMAGE_KEY],
+                upload_id,
+                self._entry.entry_id if self._entry else None,
+            )
+        except ImageError as err:
+            return {CONF_FILE: err.reason}
+        except (OSError, HomeAssistantError):
+            return {CONF_FILE: "storage_error"}
+        return {}

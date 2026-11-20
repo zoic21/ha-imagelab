@@ -1,0 +1,93 @@
+"""Run a configured Image Lab module on its selected source."""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from hashlib import sha256
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_ENTITY_ID
+from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.helpers import entity_registry as er
+
+from .const import (
+    CONF_IMAGE_KEY,
+    CONF_MODULE,
+    CONF_PROFILE_ID,
+    CONF_SOURCE_TYPE,
+    DOMAIN,
+    SourceType,
+)
+from .images import ImageError, ImageFrame, async_get_frame
+
+
+def _check_source(frame: ImageFrame) -> ServiceResponse:
+    """Return source metadata while the analysis engines are being added."""
+    return {
+        "mode": "source_check",
+        "width": frame.width,
+        "height": frame.height,
+        "content_type": frame.content_type,
+        "size_bytes": len(frame.content),
+        "sha256": sha256(frame.content).hexdigest(),
+    }
+
+
+@dataclass(frozen=True)
+class AnalysisModule:
+    """Sources and image processor for a configured module."""
+
+    sources: tuple[SourceType, ...]
+    process: Callable[[ImageFrame], ServiceResponse]
+
+
+MODULES = {
+    "comparison": AnalysisModule((SourceType.CAMERA, SourceType.UPLOAD), _check_source),
+    "palette": AnalysisModule(tuple(SourceType), _check_source),
+}
+
+
+@dataclass(frozen=True)
+class AnalysisResult:
+    """Common result and the optional frame for the authenticated panel."""
+
+    response: ServiceResponse
+    frame: ImageFrame | None = None
+
+
+def resolve_entity_id(hass: HomeAssistant, value: str | None) -> str | None:
+    """Resolve a registry ID, keeping a configured source valid after a rename."""
+    return er.async_resolve_entity_id(er.async_get(hass), value) if value else None
+
+
+async def async_analyze(hass: HomeAssistant, profile_id: str) -> AnalysisResult:
+    """Load a profile, acquire its source and run its module outside the event loop."""
+    response: ServiceResponse = {
+        CONF_PROFILE_ID: profile_id,
+        "status": "error",
+        "data": {},
+    }
+    entry = hass.config_entries.async_get_entry(profile_id)
+    if entry is None or entry.domain != DOMAIN:
+        return AnalysisResult({**response, "reason": "profile_not_found"})
+
+    settings = entry.data
+    source = SourceType(settings[CONF_SOURCE_TYPE])
+    module_id = settings[CONF_MODULE]
+    response.update({CONF_MODULE: module_id, CONF_SOURCE_TYPE: source})
+    if entry.state is not ConfigEntryState.LOADED or entry.disabled_by is not None:
+        return AnalysisResult({**response, "reason": "profile_unavailable"})
+
+    try:
+        frame = await async_get_frame(
+            hass,
+            source,
+            resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
+            settings[CONF_IMAGE_KEY],
+        )
+    except ImageError as err:
+        return AnalysisResult({**response, "reason": err.reason})
+    except OSError:
+        return AnalysisResult({**response, "reason": "storage_error"})
+
+    data = await hass.async_add_executor_job(MODULES[module_id].process, frame)
+    return AnalysisResult({**response, "status": "ok", "data": data}, frame)

@@ -1,0 +1,91 @@
+{
+  "title": "Image Lab",
+  "config": {
+    "initiate_flow": {
+      "user": "Add analysis"
+    },
+    "step": {
+      "user": {
+        "title": "New analysis",
+        "data": {
+          "name": "Name",
+          "module": "Module"
+        },
+        "data_description": {
+          "module": "The current version tests the image source for the selected module."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure analysis",
+        "data": {
+          "name": "Name",
+          "module": "Module"
+        }
+      },
+      "source": {
+        "title": "Image source",
+        "data": {
+          "source_type": "Source"
+        }
+      },
+      "select_entity": {
+        "title": "Select an entity",
+        "data": {
+          "entity_id": "Entity"
+        }
+      },
+      "upload_image": {
+        "title": "Import an image",
+        "description": "Choose a JPEG, PNG or WebP image up to 10 MiB and 24 megapixels.",
+        "data": {
+          "file": "Image"
+        }
+      },
+      "replace_image": {
+        "title": "Imported image",
+        "description": "Leave the field empty to keep the current image, or choose a new JPEG, PNG or WebP image up to 10 MiB and 24 megapixels.",
+        "data": {
+          "file": "Replacement image"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Enter a name for this analysis.",
+      "invalid_entity": "Select an entity that matches the source.",
+      "invalid_image": "Select a valid still JPEG, PNG or WebP image.",
+      "image_too_large": "The image exceeds 10 MiB or 24 megapixels.",
+      "profile_not_found": "This analysis has been removed.",
+      "storage_error": "The image could not be saved."
+    },
+    "abort": {
+      "profile_not_found": "This analysis has been removed."
+    }
+  },
+  "selector": {
+    "module": {
+      "options": {
+        "comparison": "Image comparison",
+        "palette": "Color palette"
+      }
+    },
+    "source_type": {
+      "options": {
+        "camera": "Camera snapshot",
+        "media_player": "Media player artwork",
+        "upload": "Imported image"
+      }
+    }
+  },
+  "services": {
+    "analyze": {
+      "name": "Run analysis",
+      "description": "Get the source image and return the analysis result.",
+      "fields": {
+        "profile_id": {
+          "name": "Analysis ID",
+          "description": "Copy the analysis ID from the Image Lab panel."
+        }
+      }
+    }
+  }
+}

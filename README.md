@@ -2,11 +2,15 @@
 
 Image Lab est un projet d’intégration Home Assistant pour analyser localement des images. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans un panneau Home Assistant et peut être lancée à la demande dans une automatisation.
 
-Le dépôt contient le socle de l’intégration et sa feuille de route. Le panneau et les outils d’analyse décrits ci-dessous sont prévus pour la première version fonctionnelle.
+La version de développement permet déjà de créer des analyses et de tester leurs sources. La comparaison et l’extraction de palette seront ajoutées aux étapes 2 et 3.
 
 ## Installation de développement
 
-Dans HACS, ouvrir **Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**, puis télécharger **Image Lab** depuis la branche `main` et redémarrer Home Assistant. Cette installation permet de vérifier la distribution du socle. L’ajout d’analyses dans Home Assistant arrivera avec le parcours de configuration.
+1. Avec Home Assistant **2026.10.4 ou ultérieur**, ouvrir **HACS → Dépôts personnalisés** et ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Télécharger la branche de développement et redémarrer Home Assistant.
+2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
+3. Ouvrir **Image Lab** dans la barre latérale, sélectionner l’analyse et choisir **Tester la source**. Le panneau affiche l’image obtenue, son format et ses dimensions. Il permet d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
+
+Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque test. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
 Les validations HACS et hassfest tournent sur GitHub Actions à chaque modification de `main` et sur les pull requests.
 
@@ -22,11 +26,11 @@ Exemples d’usage :
 - Déterminer si un volet de piscine est ouvert, fermé ou intermédiaire à partir d’une capture caméra. Les références prises de jour et de nuit peuvent appartenir au même état.
 - Extraire les couleurs de la pochette d’un lecteur multimédia et transmettre la palette à l’automatisation qui pilote les lumières.
 
-Les sources prévues sont une **capture de caméra Home Assistant**, la **pochette d’un lecteur multimédia** ou une **image importée**. Le panneau propose les sources que l’outil sélectionné sait utiliser.
+Les sources disponibles sont une **capture de caméra Home Assistant**, la **pochette d’un lecteur multimédia** ou une **image importée**. Le panneau propose les sources que l’outil sélectionné sait utiliser.
 
 ## Interface
 
-Image Lab apparaît dans la barre latérale de Home Assistant. Sur tablette en paysage et sur ordinateur, la liste des analyses est à gauche et le détail à droite. Sur mobile, le détail s’ouvre sur toute la largeur.
+Image Lab apparaît dans la barre latérale de Home Assistant. Sur tablette en paysage et sur ordinateur, la liste des analyses est à gauche et le détail à droite. Sur mobile, le détail s’ouvre sur toute la largeur. Les prochains modules ajouteront les vues suivantes.
 
 - **Aperçu** affiche l’image, la zone analysée et le dernier résultat du test. Le bouton **Tester** lance l’analyse. Pour une comparaison, on voit les distances par état, la référence la plus proche et la raison d’un résultat indéterminé.
 - **Références** permet de créer et renommer les états, de capturer ou importer plusieurs images et de les reclasser. Le bouton **Classer la capture** permet d’ajouter l’image testée à l’état choisi. Le panneau distingue les références utilisées par le moteur des images gardées pour évaluer ses résultats.
@@ -65,14 +69,14 @@ Le premier moteur de **palette** reprend l’extraction existante pour les poche
 
 ## Actions et résultats
 
-L’action `image_lab.analyze` exécute une analyse par son identifiant. Elle renvoie ses données à l’automatisation. Le bouton **Tester** emprunte le même chemin d’analyse et peut utiliser les réglages en cours d’édition. Une capture test devient une référence après le choix explicite de son état. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
+L’action `image_lab.analyze` et le bouton **Tester la source** utilisent le même traitement. Dans cette version, ils vérifient la source enregistrée. L’action renvoie le format, les dimensions, la taille et l’empreinte SHA-256 de l’image, avec `data.mode: source_check`. Le panneau fournit l’identifiant à copier dans l’automatisation. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
 
-Exemple de contrat prévu :
+Ce bloc utilise un identifiant d’exemple.
 
 ```yaml
 action: image_lab.analyze
 data:
-  profile_id: volet_piscine
+  profile_id: "01jfxc7wcj5d1wzqjpgzrw2mgp"
 response_variable: analysis
 ```
 
@@ -89,7 +93,7 @@ La migration des Pyscripts se teste d’abord sur les mêmes images et les même
 | **3. Palette** | Porter l’extraction couleur. Afficher l’aperçu des couleurs et exposer le résultat RGB aux automatisations. | Récupérer les palettes de deux lecteurs, vérifier le comportement en l’absence de pochette et rejouer une automatisation existante à cinq couleurs. |
 | **4. Première version installable** | Vérifier l’installation via HACS sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
 
-Le premier environnement cible est **Home Assistant Core 2026.10.4 sur Home Assistant OS x86‑64**. La version minimale prise en charge sera fixée après les premiers tests d’installation. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
+La version de développement requiert **Home Assistant Core 2026.10.4** ou ultérieur. La première installation sur **Home Assistant OS x86‑64** est prévue à l’étape 4. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
 
 ## Évolutions possibles
 
@@ -106,3 +110,11 @@ Le premier environnement cible est **Home Assistant Core 2026.10.4 sur Home Assi
 Un prototype NanoDet-Plus 416 × 416 a fonctionné dans l’image officielle de **Core 2026.10.4 x86‑64**, sur CPU, avec `ncnn` et sans OpenCV. Le modèle converti pèse **2,42 Mo**. Une action Home Assistant a récupéré un JPEG via une caméra alimentée par un fichier de test et renvoyé les détections. Sur un AMD EPYC, la médiane de 30 analyses était de **26,5 ms** sur un thread, décodage et traitement des résultats compris.
 
 Avant d’intégrer ce module, mesurer la latence sur un Intel N100 et vérifier la détection sur de vraies captures de caméra, de jour et de nuit. Vérifier également les conditions de redistribution des poids retenus et choisir leur mode de distribution. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Paquet Python ncnn](https://pypi.org/project/ncnn/) · [Tarsius](https://github.com/RaHehl/tarsius)
+
+## Développer le panneau
+
+Le navigateur charge le module compilé livré avec l’intégration. Après avoir modifié `frontend/panel.ts`, reconstruire le fichier JavaScript avec la commande suivante.
+
+```sh
+npx --yes --package typescript@6.0.3 tsc -p frontend
+```

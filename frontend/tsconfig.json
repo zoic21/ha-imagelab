@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "outDir": "../custom_components/image_lab/panel",
+    "rootDir": ".",
+    "noEmitOnError": true
+  },
+  "files": ["panel.ts"]
+}

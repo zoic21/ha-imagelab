@@ -1,0 +1,7 @@
+analyze:
+  fields:
+    profile_id:
+      required: true
+      example: "01jfxc7wcj5d1wzqjpgzrw2mgp"
+      selector:
+        text:

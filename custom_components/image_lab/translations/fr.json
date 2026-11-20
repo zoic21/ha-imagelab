@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "Cette version teste la source d’image pour le module sélectionné."
+          "module": "La comparaison reconnaît des états à partir des références. La palette permet pour l’instant de prévisualiser sa source."
         }
       },
       "reconfigure": {

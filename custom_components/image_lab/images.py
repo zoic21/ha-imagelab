@@ -60,9 +60,18 @@ def validate_image(content: bytes) -> ImageFrame:
     return ImageFrame(content, content_type, width, height)
 
 
-def _read_image_file(path: Path) -> bytes:
+def read_image_file(path: Path) -> bytes:
     with path.open("rb") as file:
         return file.read(MAX_IMAGE_BYTES + 1)
+
+
+def read_upload(hass: HomeAssistant, upload_id: str) -> ImageFrame:
+    """Consume a native Home Assistant upload and validate its original bytes."""
+    try:
+        with process_uploaded_file(hass, upload_id) as path:
+            return validate_image(read_image_file(path))
+    except (KeyError, ValueError, OSError) as err:
+        raise ImageError("invalid_image") from err
 
 
 class ImageStorage:
@@ -78,12 +87,7 @@ class ImageStorage:
         return self.directory / UUID(image_key).hex
 
     def _import_file(self, image_key: str, upload_id: str) -> None:
-        try:
-            with process_uploaded_file(self.hass, upload_id) as path:
-                frame = validate_image(_read_image_file(path))
-        except (ValueError, OSError) as err:
-            raise ImageError("invalid_image") from err
-
+        frame = read_upload(self.hass, upload_id)
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         write_utf8_file_atomic(str(self._path(image_key)), frame.content, True, "wb")
 
@@ -102,7 +106,7 @@ class ImageStorage:
         """Read the last successfully imported image."""
         try:
             return await self.hass.async_add_executor_job(
-                _read_image_file, self._path(image_key)
+                read_image_file, self._path(image_key)
             )
         except FileNotFoundError as err:
             raise ImageError("image_missing") from err

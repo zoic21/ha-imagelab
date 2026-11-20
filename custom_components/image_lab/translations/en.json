@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "The current version tests the image source for the selected module."
+          "module": "Image comparison recognizes labelled states. Color palette currently previews its source."
         }
       },
       "reconfigure": {

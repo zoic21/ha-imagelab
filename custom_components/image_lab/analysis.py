@@ -1,6 +1,6 @@
 """Run a configured Image Lab module on its selected source."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -9,6 +9,8 @@ from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.helpers import entity_registry as er
 
+from .comparison import ComparisonResult, Settings
+from .comparison_store import get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
@@ -32,17 +34,47 @@ def _check_source(frame: ImageFrame) -> ServiceResponse:
     }
 
 
+async def _async_probe(
+    hass: HomeAssistant,
+    profile_id: str,
+    frame: ImageFrame | None,
+    reference_id: str | None,
+    settings: Settings | None,
+) -> tuple[ComparisonResult, ImageFrame]:
+    assert frame is not None
+    return ComparisonResult(
+        await hass.async_add_executor_job(_check_source, frame)
+    ), frame
+
+
+async def _async_compare(
+    hass: HomeAssistant,
+    profile_id: str,
+    frame: ImageFrame | None,
+    reference_id: str | None,
+    settings: Settings | None,
+) -> tuple[ComparisonResult, ImageFrame]:
+    return await get_comparison_store(hass, profile_id).async_run(
+        frame, reference_id, settings
+    )
+
+
 @dataclass(frozen=True)
 class AnalysisModule:
     """Sources and image processor for a configured module."""
 
     sources: tuple[SourceType, ...]
-    process: Callable[[ImageFrame], ServiceResponse]
+    process: Callable[
+        [HomeAssistant, str, ImageFrame | None, str | None, Settings | None],
+        Awaitable[tuple[ComparisonResult, ImageFrame]],
+    ]
 
 
 MODULES = {
-    "comparison": AnalysisModule((SourceType.CAMERA, SourceType.UPLOAD), _check_source),
-    "palette": AnalysisModule(tuple(SourceType), _check_source),
+    "comparison": AnalysisModule(
+        (SourceType.CAMERA, SourceType.UPLOAD), _async_compare
+    ),
+    "palette": AnalysisModule(tuple(SourceType), _async_probe),
 }
 
 
@@ -59,7 +91,13 @@ def resolve_entity_id(hass: HomeAssistant, value: str | None) -> str | None:
     return er.async_resolve_entity_id(er.async_get(hass), value) if value else None
 
 
-async def async_analyze(hass: HomeAssistant, profile_id: str) -> AnalysisResult:
+async def async_analyze(
+    hass: HomeAssistant,
+    profile_id: str,
+    *,
+    reference_id: str | None = None,
+    settings_override: Settings | None = None,
+) -> AnalysisResult:
     """Load a profile, acquire its source and run its module outside the event loop."""
     response: ServiceResponse = {
         CONF_PROFILE_ID: profile_id,
@@ -77,17 +115,29 @@ async def async_analyze(hass: HomeAssistant, profile_id: str) -> AnalysisResult:
     if entry.state is not ConfigEntryState.LOADED or entry.disabled_by is not None:
         return AnalysisResult({**response, "reason": "profile_unavailable"})
 
+    if module_id != "comparison" and (
+        reference_id is not None or settings_override is not None
+    ):
+        return AnalysisResult({**response, "reason": "profile_unavailable"})
+
     try:
-        frame = await async_get_frame(
-            hass,
-            source,
-            resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
-            settings[CONF_IMAGE_KEY],
+        frame = None
+        if reference_id is None:
+            frame = await async_get_frame(
+                hass,
+                source,
+                resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
+                settings[CONF_IMAGE_KEY],
+            )
+        result, frame = await MODULES[module_id].process(
+            hass, profile_id, frame, reference_id, settings_override
         )
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})
     except OSError:
         return AnalysisResult({**response, "reason": "storage_error"})
 
-    data = await hass.async_add_executor_job(MODULES[module_id].process, frame)
-    return AnalysisResult({**response, "status": "ok", "data": data}, frame)
+    response.update(status="unknown" if result.reason else "ok", data=result.data)
+    if result.reason:
+        response["reason"] = result.reason
+    return AnalysisResult(response, frame)

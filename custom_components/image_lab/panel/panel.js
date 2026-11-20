@@ -1,4 +1,4 @@
-"use strict";
+import { ImageLabComparison } from "./comparison.js";
 const strings = {
     en: {
         profiles: "Analyses",
@@ -150,6 +150,7 @@ template.innerHTML = `
             <img id="image" />
             <figcaption id="dimensions" class="secondary"></figcaption>
           </figure>
+          <div id="comparisonSlot"></div>
         </div>
       </section>
     </ha-card>
@@ -164,9 +165,12 @@ class ImageLabPanel extends HTMLElement {
     activeTest;
     previewUrl;
     strings = strings.en;
+    comparison;
     constructor() {
         super();
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+        this.comparison = new ImageLabComparison();
+        this.element("comparisonSlot").append(this.comparison);
         this.element("retry").addEventListener("click", () => this.subscribe());
         this.element("back").addEventListener("click", () => {
             this.select();
@@ -297,6 +301,10 @@ class ImageLabPanel extends HTMLElement {
             return row;
         });
         this.element("list").replaceChildren(...rows);
+        const isComparison = profile?.module === "comparison";
+        this.comparison.hidden = !isComparison;
+        this.comparison.configure(this._hass, isComparison ? profile.profile_id : undefined, isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}` : undefined, profile?.available);
+        this.element("test").hidden = isComparison;
         if (!profile)
             return;
         this.element("title").textContent = profile.title;

@@ -2,7 +2,13 @@
 
 Image Lab est un projet d’intégration Home Assistant pour analyser localement des images. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans un panneau Home Assistant et peut être lancée à la demande dans une automatisation.
 
-Le projet est au stade de la conception. Ce document définit le périmètre, l’architecture et les étapes de réalisation.
+Le dépôt contient le socle de l’intégration et sa feuille de route. Le panneau et les outils d’analyse décrits ci-dessous sont prévus pour la première version fonctionnelle.
+
+## Installation de développement
+
+Dans HACS, ouvrir **Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**, puis télécharger **Image Lab** depuis la branche `main` et redémarrer Home Assistant. Cette installation permet de vérifier la distribution du socle. L’ajout d’analyses dans Home Assistant arrivera avec le parcours de configuration.
+
+Les validations HACS et hassfest tournent sur GitHub Actions à chaque modification de `main` et sur les pull requests.
 
 ## Première version
 
@@ -78,12 +84,12 @@ La migration des Pyscripts se teste d’abord sur les mêmes images et les même
 
 | Étape | Travail | Critère de validation |
 | --- | --- | --- |
-| **1. Intégration et panneau** | Ajouter le manifeste, la création d’analyses, le stockage, les sources d’image, le registre de modules et l’action. Réutiliser le thème et les formulaires natifs. | Créer une analyse depuis Home Assistant, la retrouver après redémarrage et récupérer la même source depuis le panneau et l’action. |
+| **1. Intégration et panneau** | Ajouter la création d’analyses, le stockage, les sources d’image, le registre de modules et l’action. Réutiliser le thème et les formulaires natifs. | Créer une analyse depuis Home Assistant, la retrouver après redémarrage et récupérer la même source depuis le panneau et l’action. |
 | **2. Comparaison** | Porter le comparateur Pyscript. Ajouter le cadrage tactile, la galerie par état, l’import multiple, le reclassement et les deux seuils. | Rejouer des captures de jour et de nuit avec des images gardées pour le test. Vérifier au moins trois états, un cas ambigu et une caméra indisponible. |
 | **3. Palette** | Porter l’extraction couleur. Afficher l’aperçu des couleurs et exposer le résultat RGB aux automatisations. | Récupérer les palettes de deux lecteurs, vérifier le comportement en l’absence de pochette et rejouer une automatisation existante à cinq couleurs. |
-| **4. Première version installable** | Vérifier l’installation sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. Préparer le dépôt pour une installation via HACS. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
+| **4. Première version installable** | Vérifier l’installation via HACS sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
 
-Le premier environnement cible est **Home Assistant Core 2026.10.4 sur Home Assistant OS x86‑64**. La version minimale prise en charge sera fixée après les premiers tests d’installation. [Structure d’une intégration HACS](https://www.hacs.xyz/docs/publish/integration/)
+Le premier environnement cible est **Home Assistant Core 2026.10.4 sur Home Assistant OS x86‑64**. La version minimale prise en charge sera fixée après les premiers tests d’installation. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
 
 ## Évolutions possibles
 

@@ -32,6 +32,8 @@ from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 from .analysis import async_analyze, resolve_entity_id
+from .comparison_api import ComparisonImageView, ComparisonView, drop_captures
+from .comparison_store import async_remove_comparison
 from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
@@ -62,6 +64,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     hass.http.register_view(ImageLabPreviewView)
+    hass.http.register_view(ComparisonView)
+    hass.http.register_view(ComparisonImageView)
 
     static_url = f"/{DOMAIN}_assets"
     assets = Path(__file__).parent / "panel"
@@ -93,6 +97,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove only the original owned by the deleted analysis."""
     await get_image_storage(hass).async_remove(entry.data[CONF_IMAGE_KEY])
+    drop_captures(hass, entry.entry_id)
+    await async_remove_comparison(hass, entry.entry_id)
 
 
 @websocket_api.websocket_command(

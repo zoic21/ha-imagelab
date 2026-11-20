@@ -1,3 +1,5 @@
+import { ImageLabComparison } from "./comparison.js";
+
 type Module = "comparison" | "palette";
 type Source = "camera" | "media_player" | "upload";
 
@@ -175,6 +177,7 @@ template.innerHTML = `
             <img id="image" />
             <figcaption id="dimensions" class="secondary"></figcaption>
           </figure>
+          <div id="comparisonSlot"></div>
         </div>
       </section>
     </ha-card>
@@ -190,10 +193,13 @@ class ImageLabPanel extends HTMLElement {
   private activeTest?: AbortController;
   private previewUrl?: string;
   private strings = strings.en;
+  private readonly comparison: ImageLabComparison;
 
   constructor() {
     super();
     this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+    this.comparison = new ImageLabComparison();
+    this.element("comparisonSlot").append(this.comparison);
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element("back").addEventListener("click", () => {
       this.select();
@@ -330,6 +336,15 @@ class ImageLabPanel extends HTMLElement {
     });
     this.element("list").replaceChildren(...rows);
 
+    const isComparison = profile?.module === "comparison";
+    this.comparison.hidden = !isComparison;
+    this.comparison.configure(
+      this._hass,
+      isComparison ? profile.profile_id : undefined,
+      isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}` : undefined,
+      profile?.available,
+    );
+    this.element("test").hidden = isComparison;
     if (!profile) return;
     this.element("title").textContent = profile.title;
     this.element("profileId").textContent = profile.profile_id;

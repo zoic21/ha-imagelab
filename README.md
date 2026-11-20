@@ -2,13 +2,13 @@
 
 Image Lab est un projet d’intégration Home Assistant pour analyser localement des images. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans un panneau Home Assistant et peut être lancée à la demande dans une automatisation.
 
-La version de développement permet déjà de créer des analyses et de tester leurs sources. La comparaison et l’extraction de palette seront ajoutées aux étapes 2 et 3.
+La version de développement permet de comparer des images et de tester la source du module de palette. L’extraction des couleurs arrive à l’étape 3.
 
 ## Installation de développement
 
 1. Avec Home Assistant **2026.10.4 ou ultérieur**, ouvrir **HACS → Dépôts personnalisés** et ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Télécharger la branche de développement et redémarrer Home Assistant.
 2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
-3. Ouvrir **Image Lab** dans la barre latérale, sélectionner l’analyse et choisir **Tester la source**. Le panneau affiche l’image obtenue, son format et ses dimensions. Il permet d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
+3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. Le panneau permet également d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
 
 Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque test. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
@@ -30,15 +30,16 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Image Lab apparaît dans la barre latérale de Home Assistant. Sur tablette en paysage et sur ordinateur, la liste des analyses est à gauche et le détail à droite. Sur mobile, le détail s’ouvre sur toute la largeur. Les prochains modules ajouteront les vues suivantes.
+Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le détail côte à côte. Sur mobile, le détail s’ouvre sur toute la largeur. La création et la reconfiguration des analyses utilisent les formulaires et sélecteurs natifs de Home Assistant.
 
-- **Aperçu** affiche l’image, la zone analysée et le dernier résultat du test. Le bouton **Tester** lance l’analyse. Pour une comparaison, on voit les distances par état, la référence la plus proche et la raison d’un résultat indéterminé.
-- **Références** permet de créer et renommer les états, de capturer ou importer plusieurs images et de les reclasser. Le bouton **Classer la capture** permet d’ajouter l’image testée à l’état choisi. Le panneau distingue les références utilisées par le moteur des images gardées pour évaluer ses résultats.
-- **Réglages** permet de choisir la source et de modifier les options du module. En comparaison, la **distance maximale** rejette une image trop éloignée des références. L’**écart minimal** rejette une décision ambiguë entre les deux meilleurs états.
+### Comparer des images
 
-**Réutiliser Home Assistant au maximum.** Le panneau reprend le thème et les variables de Home Assistant. Les cartes s’appuient sur `ha-card`. Les formulaires de création et de réglage utilisent les parcours de configuration Home Assistant et leurs sélecteurs natifs pour les entités, les listes et les nombres. Les composants internes `ha-*` peuvent changer ou être chargés à la demande. Limiter leur usage direct dans le panneau aux composants vérifiés sur les versions prises en charge. [Panneaux personnalisés](https://contributors.home-assistant.io/frontend/custom-ui/panel/) · [Sélecteurs](https://www.home-assistant.io/docs/blueprint/selectors/) · [Compatibilité des composants du frontend](https://contributors.home-assistant.io/frontend/custom-ui/)
+1. Dans **Références**, créer un état par situation à reconnaître. Importer plusieurs images à la fois dans **Images de référence**. Garder d’autres captures dans **Images de validation**, avec leur état attendu. Le bouton **Évaluer** rejoue ces captures sans les utiliser comme références.
+2. Dans **Aperçu**, sélectionner **Tester la source**. Choisir **Tracer la zone** pour cadrer à la souris ou au doigt. Le panneau montre l’état proposé, les distances par état et la référence la plus proche. **Classer la capture** ajoute l’image testée à l’état et au groupe choisis.
+3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
-L’éditeur d’image est commun aux modules. Il gère le tracé à la souris et au doigt, l’affichage des zones et, plus tard, les rectangles de détection et les repères de compteur. La galerie de références utilise ces mêmes aperçus.
+Pour migrer les références Pyscript, choisir **Importer les dossiers par état** dans un navigateur qui prend en charge la sélection de dossiers. Sélectionner le dossier `references` qui contient un sous-dossier par état. Les images sont importées comme références et les états correspondants sont créés. Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s’applique à chaque image lors du calcul.
+
 
 ## Architecture
 
@@ -63,13 +64,13 @@ Une intégration `custom_components/image_lab` regroupe le backend Python et le 
 | **Modules** | Déclarer les sources prises en charge, le schéma des réglages et le format du résultat. Chaque module possède son moteur et son affichage spécifique. Le registre des modules est explicite dans le code. |
 | **Panneau** | Lister les analyses, éditer la zone et gérer les références. Les commandes de configuration et de test passent par le backend Home Assistant. |
 
-Le premier moteur de **comparaison** reprend le traitement du Pyscript existant, avec la zone, le passage en niveaux de gris et le calcul des distances. Il expose la distance au meilleur état et l’écart avec le suivant. Les seuils se règlent sur des captures représentatives, en gardant des images de test hors des références. Les images originales sont conservées pour pouvoir recadrer les références après coup.
+Le moteur de **comparaison** reprend le Pyscript. Il recadre, redimensionne, passe en niveaux de gris et applique un flou avant de mesurer la moyenne des écarts absolus entre les pixels. Il expose la distance au meilleur état et l’écart avec le suivant. Les seuils se règlent sur des captures représentatives, en gardant des images de test hors des références. Les images originales sont conservées pour pouvoir recadrer les références après coup.
 
 Le premier moteur de **palette** reprend l’extraction existante pour les pochettes et conserve un résultat `palette_rgb` de taille prévisible. Le nombre de couleurs distinctes peut être inférieur à la longueur demandée. La taille par défaut est de cinq entrées pour les automatisations existantes. Les couleurs disponibles sont réutilisées si nécessaire.
 
 ## Actions et résultats
 
-L’action `image_lab.analyze` et le bouton **Tester la source** utilisent le même traitement. Dans cette version, ils vérifient la source enregistrée. L’action renvoie le format, les dimensions, la taille et l’empreinte SHA-256 de l’image, avec `data.mode: source_check`. Le panneau fournit l’identifiant à copier dans l’automatisation. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
+L’action `image_lab.analyze` et le bouton **Tester la source** utilisent le même moteur. Le panneau fournit l’identifiant de l’analyse à copier dans l’automatisation. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
 
 Ce bloc utilise un identifiant d’exemple.
 
@@ -80,7 +81,7 @@ data:
 response_variable: analysis
 ```
 
-La réponse contient un `status` commun et un objet `data` propre au module. Une comparaison peut renvoyer `ok`, `unknown` si la capture ne permet pas de décider, ou `error` si la source est indisponible. Le motif accompagne les résultats indéterminés et les erreurs. Les diagnostics d’une analyse ne contiennent que les métadonnées utiles à l’automatisation, comme les distances ou les coordonnées.
+La réponse contient un `status` commun et un objet `data` propre au module. La comparaison renvoie `data.state`, `data.scores`, `data.ref_counts`, la meilleure distance, l’écart et l’identifiant de la référence la plus proche. Une distance trop élevée ou un écart insuffisant donnent `status: unknown` et `data.state: unknown`. Une source indisponible donne `status: error`. Le champ `reason` précise la cause. Le module de palette renvoie encore les métadonnées de source en mode `source_check`.
 
 La migration des Pyscripts se teste d’abord sur les mêmes images et les mêmes automatisations. Pour la comparaison, l’import doit reprendre les références déjà rangées par état. Pour la palette, le format RGB et les cinq entrées utilisées dans les automatismes d’éclairage servent de test de compatibilité.
 
@@ -113,7 +114,7 @@ Avant d’intégrer ce module, mesurer la latence sur un Intel N100 et vérifier
 
 ## Développer le panneau
 
-Le navigateur charge le module compilé livré avec l’intégration. Après avoir modifié `frontend/panel.ts`, reconstruire le fichier JavaScript avec la commande suivante.
+Le navigateur charge le module compilé livré avec l’intégration. Après avoir modifié les sources TypeScript dans `frontend`, reconstruire le fichier JavaScript avec la commande suivante.
 
 ```sh
 npx --yes --package typescript@6.0.3 tsc -p frontend

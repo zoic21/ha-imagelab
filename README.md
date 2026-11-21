@@ -16,7 +16,7 @@ Le panneau et les appels manuels à l’action sont réservés aux administrateu
 
 - Pour mettre à jour Image Lab, installer la version proposée par HACS et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
 - Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
-- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages**, vérifier le rectangle et sélectionner **Enregistrer**.
+- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages de comparaison**, vérifier le rectangle et sélectionner **Enregistrer**.
 
 ## Outils disponibles
 
@@ -40,7 +40,7 @@ Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le dé
 
 ### Publier le résultat dans une entité
 
-Dans Image Lab, ouvrir le profil puis **Configurer l’analyse**. Dans la fiche de l’intégration, cliquer sur **Configurer** (roue dentée) sur la ligne surlignée, puis choisir l’entité de résultat. Par défaut, les profils fonctionnent à la demande sans créer d’entité.
+Dans Image Lab, ouvrir le profil puis **Entité et automatisation** pour choisir son entité de résultat et, sur une caméra, son intervalle de capture. Par défaut, les profils fonctionnent à la demande sans créer d’entité.
 
 | Module | Entité disponible |
 | --- | --- |
@@ -48,7 +48,7 @@ Dans Image Lab, ouvrir le profil puis **Configurer l’analyse**. Dans la fiche 
 | Détection d’objets | Occupation ou nombre d’objets parmi les catégories sélectionnées, au seuil de confiance du profil |
 | Palette | Couleur dominante au format hexadécimal |
 
-Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages de comparaison**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
 Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
 
@@ -60,7 +60,7 @@ L’action renvoie la dernière observation et, lorsqu’une seconde capture a �
 
 Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.
 
-Pour une comparaison, tracer le rectangle dans **Aperçu** puis l’enregistrer dans **Réglages**. Pour la palette et la détection, utiliser **Modifier la zone caméra**, tracer sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer. **Tester la source** montre le résultat sur le cadrage choisi.
+Pour une comparaison, tracer le rectangle dans **Aperçu** puis l’enregistrer dans **Réglages de comparaison**. Pour la palette et la détection, utiliser **Modifier la zone caméra**, tracer sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer. **Tester la source** montre le résultat sur le cadrage choisi.
 
 Quand plusieurs analyses automatiques de la même caméra arrivent à échéance ensemble, Home Assistant prend une seule image pour toutes ces zones. Avec des intervalles de 2 et 5 minutes, les deux zones partagent donc la capture toutes les 10 minutes. Un test ou une action manuelle demande sa propre capture.
 
@@ -74,11 +74,11 @@ Pour corriger une prédiction, choisir l’état attendu et **Images de référe
 
 1. Dans **Références**, créer un état par situation à reconnaître. Importer plusieurs images à la fois dans **Images de référence**. Garder d’autres captures dans **Images de validation**, avec leur état attendu. Le bouton **Évaluer** rejoue ces captures sans les utiliser comme références.
 2. Dans **Aperçu**, sélectionner **Tester la source**. Choisir **Tracer la zone** pour cadrer à la souris ou au doigt. Le panneau montre l’état proposé, les scores par état et la référence la plus proche. **Classer la capture** ajoute l’image testée à l’état et au groupe choisis.
-3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
+3. Dans **Réglages de comparaison**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
 Dans **Références → Comparer Pillow et Tarsius**, les deux moteurs évaluent les mêmes images de validation avec la même zone. Prévois au moins deux états avec une référence utilisable par état. Le tableau indique le nombre de résultats corrects, erronés, indéterminés ou en erreur et le temps de traitement médian sur la machine Home Assistant, après préparation des références. Le détail montre l’état attendu et le résultat de chaque moteur par image. Pour comparer les conditions, utilise des noms explicites comme `ferme-jour`, `ferme-infrarouge` ou `ferme-reflets`.
 
-Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. Un test depuis le panneau utilise le choix en cours d’édition. **Enregistrer** applique le moteur au profil pour l’action, les analyses périodiques et l’entité. Les profils existants utilisent Pillow par défaut.
+Dans **Réglages de comparaison → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. Un test depuis le panneau utilise le choix en cours d’édition. **Enregistrer** applique le moteur au profil pour l’action, les analyses périodiques et l’entité. Les profils existants utilisent Pillow par défaut.
 
 Pillow mesure une distance (la plus petite gagne) et utilise les deux seuils du profil. Tarsius mesure une similarité (la plus grande gagne) avec son propre critère de décision. Il utilise la même zone et la même galerie, avec au moins deux états et une référence exploitable par état. Home Assistant installe Tarsius à sa première utilisation. Une analyse indécise donne `unknown`. Le comparatif continue de tester les deux moteurs sur les images de validation.
 
@@ -88,13 +88,13 @@ Pour migrer les références Pyscript, choisir **Importer les dossiers par état
 
 1. Créer une analyse **Palette de couleurs** et choisir un lecteur multimédia, une caméra ou une image importée. Régler le nombre de couleurs de 1 à 10. Les analyses existantes utilisent cinq couleurs par défaut.
 2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
-3. Pour modifier le nombre de couleurs, ouvrir **Configurer l’analyse** et reconfigurer l’analyse.
+3. Pour modifier le nombre de couleurs, ouvrir **Fiche de l’intégration**, puis sélectionner **Reconfigurer** dans le menu de l’analyse surlignée.
 
 ### Détecter des objets
 
 1. Créer une analyse **Détection d’objets** et choisir une caméra ou importer une image.
 2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
-3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Configurer l’analyse** et reconfigurer l’analyse.
+3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Fiche de l’intégration**, puis sélectionner **Reconfigurer** dans le menu de l’analyse surlignée.
 
 NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
 

@@ -1,4 +1,5 @@
 import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
+import { numberField, type NumberField } from "./number-field.js";
 import { panelStrings } from "./translations.js";
 
 export async function editZone(
@@ -26,7 +27,7 @@ export async function editZone(
   full.textContent = labels.fullZone;
   save.textContent = labels.save;
   dialog.querySelector("p")!.textContent = labels.drawZone;
-  const fields = new Map<keyof Region, HTMLInputElement>();
+  const fields = new Map<keyof Region, NumberField>();
   const keys = ["x", "y", "width", "height"] as const;
   const fill = (value: Region | null) => {
     region = value;
@@ -36,20 +37,17 @@ export async function editZone(
     paintRegion(overlay, region);
   };
   for (const key of keys) {
-    const label = document.createElement("label");
-    label.textContent = labels[key];
-    const input = document.createElement("input");
-    Object.assign(input, { type: "number", min: "0", max: "100", step: "0.01", required: true });
+    const input = numberField(100, true);
+    input.setAttribute("label", labels[key]);
     fields.set(key, input);
     input.addEventListener("input", () => {
-      const rect = Object.fromEntries([...fields].map(([k, f]) => [k, f.valueAsNumber / 100])) as Region;
-      const valid = [...fields.values()].every(f => f.validity.valid) && rect.width > 0 && rect.height > 0 &&
+      const rect = Object.fromEntries([...fields].map(([k, f]) => [k, Number(f.value) / 100])) as Region;
+      const valid = [...fields.values()].every(f => f.value !== "" && f.checkValidity()) && rect.width > 0 && rect.height > 0 &&
         rect.x + rect.width <= 1 + 1e-9 && rect.y + rect.height <= 1 + 1e-9;
       save.toggleAttribute("disabled", !valid);
       if (valid) { region = rect; paintRegion(overlay, region); }
     });
-    label.append(input);
-    dialog.querySelector(".zoneFields")!.append(label);
+    dialog.querySelector(".zoneFields")!.append(input);
   }
   fill(region);
   bindRegionDrawing(box, () => !dialog.inert, r => paintRegion(overlay, r ?? region), fill);

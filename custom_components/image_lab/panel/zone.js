@@ -1,4 +1,5 @@
 import { bindRegionDrawing, paintRegion } from "./region.js";
+import { numberField } from "./number-field.js";
 export async function editZone(host, region, labels, url, request, signal) {
     const dialog = document.createElement("ha-dialog");
     dialog.setAttribute("header-title", labels.zone);
@@ -31,14 +32,12 @@ export async function editZone(host, region, labels, url, request, signal) {
         paintRegion(overlay, region);
     };
     for (const key of keys) {
-        const label = document.createElement("label");
-        label.textContent = labels[key];
-        const input = document.createElement("input");
-        Object.assign(input, { type: "number", min: "0", max: "100", step: "0.01", required: true });
+        const input = numberField(100, true);
+        input.setAttribute("label", labels[key]);
         fields.set(key, input);
         input.addEventListener("input", () => {
-            const rect = Object.fromEntries([...fields].map(([k, f]) => [k, f.valueAsNumber / 100]));
-            const valid = [...fields.values()].every(f => f.validity.valid) && rect.width > 0 && rect.height > 0 &&
+            const rect = Object.fromEntries([...fields].map(([k, f]) => [k, Number(f.value) / 100]));
+            const valid = [...fields.values()].every(f => f.value !== "" && f.checkValidity()) && rect.width > 0 && rect.height > 0 &&
                 rect.x + rect.width <= 1 + 1e-9 && rect.y + rect.height <= 1 + 1e-9;
             save.toggleAttribute("disabled", !valid);
             if (valid) {
@@ -46,8 +45,7 @@ export async function editZone(host, region, labels, url, request, signal) {
                 paintRegion(overlay, region);
             }
         });
-        label.append(input);
-        dialog.querySelector(".zoneFields").append(label);
+        dialog.querySelector(".zoneFields").append(input);
     }
     fill(region);
     bindRegionDrawing(box, () => !dialog.inert, r => paintRegion(overlay, r ?? region), fill);

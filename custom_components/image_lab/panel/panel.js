@@ -1,5 +1,6 @@
 import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
+import { editOutputOptions } from "./options.js";
 import { editZone } from "./zone.js";
 const template = document.createElement("template");
 template.innerHTML = `
@@ -38,11 +39,14 @@ template.innerHTML = `
     p { margin: 8px 0; overflow-wrap: anywhere; }
     .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
     code { overflow-wrap: anywhere; }
+    #outputEntity { max-width: 100%; }
+    #outputName { white-space: normal; overflow-wrap: anywhere; text-align: start; }
+    #outputId { display: block; margin: 4px 0; }
     figure { margin: 16px 0 0; }
     #imageStage { position: relative; --preview-height: min(55dvh, 520px); }
     #imageStage.with-objects {
       width: min(100%, calc(var(--preview-height) * var(--image-aspect)));
-      margin-inline: auto; overflow: hidden;
+      margin-inline: auto; overflow: hidden; container-type: inline-size;
       border-radius: var(--ha-border-radius-md, 8px);
     }
     img {
@@ -55,7 +59,9 @@ template.innerHTML = `
       box-shadow: 0 0 0 1px #131a22, inset 0 0 0 1px #131a22;
     }
     .object-box span {
-      position: absolute; top: 0; left: 0; padding: 1px 5px; white-space: nowrap;
+      position: absolute; top: 0; left: 0; padding: 1px 5px; width: max-content;
+      max-width: 100cqw; box-sizing: border-box; overflow-wrap: anywhere;
+      transform: translateX(min(0px, calc(100cqw - var(--label-left) - 2px - 100%)));
       font-size: 11px; line-height: 1.5; color: white; background: #131a22;
     }
     #objectList {
@@ -77,9 +83,8 @@ template.innerHTML = `
     .zoneFrame img { width:100%; max-height:none; }
     .selection { position:absolute; pointer-events:none; border:2px solid #28d7cd; box-sizing:border-box;
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:#28d7cd22; }
-    .zoneFields { display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:8px; }
-    .zoneFields label { display:grid; gap:3px; }
-    .zoneFields input { font:inherit; width:100%; box-sizing:border-box; }
+    .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .zoneFields ha-input { min-width:0; }
     #back { margin-bottom: 10px; }
     :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
     @media (max-width: 400px) { header { padding-inline-end: 8px; } .heading { gap: 4px; } }
@@ -106,18 +111,14 @@ template.innerHTML = `
           <h2 id="title" tabindex="-1"></h2>
           <p class="secondary" id="source"></p>
           <div id="output" class="row" hidden>
-            <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
+            <ha-button id="outputEntity" appearance="plain" size="s"><span id="outputName"></span></ha-button>
+            <code id="outputId" class="secondary"></code>
             <span id="schedule" class="secondary"></span>
-          </div>
-          <div class="id">
-            <span id="idLabel" class="secondary"></span>
-            <code id="profileId"></code>
-            <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
           </div>
           <div class="toolbar">
             <ha-button id="test" variant="brand"></ha-button>
             <ha-button id="zone" appearance="outlined" hidden></ha-button>
-            <ha-button id="settings" href="/config/integrations/integration/image_lab" appearance="plain" variant="neutral"></ha-button>
+            <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
           </div>
           <p class="secondary" id="cameraZones" hidden></p>
           <p id="status" class="secondary" role="status"></p>
@@ -135,6 +136,12 @@ template.innerHTML = `
           </figure>
           <ul id="objectList" hidden></ul>
           <div id="comparisonSlot"></div>
+          <ha-button id="integration" appearance="plain" size="s"></ha-button>
+          <div class="id">
+            <span id="idLabel" class="secondary"></span>
+            <code id="profileId"></code>
+            <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
+          </div>
         </div>
       </section>
     </ha-card>
@@ -148,6 +155,7 @@ class ImageLabPanel extends HTMLElement {
     failed = false;
     activeTest;
     previewUrl;
+    optionsScope;
     zoneScope;
     strings = strings.en;
     comparison;
@@ -168,6 +176,13 @@ class ImageLabPanel extends HTMLElement {
                     detail: { entityId }, bubbles: true, composed: true,
                 }));
         });
+        this.element("settings").addEventListener("click", () => {
+            if (!this.selected || !this._hass)
+                return;
+            this.optionsScope?.abort();
+            this.optionsScope = new AbortController();
+            void editOutputOptions(this.element("profile"), this._hass, this.selected.profile_id, this.strings, this.optionsScope.signal);
+        });
         this.element("test").addEventListener("click", () => void this.test());
         this.element("zone").addEventListener("click", () => {
             const profile = this.selected;
@@ -184,6 +199,7 @@ class ImageLabPanel extends HTMLElement {
         const connectionChanged = this._hass?.connection !== hass.connection;
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
         this._hass = hass;
+        this.renderOutputName();
         if (this.strings !== language) {
             this.strings = language;
             this.render();
@@ -203,6 +219,7 @@ class ImageLabPanel extends HTMLElement {
         this.subscribe();
     }
     disconnectedCallback() {
+        this.optionsScope?.abort();
         this.unsubscribe();
         this.clearTest();
     }
@@ -227,8 +244,10 @@ class ImageLabPanel extends HTMLElement {
                 previous.available !== current.available)) {
                 this.clearTest();
             }
-            if (!current)
+            if (!current) {
+                this.optionsScope?.abort();
                 this.selectedId = undefined;
+            }
             this.render();
         }, { type: "image_lab/subscribe_profiles" });
         this.subscription = subscription;
@@ -248,6 +267,7 @@ class ImageLabPanel extends HTMLElement {
         this.subscription = undefined;
     }
     select(profile) {
+        this.optionsScope?.abort();
         this.clearTest();
         this.selectedId = profile?.profile_id;
         this.render();
@@ -278,7 +298,7 @@ class ImageLabPanel extends HTMLElement {
         for (const [id, message] of Object.entries({
             add: labels.add, listTitle: labels.profiles, retry: labels.retry,
             back: labels.back, idLabel: labels.id, copy: labels.copy,
-            settings: labels.settings, test: labels.test, selectMessage: labels.select,
+            settings: labels.settings, integration: labels.integration, test: labels.test, selectMessage: labels.select,
             paletteTitle: labels.palette,
         })) {
             this.element(id).textContent = message;
@@ -333,14 +353,27 @@ class ImageLabPanel extends HTMLElement {
         }
         this.element("title").textContent = profile.title;
         this.element("profileId").textContent = profile.profile_id;
-        this.element("settings").setAttribute("href", `/config/integrations/integration/image_lab#config_entry=${encodeURIComponent(profile.profile_id)}`);
+        this.element("integration").setAttribute("href", `/config/integrations/integration/image_lab#config_entry=${encodeURIComponent(profile.profile_id)}`);
         this.element("output").hidden = !profile.output_entity_id;
-        this.element("outputEntity").textContent = profile.output_entity_id;
+        this.renderOutputName();
         this.element("schedule").textContent = profile.interval_minutes
             ? labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes)) : labels.manual;
         const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
         this.element("source").textContent = source.filter(Boolean).join(" · ");
         this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
+    }
+    renderOutputName() {
+        const id = this.selected?.output_entity_id;
+        if (!id)
+            return;
+        const name = this._hass?.states[id]?.attributes.friendly_name;
+        const label = this.element("outputName");
+        if (label.textContent !== (name || id))
+            label.textContent = name || id;
+        const identifier = this.element("outputId");
+        identifier.hidden = !name || name === id;
+        if (identifier.textContent !== id)
+            identifier.textContent = id;
     }
     showError(message) {
         const error = this.element("error");
@@ -408,6 +441,7 @@ class ImageLabPanel extends HTMLElement {
             const confidence = score.toLocaleString(language, { style: "percent" });
             const box = document.createElement("div");
             box.className = "object-box";
+            box.style.setProperty("--label-left", `${xMin * 100}cqw`);
             box.style.left = `${xMin * 100}%`;
             box.style.top = `${yMin * 100}%`;
             box.style.width = `${(xMax - xMin) * 100}%`;

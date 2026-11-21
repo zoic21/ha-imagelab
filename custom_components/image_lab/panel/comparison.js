@@ -1,4 +1,5 @@
 import { comparisonStrings as text } from "./translations.js";
+import { numberField } from "./number-field.js";
 import { bindRegionDrawing, paintRegion } from "./region.js";
 const engines = ["pillow", "tarsius"];
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
@@ -13,7 +14,7 @@ template.innerHTML = `
     [hidden] { display:none !important; }
     .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
     ha-tab-group { margin-bottom:16px; }
-    ha-select { min-width:0; max-width:100%; }
+    ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
@@ -91,7 +92,7 @@ template.innerHTML = `
   </section>
   <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <div class="row"><ha-select id="historyMode"></ha-select>
-      <label><span id="historyLimitLabel"></span><input type="number" id="historyLimit" min="1" max="100" required step="1"></label>
+      <ha-input type="number" id="historyLimit" min="1" max="100" required step="1"></ha-input>
       <ha-button id="saveHistory"></ha-button><ha-button appearance="plain" id="refreshHistory"></ha-button></div>
     <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
   </section>
@@ -153,7 +154,7 @@ export class ImageLabComparison extends HTMLElement {
             if (!field.reportValidity())
                 return;
             await this.update("history_settings", {
-                mode: this.get("historyMode").value, limit: field.valueAsNumber,
+                mode: this.get("historyMode").value, limit: Number(field.value),
             }, signal);
             this.renderHistory();
             this.feedback(this.labels.saved);
@@ -217,17 +218,11 @@ export class ImageLabComparison extends HTMLElement {
             "min_margin",
             ...coordinates,
         ]) {
-            const label = document.createElement("label");
-            const caption = document.createElement("span");
-            caption.id = field + "-label";
-            const input = document.createElement("input");
-            input.type = "number";
+            const isCoordinate = coordinates.some((key) => key === field);
+            const input = numberField(isCoordinate ? 100 : 255);
             input.id = field;
-            input.min = "0";
-            input.max = coordinates.some((key) => key === field) ? "100" : "255";
-            input.step = "0.01";
             input.addEventListener("input", () => {
-                if (coordinates.some((key) => key === field)) {
+                if (isCoordinate) {
                     try {
                         this.draftRegion = this.readRegion();
                         this.renderRegion();
@@ -238,10 +233,7 @@ export class ImageLabComparison extends HTMLElement {
                 }
                 this.renderDirty();
             });
-            label.append(caption, input);
-            this.get(coordinates.some((key) => key === field)
-                ? "regionFields"
-                : "thresholdFields").append(label);
+            this.get(isCoordinate ? "regionFields" : "thresholdFields").append(input);
         }
         const box = this.get("imagebox");
         this.cancelDrawing = bindRegionDrawing(box, () => this.drawing, region => this.renderRegion(region), region => {
@@ -299,7 +291,7 @@ export class ImageLabComparison extends HTMLElement {
     }
     localize() {
         const names = {
-            saveHistory: "save", refreshHistory: "refreshHistory", historyLimitLabel: "historyLimit",
+            saveHistory: "save", refreshHistory: "refreshHistory",
             test: "test",
             draw: "draw",
             whole: "whole",
@@ -315,7 +307,8 @@ export class ImageLabComparison extends HTMLElement {
         for (const tab of tabs)
             names["tab-" + tab] = tab;
         for (const key of ["max_distance", "min_margin", ...coordinates])
-            names[key + "-label"] = key;
+            this.get(key).setAttribute("label", this.labels[key]);
+        this.get("historyLimit").setAttribute("label", this.labels.historyLimit);
         for (const [id, label] of Object.entries(names))
             this.get(id).textContent = this.labels[label];
         this.get("stateName").setAttribute("aria-label", this.labels.new_state);
@@ -716,11 +709,11 @@ export class ImageLabComparison extends HTMLElement {
     }
     readRegion() {
         const fields = coordinates.map((name) => this.get(name));
-        if (fields.every((field) => field.value === "" && !field.validity.badInput))
+        if (fields.every((field) => !field.value && field.checkValidity()))
             return null;
-        if (fields.some((field) => !field.validity.valid || field.value === ""))
+        if (fields.some((field) => !field.checkValidity() || !field.value))
             throw new Error("invalid_settings");
-        const [x, y, width, height] = fields.map((field) => field.valueAsNumber / 100);
+        const [x, y, width, height] = fields.map((field) => Number(field.value) / 100);
         if (width <= 0 ||
             height <= 0 ||
             x + width > 1 + 1e-9 ||
@@ -733,13 +726,13 @@ export class ImageLabComparison extends HTMLElement {
         const max = this.get("max_distance");
         const margin = this.get("min_margin");
         const engine = this.get("engine").value === "tarsius" ? "tarsius" : "pillow";
-        const valid = max.validity.valid && !!max.value && margin.validity.valid && !!margin.value;
+        const valid = max.checkValidity() && !!max.value && margin.checkValidity() && !!margin.value;
         if (engine === "pillow" && !valid)
             throw new Error("invalid_settings");
         return {
             engine, region: this.readRegion(),
-            max_distance: valid ? max.valueAsNumber : this.gallery.settings.max_distance,
-            min_margin: valid ? margin.valueAsNumber : this.gallery.settings.min_margin,
+            max_distance: valid ? Number(max.value) : this.gallery.settings.max_distance,
+            min_margin: valid ? Number(margin.value) : this.gallery.settings.min_margin,
         };
     }
     renderDirty() {

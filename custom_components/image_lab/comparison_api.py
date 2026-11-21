@@ -10,9 +10,11 @@ import probatio
 from aiohttp import web
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.requirements import RequirementsNotFound, async_process_requirements
 from homeassistant.util.file import WriteError
 
 from .analysis import async_analyze
+from .comparison_benchmark import TARSIUS_REQUIREMENT
 from .comparison_store import ComparisonStore, GalleryImage, get_comparison_store
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame
@@ -88,6 +90,7 @@ TARGET = {
     probatio.Required("validation"): bool,
 }
 SCHEMAS = {
+    "benchmark": probatio.Schema({probatio.Optional("settings"): SETTINGS}),
     "settings": SETTINGS,
     "state": probatio.Schema(
         {probatio.Optional("state_id"): ID, probatio.Required("name"): TITLE}
@@ -195,6 +198,15 @@ class ComparisonView(HomeAssistantView):
             values = schema(await request.json())
             if operation == "test":
                 return await self._test(request, profile_id, values)
+            if operation == "benchmark":
+                try:
+                    await async_process_requirements(
+                        store.hass, DOMAIN, [TARSIUS_REQUIREMENT], is_built_in=False
+                    )
+                except RequirementsNotFound as err:
+                    raise ImageError("tarsius_unavailable") from err
+                data = await store.async_benchmark(values.get("settings"))
+                return self.json(data, headers=RESPONSE_HEADERS)
             frame = None
             if operation == "add":
                 capture_id = values.get("capture_id")

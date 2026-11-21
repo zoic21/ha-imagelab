@@ -13,6 +13,25 @@ type Reference = {
 };
 type Gallery = { settings: Settings; states: State[]; references: Reference[] };
 
+const engines = ["pillow", "tarsius"] as const;
+const outcomes = ["correct", "wrong", "unknown", "error"] as const;
+type Outcome = (typeof outcomes)[number];
+type Measurement = {
+  outcome: Outcome;
+  state: string | null;
+  duration_ms: number | null;
+};
+type Benchmark = Record<
+  (typeof engines)[number],
+  Record<Outcome, number> & { median_ms: number | null }
+> & {
+  images: (Record<(typeof engines)[number], Measurement> & {
+    name: string;
+    expected: string;
+  })[];
+  tarsius_references_skipped: number;
+};
+
 type Result = {
   status: "ok" | "unknown" | "error";
   reason?: string;
@@ -67,6 +86,22 @@ const text = {
     training: "Reference images",
     validation: "Validation images",
     test_image: "Evaluate",
+    benchmark: "Compare Pillow and Tarsius",
+    benchmark_running: "Comparing engines…",
+    benchmark_summary: "Results on validation images",
+    benchmark_details: "Results by image",
+    benchmark_image: "Image",
+    benchmark_engine: "Engine",
+    benchmark_latency: "Median (ms)",
+    benchmark_correct: "Correct",
+    benchmark_wrong: "Wrong",
+    benchmark_unknown: "Unknown",
+    benchmark_error: "Error",
+    benchmark_skipped: "References skipped by Tarsius",
+    no_validation_images: "Add validation images to compare the engines.",
+    benchmark_needs_references:
+      "Tarsius needs at least two states, each with a usable reference image.",
+    tarsius_unavailable: "Tarsius could not be installed or loaded.",
     move: "Move",
     classify: "Classify capture",
     capture: "Capture",
@@ -143,6 +178,22 @@ const text = {
     training: "Images de référence",
     validation: "Images de validation",
     test_image: "Évaluer",
+    benchmark: "Comparer Pillow et Tarsius",
+    benchmark_running: "Comparaison en cours…",
+    benchmark_summary: "Résultats sur les images de validation",
+    benchmark_details: "Résultats par image",
+    benchmark_image: "Image",
+    benchmark_engine: "Moteur",
+    benchmark_latency: "Médiane (ms)",
+    benchmark_correct: "Correct",
+    benchmark_wrong: "Erroné",
+    benchmark_unknown: "Indéterminé",
+    benchmark_error: "Erreur",
+    benchmark_skipped: "Références ignorées par Tarsius",
+    no_validation_images: "Ajoutez des images de validation pour comparer les moteurs.",
+    benchmark_needs_references:
+      "Tarsius exige au moins deux états, chacun avec une image de référence utilisable.",
+    tarsius_unavailable: "Impossible d’installer ou de charger Tarsius.",
     move: "Déplacer",
     classify: "Classer la capture",
     capture: "Capture",
@@ -238,6 +289,9 @@ template.innerHTML = `
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
     #stateMessage { margin-bottom:9px; }
+    #benchmarkResult { overflow-x:auto; margin:0 0 12px; }
+    #benchmarkResult caption { text-align:start; font-weight:600; margin:8px 0; }
+    #benchmarkResult details { margin-top:12px; }
   </style>
   <nav id="nav" role="tablist">
     <ha-button id="tab-preview" role="tab" aria-controls="preview" appearance="plain"></ha-button>
@@ -268,10 +322,12 @@ template.innerHTML = `
       <input id="stateName" required maxlength="120">
       <ha-button id="addState" variant="brand"></ha-button>
       <ha-button id="folder" appearance="plain"></ha-button>
+      <ha-button id="benchmark" appearance="plain" hidden></ha-button>
       <input id="folderInput" type="file" webkitdirectory multiple hidden>
     </form>
     <p id="folderHint" class="secondary"></p>
     <p id="stateMessage" class="secondary"></p>
+    <div id="benchmarkResult" aria-live="polite" hidden></div>
     <div id="gallery"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -296,6 +352,8 @@ export class ImageLabComparison extends HTMLElement {
   private scope?: AbortController;
   private gallery?: Gallery;
   private result?: Result;
+  private benchmarkResult?: Benchmark;
+  private benchmarking = false;
   private captured = false;
   private busy = false;
   private drawing = false;
@@ -330,6 +388,7 @@ export class ImageLabComparison extends HTMLElement {
     }
     this.onClick("reload", () => this.load());
     this.onClick("test", () => this.evaluate());
+    this.onClick("benchmark", () => this.benchmark());
     this.onClick("draw", () => {
       this.drawing = !this.drawing;
       this.start = undefined;
@@ -477,6 +536,7 @@ export class ImageLabComparison extends HTMLElement {
       this.labels = labels;
       this.localize();
       this.renderResult();
+      this.renderBenchmark();
       this.renderGallery();
     }
     if (changed) {
@@ -540,6 +600,8 @@ export class ImageLabComparison extends HTMLElement {
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
+    this.benchmarkResult = undefined;
+    this.benchmarking = false;
     this.captured = false;
     this.busy = false;
     this.drawing = false;
@@ -552,6 +614,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get<HTMLInputElement>("stateName").value = "";
     this.feedback();
     this.renderResult();
+    this.renderBenchmark();
   }
 
   private refresh() {
@@ -566,6 +629,12 @@ export class ImageLabComparison extends HTMLElement {
       !this.gallery || this.busy,
     );
     this.get("folder").toggleAttribute("disabled", !this.gallery || this.busy);
+    const benchmark = this.get("benchmark");
+    benchmark.hidden = !this.gallery?.references.some((ref) => ref.validation);
+    benchmark.toggleAttribute("disabled", this.busy);
+    benchmark.textContent =
+      this.labels[this.benchmarking ? "benchmark_running" : "benchmark"];
+    this.get("references").setAttribute("aria-busy", String(this.benchmarking));
     this.get("reload").hidden = Boolean(this.gallery) || this.busy;
     this.get("draw").hidden = !this.frameUrl;
     this.get("draw").textContent =
@@ -609,6 +678,8 @@ export class ImageLabComparison extends HTMLElement {
     await this.task(async (signal) => {
       this.gallery = await this.request<Gallery>("", signal);
       if (signal.aborted) return;
+      this.benchmarkResult = undefined;
+      this.renderBenchmark();
       this.fillSettings();
       this.updateSelectors();
       if (this.tab === "references") this.renderGallery();
@@ -681,6 +752,8 @@ export class ImageLabComparison extends HTMLElement {
 
   private async update(operation: string, data: object, signal: AbortSignal) {
     this.gallery = await this.request<Gallery>("/" + operation, signal, data);
+    this.benchmarkResult = undefined;
+    this.renderBenchmark();
     this.updateSelectors();
   }
 
@@ -730,6 +803,107 @@ export class ImageLabComparison extends HTMLElement {
         this.captured = !reference_id;
       }
     });
+  }
+
+  private async benchmark() {
+    await this.task(async (signal) => {
+      const settings = this.readSettings();
+      this.benchmarkResult = undefined;
+      this.renderBenchmark();
+      this.benchmarking = true;
+      this.refresh();
+      try {
+        this.benchmarkResult = await this.request<Benchmark>(
+          "/benchmark", signal, { settings },
+        );
+        this.renderBenchmark();
+      } finally {
+        if (!signal.aborted) this.benchmarking = false;
+      }
+    });
+  }
+
+  private renderBenchmark() {
+    const panel = this.get("benchmarkResult");
+    panel.replaceChildren();
+    const result = this.benchmarkResult;
+    panel.hidden = !result;
+    if (!result) return;
+
+    const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
+    const outcomeLabels = {
+      correct: this.labels.benchmark_correct,
+      wrong: this.labels.benchmark_wrong,
+      unknown: this.labels.benchmark_unknown,
+      error: this.labels.benchmark_error,
+    };
+    const number = new Intl.NumberFormat(this.client?.locale.language, {
+      maximumFractionDigits: 1,
+    });
+    const summary = this.resultTable(
+      [
+        this.labels.benchmark_engine,
+        ...outcomes.map((key) => outcomeLabels[key]),
+        this.labels.benchmark_latency,
+      ],
+      engines.map((engine) => {
+        const data = result[engine];
+        return [
+          engineNames[engine],
+          ...outcomes.map((key) => number.format(data[key])),
+          data.median_ms === null ? "–" : number.format(data.median_ms),
+        ];
+      }),
+    );
+    summary.createCaption().textContent = this.labels.benchmark_summary;
+    panel.append(summary);
+
+    if (result.tarsius_references_skipped > 0) {
+      const skipped = document.createElement("p");
+      skipped.className = "secondary";
+      skipped.textContent = `${this.labels.benchmark_skipped} · ${number.format(result.tarsius_references_skipped)}`;
+      panel.append(skipped);
+    }
+    const details = document.createElement("details");
+    const heading = document.createElement("summary");
+    heading.textContent = this.labels.benchmark_details;
+    const measurements = this.resultTable(
+      [
+        this.labels.benchmark_image,
+        this.labels.expected,
+        ...engines.map((key) => engineNames[key]),
+      ],
+      result.images.map((image) => [
+        image.name,
+        image.expected,
+        ...engines.map((engine) => {
+          const { outcome, state, duration_ms } = image[engine];
+          const parts = [outcomeLabels[outcome]];
+          if (state) parts.unshift(state);
+          if (duration_ms !== null) parts.push(`${number.format(duration_ms)} ms`);
+          return parts.join(" · ");
+        }),
+      ]),
+    );
+    details.append(heading, measurements);
+    panel.append(details);
+  }
+
+  private resultTable(columns: string[], rows: string[][]) {
+    const table = document.createElement("table");
+    const head = table.createTHead().insertRow();
+    for (const column of columns) {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = column;
+      head.append(cell);
+    }
+    const body = table.createTBody();
+    for (const cells of rows) {
+      const row = body.insertRow();
+      for (const value of cells) row.insertCell().textContent = value;
+    }
+    return table;
   }
 
   private async fetchImage(
@@ -798,31 +972,17 @@ export class ImageLabComparison extends HTMLElement {
       panel.append(best, view);
     }
     if (result.data.scores && Object.keys(result.data.scores).length) {
-      const table = document.createElement("table");
-      const row = table.createTHead().insertRow();
-      for (const label of [
-        this.labels.state,
-        this.labels.score,
-        this.labels.count,
-      ]) {
-        const cell = document.createElement("th");
-        cell.scope = "col";
-        cell.textContent = label;
-        row.append(cell);
-      }
-      const body = table.createTBody();
       const scores = result.data.scores;
-      for (const [state, count] of Object.entries(
-        result.data.ref_counts ?? {},
-      ).sort(([a], [b]) => (scores[a] ?? Infinity) - (scores[b] ?? Infinity))) {
-        const data = body.insertRow();
-        data.insertCell().textContent = state;
-        data.insertCell().textContent = Object.hasOwn(scores, state)
-          ? String(scores[state])
-          : "–";
-        data.insertCell().textContent = String(count);
-      }
-      panel.append(table);
+      const rows = Object.entries(result.data.ref_counts ?? {})
+        .sort(([a], [b]) => (scores[a] ?? Infinity) - (scores[b] ?? Infinity))
+        .map(([state, count]) => [
+          state,
+          Object.hasOwn(scores, state) ? String(scores[state]) : "–",
+          String(count),
+        ]);
+      panel.append(this.resultTable(
+        [this.labels.state, this.labels.score, this.labels.count], rows,
+      ));
     }
   }
 

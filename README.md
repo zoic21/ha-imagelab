@@ -42,6 +42,10 @@ Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le dé
 2. Dans **Aperçu**, sélectionner **Tester la source**. Choisir **Tracer la zone** pour cadrer à la souris ou au doigt. Le panneau montre l’état proposé, les distances par état et la référence la plus proche. **Classer la capture** ajoute l’image testée à l’état et au groupe choisis.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
+Dans **Références → Comparer Pillow et Tarsius**, les deux moteurs évaluent les mêmes images de validation avec la même zone. Prévois au moins deux états avec une référence utilisable par état. Le tableau indique le nombre de résultats corrects, erronés, indéterminés ou en erreur et le temps de traitement médian sur la machine Home Assistant, après préparation des références. Le détail montre l’état attendu et le résultat de chaque moteur par image. Pour comparer les conditions, utilise des noms explicites comme `ferme-jour`, `ferme-infrarouge` ou `ferme-reflets`.
+
+Les seuils de distance et d’écart s’appliquent au moteur Pillow. Tarsius (ncnn) utilise ses propres critères et Home Assistant installe la bibliothèque au premier lancement du comparatif.
+
 Pour migrer les références Pyscript, choisir **Importer les dossiers par état** dans un navigateur qui prend en charge la sélection de dossiers. Sélectionner le dossier `references` qui contient un sous-dossier par état. Les images sont importées comme références et les états correspondants sont créés. Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s’applique à chaque image lors du calcul.
 
 ### Extraire une palette
@@ -114,7 +118,7 @@ La plateforme de validation de la première version est **Home Assistant OS x86�
 | **Détection d’objets sur image fixe** | Ajouter un module qui analyse un JPEG à la demande, filtre les catégories et les scores, puis renvoie la présence, le nombre et les rectangles des objets. Premier candidat : NanoDet-Plus 416 × 416 avec `ncnn`, Pillow et NumPy. |
 | **Lecture de compteurs mécaniques** | Évaluer `tarsius` pour lire les rouleaux et aiguilles. L’éditeur définit les zones et la rotation. Le module conserve la dernière lecture acceptée et contrôle la cohérence des nouvelles valeurs avant de publier un capteur Énergie. Un test de réglage ne valide pas une nouvelle valeur. |
 | **Reconnaissance d’un objet précis** | Recadrer l’objet détecté, puis comparer ce recadrage à plusieurs exemples annotés sous des angles différents. Évaluer les faux positifs sur des objets similaires et prévoir une identité inconnue. |
-| **Comparaison plus robuste** | Évaluer un moteur à descripteurs, par exemple Tarsius, sur les mêmes images de validation que le calcul actuel. Comparer séparément le jour, la nuit et les scènes ambiguës avant de choisir un moteur par défaut. |
+| **Comparaison plus robuste** | Utiliser le comparatif Pillow/Tarsius avec des captures de jour, de nuit et des scènes ambiguës pour mesurer les erreurs et la latence avant de choisir un moteur par défaut. |
 | **Capteurs et nouveaux outils** | Ajouter la publication facultative du dernier résultat et envisager des outils comme la présence d’une couleur dans une zone ou l’OCR d’un affichage. Chaque outil réutilise la capture, les réglages communs et l’action. |
 
 ### Validation déjà réalisée pour la détection

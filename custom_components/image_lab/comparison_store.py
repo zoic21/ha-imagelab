@@ -13,6 +13,7 @@ from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
 from .comparison import ComparisonData, Settings, compare
+from .comparison_benchmark import run_benchmark
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, read_image_file, read_upload, validate_image
 from .models import ModuleResult
@@ -205,6 +206,23 @@ class ComparisonStore:
             return await self.hass.async_add_executor_job(
                 self._run, frame, reference_id, settings
             )
+
+    async def async_benchmark(self, settings: Settings | None) -> dict:
+        """Evaluate one gallery snapshot without changing the saved settings."""
+
+        def run() -> dict:
+            gallery = self.load()
+            if settings is not None:
+                gallery["settings"] = settings
+            return run_benchmark(gallery, self.images)
+
+        async def locked_run() -> dict:
+            async with self.lock:
+                return await self.hass.async_add_executor_job(run)
+
+        return await asyncio.shield(
+            self.hass.async_create_task(locked_run(), "image_lab comparison benchmark")
+        )
 
     def _image(self, ref_id: str, thumbnail: bool) -> GalleryImage:
         ref = self._reference(self.load(), ref_id)

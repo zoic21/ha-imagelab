@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the version declared in manifest.json
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,3 +32,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: home-assistant/actions/hassfest@master
+
+  publish:
+    name: Publish release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: [hacs, hassfest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Publish the integration version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' custom_components/image_lab/manifest.json)
+          gh release create "$version" --target "$GITHUB_SHA" --title "Image Lab $version" --generate-notes

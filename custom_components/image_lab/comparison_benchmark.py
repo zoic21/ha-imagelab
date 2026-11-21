@@ -1,9 +1,12 @@
 """Evaluate the two comparison engines against the same labelled captures."""
 
+from io import BytesIO
 from pathlib import Path
 from statistics import median
 from time import perf_counter
 from typing import Literal, TypedDict
+
+from PIL import Image, ImageOps
 
 from .comparison import ComparisonData, compare
 from .images import ImageError, read_image_file, validate_image
@@ -44,6 +47,18 @@ def _summary(measurements: list[Measurement]) -> dict:
         if measurement["duration_ms"] is not None:
             durations.append(measurement["duration_ms"])
     return {**counts, "median_ms": round(median(durations), 1) if durations else None}
+
+
+def _tarsius_image(content: bytes, max_side: int) -> bytes:
+    """Apply the displayed orientation before Tarsius interprets the crop."""
+    with Image.open(BytesIO(content)) as image:
+        if image.getexif().get(Image.ExifTags.Base.Orientation, 1) not in range(2, 9):
+            return content
+        image.thumbnail((max_side, max_side))
+        oriented = ImageOps.exif_transpose(image).convert("RGB")
+        buffer = BytesIO()
+        oriented.save(buffer, "PNG")
+        return buffer.getvalue()
 
 
 def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
@@ -89,7 +104,9 @@ def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
         for ref in references:
             try:
                 original = validate_image(read_image_file(images / ref["id"]))
-                prepared = detector.prepare(original.content)
+                prepared = detector.prepare(
+                    _tarsius_image(original.content, detector.frame_side)
+                )
             except (ImageError, OSError, BlankRegionError, TarsiusImageError):
                 continue
             detector.add(ref["id"], prepared, state=ref["state_id"])
@@ -127,7 +144,9 @@ def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
 
         started = perf_counter()
         try:
-            prediction = detector.classify(frame.content)
+            prediction = detector.classify(
+                _tarsius_image(frame.content, detector.frame_side)
+            )
         except (BackendError, BlankRegionError, TarsiusImageError):
             continue
         state = (

@@ -19,6 +19,7 @@ from .analysis import MODULES, resolve_entity_id
 from .const import (
     CONF_FILE,
     CONF_IMAGE_KEY,
+    CONF_IMAGE_REVISION,
     CONF_MODULE,
     CONF_OBJECT_CONFIDENCE,
     CONF_OBJECT_LABELS,
@@ -252,6 +253,8 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_import(self, upload_id: str | None) -> dict[str, str]:
         if upload_id is None:
+            if self._entry and CONF_IMAGE_REVISION in self._entry.data:
+                self._settings[CONF_IMAGE_REVISION] = self._entry.data[CONF_IMAGE_REVISION]
             return {}
         try:
             await get_image_storage(self.hass).async_import(
@@ -263,4 +266,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
             return {CONF_FILE: err.reason}
         except (OSError, HomeAssistantError):
             return {CONF_FILE: "storage_error"}
+        # Replacing only the file must also notify open panels of the change.
+        self._settings[CONF_IMAGE_REVISION] = upload_id
         return {}

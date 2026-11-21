@@ -37,6 +37,7 @@ from .comparison_api import ComparisonImageView, ComparisonView, drop_captures
 from .comparison_store import async_remove_comparison
 from .const import (
     CONF_IMAGE_KEY,
+    CONF_IMAGE_REVISION,
     CONF_MODULE,
     CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
@@ -119,6 +120,7 @@ def async_subscribe_profiles(
         profiles = [
             {
                 CONF_PROFILE_ID: entry.entry_id,
+                CONF_IMAGE_REVISION: entry.data.get(CONF_IMAGE_REVISION),
                 "modified_at": entry.modified_at.isoformat(),
                 "title": entry.title,
                 CONF_MODULE: entry.data[CONF_MODULE],

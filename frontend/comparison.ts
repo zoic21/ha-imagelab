@@ -1,9 +1,17 @@
+import { comparisonStrings as text } from "./translations.js";
+
 type Region = { x: number; y: number; width: number; height: number };
 type Settings = {
   region: Region | null;
   max_distance: number;
   min_margin: number;
 };
+interface HaSelect extends HTMLElement {
+  options: { value: string; label: string }[];
+  value: string;
+  label: string;
+}
+
 type State = { id: string; name: string };
 type Reference = {
   id: string;
@@ -54,196 +62,6 @@ export interface ComparisonClient {
   fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
 }
 
-const text = {
-  en: {
-    preview: "Preview",
-    references: "References",
-    settings: "Settings",
-    test: "Test source",
-    drawing: "Draw the region on the image",
-    draw: "Draw region",
-    whole: "Use the full image",
-    empty: "Test the source to preview the image.",
-    unavailable: "The image source is unavailable.",
-    working: "Working…",
-    recognized: "Recognized state",
-    unknown: "Unknown state",
-    expected: "Expected state",
-    closest: "Closest reference",
-    view_reference: "View reference",
-    score: "Distance",
-    gap: "Margin",
-    count: "References",
-    state: "State",
-    no_states: "Add a state to classify images.",
-    new_state: "New state",
-    add_state: "Add state",
-    rename: "Rename",
-    remove: "Remove",
-    upload: "Import images",
-    folder: "Import folders by state",
-    folder_help: "Choose a directory with one subfolder per state.",
-    training: "Reference images",
-    validation: "Validation images",
-    test_image: "Evaluate",
-    benchmark: "Compare Pillow and Tarsius",
-    benchmark_running: "Comparing engines…",
-    benchmark_summary: "Results on validation images",
-    benchmark_details: "Results by image",
-    benchmark_image: "Image",
-    benchmark_engine: "Engine",
-    benchmark_latency: "Median (ms)",
-    benchmark_correct: "Correct",
-    benchmark_wrong: "Wrong",
-    benchmark_unknown: "Unknown",
-    benchmark_error: "Error",
-    benchmark_skipped: "References skipped by Tarsius",
-    no_validation_images: "Add validation images to compare the engines.",
-    benchmark_needs_references:
-      "Tarsius needs at least two states, each with a usable reference image.",
-    tarsius_unavailable: "Tarsius could not be installed or loaded.",
-    move: "Move",
-    classify: "Classify capture",
-    capture: "Capture",
-    capture_saved: "Capture classified.",
-    max_distance: "Maximum distance",
-    min_margin: "Minimum margin",
-    thresholds:
-      "Scores range from 0 to 255. A lower distance means a closer match.",
-    crop: "Region in percent",
-    x: "Left",
-    y: "Top",
-    width: "Width",
-    height: "Height",
-    region_help: "Leave all four fields blank to compare the full image.",
-    save: "Save settings",
-    saved: "Settings saved.",
-    dirty: "Unsaved settings are used for tests.",
-    no_references:
-      "No usable reference images. Add images to one or more states.",
-    ambiguous: "The two closest states are too close to decide.",
-    distance_too_high: "The closest reference exceeds the maximum distance.",
-    source_unavailable: "The image source is unavailable.",
-    source_no_image: "The source returned no image.",
-    capture_expired: "The capture expired. Test the source again.",
-    duplicate_state: "A state with that name already exists.",
-    state_not_empty: "Move or remove the images before deleting the state.",
-    profile_unavailable: "This analysis is unavailable.",
-    profile_not_found: "This analysis was removed.",
-    image_missing: "This analysis has no imported source image.",
-    invalid_image: "Choose still JPEG, PNG or WebP images.",
-    image_too_large: "The image exceeds 10 MiB or 24 megapixels.",
-    invalid_request:
-      "Check the entered values. The state name “unknown” is reserved.",
-    invalid_settings:
-      "Check the thresholds and select a region within the image.",
-    storage_error: "The gallery could not be saved or read.",
-    failed: "The operation could not be completed.",
-    confirm_remove: "Remove this image from the gallery?",
-    confirm_state: "Remove this state?",
-    imported: "Images imported",
-    rejected: "Failed imports",
-    choose_state: "Choose a state",
-    reload: "Reload",
-    stop_draw: "Finish drawing",
-  },
-  fr: {
-    preview: "Aperçu",
-    references: "Références",
-    settings: "Réglages",
-    test: "Tester la source",
-    drawing: "Tracez la zone sur l’image",
-    draw: "Tracer la zone",
-    whole: "Utiliser toute l’image",
-    empty: "Testez la source pour afficher son image.",
-    unavailable: "La source d’image est indisponible.",
-    working: "En cours…",
-    recognized: "État reconnu",
-    unknown: "État indéterminé",
-    expected: "État attendu",
-    closest: "Référence la plus proche",
-    view_reference: "Voir la référence",
-    score: "Distance",
-    gap: "Écart",
-    count: "Références",
-    state: "État",
-    no_states: "Ajoutez un état pour classer des images.",
-    new_state: "Nouvel état",
-    add_state: "Ajouter un état",
-    rename: "Renommer",
-    remove: "Supprimer",
-    upload: "Importer des images",
-    folder: "Importer les dossiers par état",
-    folder_help: "Choisissez un dossier qui contient un sous-dossier par état.",
-    training: "Images de référence",
-    validation: "Images de validation",
-    test_image: "Évaluer",
-    benchmark: "Comparer Pillow et Tarsius",
-    benchmark_running: "Comparaison en cours…",
-    benchmark_summary: "Résultats sur les images de validation",
-    benchmark_details: "Résultats par image",
-    benchmark_image: "Image",
-    benchmark_engine: "Moteur",
-    benchmark_latency: "Médiane (ms)",
-    benchmark_correct: "Correct",
-    benchmark_wrong: "Erroné",
-    benchmark_unknown: "Indéterminé",
-    benchmark_error: "Erreur",
-    benchmark_skipped: "Références ignorées par Tarsius",
-    no_validation_images: "Ajoutez des images de validation pour comparer les moteurs.",
-    benchmark_needs_references:
-      "Tarsius exige au moins deux états, chacun avec une image de référence utilisable.",
-    tarsius_unavailable: "Impossible d’installer ou de charger Tarsius.",
-    move: "Déplacer",
-    classify: "Classer la capture",
-    capture: "Capture",
-    capture_saved: "Capture classée.",
-    max_distance: "Distance maximale",
-    min_margin: "Écart minimal",
-    thresholds:
-      "Les distances vont de 0 à 255. Une distance basse indique une image plus proche.",
-    crop: "Zone en pourcentage",
-    x: "Gauche",
-    y: "Haut",
-    width: "Largeur",
-    height: "Hauteur",
-    region_help: "Laissez les quatre champs vides pour comparer toute l’image.",
-    save: "Enregistrer les réglages",
-    saved: "Réglages enregistrés.",
-    dirty: "Les tests utilisent les réglages en cours d’édition.",
-    no_references:
-      "Aucune référence utilisable. Ajoutez des images à un ou plusieurs états.",
-    ambiguous:
-      "Les deux états les plus proches ont des distances trop similaires.",
-    distance_too_high:
-      "La référence la plus proche dépasse la distance maximale.",
-    source_unavailable: "La source d’image est indisponible.",
-    source_no_image: "La source ne fournit pas d’image.",
-    capture_expired: "La capture a expiré. Relancez un test de la source.",
-    duplicate_state: "Un état porte déjà ce nom.",
-    state_not_empty:
-      "Déplacez ou supprimez les images avant de supprimer l’état.",
-    profile_unavailable: "Cette analyse est indisponible.",
-    profile_not_found: "Cette analyse a été supprimée.",
-    image_missing: "Cette analyse n’a pas d’image source importée.",
-    invalid_image: "Choisissez des images fixes JPEG, PNG ou WebP.",
-    image_too_large: "L’image dépasse 10 Mio ou 24 mégapixels.",
-    invalid_request:
-      "Vérifiez les valeurs saisies. Le nom d’état « unknown » est réservé.",
-    invalid_settings:
-      "Vérifiez les seuils et choisissez une zone dans l’image.",
-    storage_error: "Impossible d’enregistrer ou de lire la galerie.",
-    failed: "Impossible de terminer cette opération.",
-    confirm_remove: "Supprimer cette image de la galerie ?",
-    confirm_state: "Supprimer cet état ?",
-    imported: "Images importées",
-    rejected: "Imports en échec",
-    choose_state: "Choisir un état",
-    reload: "Recharger",
-    stop_draw: "Terminer le tracé",
-  },
-};
-
 type Label = keyof typeof text.en;
 type Tab = "preview" | "references" | "settings";
 const tabs: Tab[] = ["preview", "references", "settings"];
@@ -255,9 +73,9 @@ template.innerHTML = `
   <style>
     :host { display:block; margin-top: 12px; }
     [hidden] { display:none !important; }
-    nav, .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
-    nav { border-bottom:1px solid var(--divider-color); margin-bottom:16px; }
-    nav ha-button[aria-selected=true] { border-bottom:2px solid var(--primary-color); }
+    .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+    ha-tab-group { margin-bottom:16px; }
+    ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
@@ -283,7 +101,7 @@ template.innerHTML = `
     fieldset { margin:12px 0; padding:12px; border:1px solid var(--divider-color);
       border-radius:var(--ha-border-radius-md, 8px); }
     label { display:grid; gap:4px; margin:4px 0; }
-    input:not([type=file]), select { color:var(--primary-text-color); font:inherit; min-height:36px;
+    input:not([type=file]) { color:var(--primary-text-color); font:inherit; min-height:36px;
       margin:0; box-sizing:border-box; max-width:100%; border:1px solid var(--divider-color);
       border-radius:var(--ha-border-radius-md, 8px); padding:4px 8px; background:var(--card-background-color); }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
@@ -293,11 +111,11 @@ template.innerHTML = `
     #benchmarkResult caption { text-align:start; font-weight:600; margin:8px 0; }
     #benchmarkResult details { margin-top:12px; }
   </style>
-  <nav id="nav" role="tablist">
-    <ha-button id="tab-preview" role="tab" aria-controls="preview" appearance="plain"></ha-button>
-    <ha-button id="tab-references" role="tab" aria-controls="references" appearance="plain"></ha-button>
-    <ha-button id="tab-settings" role="tab" aria-controls="settings" appearance="plain"></ha-button>
-  </nav>
+  <ha-tab-group id="nav" active="preview">
+    <ha-tab-group-tab slot="nav" panel="preview" id="tab-preview" aria-controls="preview"></ha-tab-group-tab>
+    <ha-tab-group-tab slot="nav" panel="references" id="tab-references" aria-controls="references"></ha-tab-group-tab>
+    <ha-tab-group-tab slot="nav" panel="settings" id="tab-settings" aria-controls="settings"></ha-tab-group-tab>
+  </ha-tab-group>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
@@ -313,7 +131,7 @@ template.innerHTML = `
     </div>
     <div id="result" aria-live="polite"></div>
     <div id="classify" class="row" hidden>
-      <select id="captureState"></select><select id="captureGroup"></select>
+      <ha-select id="captureState"></ha-select><ha-select id="captureGroup"></ha-select>
       <ha-button id="captureAdd" appearance="outlined"></ha-button>
     </div>
   </section>
@@ -340,6 +158,7 @@ template.innerHTML = `
     <ha-button id="save" variant="brand"></ha-button>
     <p id="dirty" class="secondary"></p>
   </section>
+  <div id="dialogSlot"></div>
 `;
 
 export class ImageLabComparison extends HTMLElement {
@@ -369,23 +188,16 @@ export class ImageLabComparison extends HTMLElement {
     this.attachShadow({ mode: "open" }).append(
       template.content.cloneNode(true),
     );
-    for (const tab of tabs) {
-      const button = this.get("tab-" + tab);
-      button.addEventListener("click", () => this.show(tab));
-      button.addEventListener("keydown", (event) => {
-        const current = tabs.indexOf(tab);
-        const next =
-          event.key === "ArrowRight"
-            ? (current + 1) % tabs.length
-            : event.key === "ArrowLeft"
-              ? (current + tabs.length - 1) % tabs.length
-              : -1;
-        if (next < 0) return;
-        event.preventDefault();
-        this.show(tabs[next]);
-        this.get("tab-" + tabs[next]).focus();
-      });
-    }
+    this.get("nav").addEventListener("wa-tab-show", (event) => {
+      const tab = (event as CustomEvent<{ name: Tab }>).detail.name;
+      if (tab !== this.tab) this.show(tab);
+    });
+    this.shadowRoot!.addEventListener("selected", (event) => {
+      const select = event.target;
+      if (select instanceof HTMLElement && select.localName === "ha-select") {
+        (select as HaSelect).value = (event as CustomEvent<{ value: string }>).detail.value;
+      }
+    });
     this.onClick("reload", () => this.load());
     this.onClick("test", () => this.evaluate());
     this.onClick("benchmark", () => this.benchmark());
@@ -406,7 +218,7 @@ export class ImageLabComparison extends HTMLElement {
     this.onClick("captureAdd", () =>
       this.task(async (signal) => {
         if (!this.result?.image_id || !this.captured) return;
-        const state_id = this.get<HTMLSelectElement>("captureState").value;
+        const state_id = this.get<HaSelect>("captureState").value;
         if (!state_id) throw new Error("choose_state");
         const stamp = new Intl.DateTimeFormat(this.client?.locale.language, {
           dateStyle: "short",
@@ -419,7 +231,7 @@ export class ImageLabComparison extends HTMLElement {
             state_id,
             name: `${this.labels.capture} ${stamp}`,
             validation:
-              this.get<HTMLSelectElement>("captureGroup").value ===
+              this.get<HaSelect>("captureGroup").value ===
               "validation",
             capture_id: this.result.image_id,
           },
@@ -526,6 +338,7 @@ export class ImageLabComparison extends HTMLElement {
     const changed =
       profile !== this.profile ||
       sourceKey !== this.sourceKey ||
+      available !== this.available ||
       (profile !== undefined && !this.scope && this.isConnected);
     this.client = client;
     this.profile = profile;
@@ -535,6 +348,7 @@ export class ImageLabComparison extends HTMLElement {
     if (this.labels !== labels) {
       this.labels = labels;
       this.localize();
+      this.updateSelectors();
       this.renderResult();
       this.renderBenchmark();
       this.renderGallery();
@@ -589,14 +403,15 @@ export class ImageLabComparison extends HTMLElement {
       this.labels.new_state,
     );
     this.get<HTMLInputElement>("stateName").placeholder = this.labels.new_state;
-    this.get("captureState").setAttribute("aria-label", this.labels.state);
-    this.get("captureGroup").setAttribute("aria-label", this.labels.references);
+    this.get<HaSelect>("captureState").label = this.labels.state;
+    this.get<HaSelect>("captureGroup").label = this.labels.references;
     this.get<HTMLImageElement>("frame").alt = this.labels.preview;
     this.get("nav").setAttribute("aria-label", "Image Lab");
   }
 
   private reset() {
     this.scope?.abort();
+    this.get("dialogSlot").replaceChildren();
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
@@ -623,7 +438,6 @@ export class ImageLabComparison extends HTMLElement {
       "disabled",
       !this.gallery || this.busy || !this.available,
     );
-    this.get("save").toggleAttribute("disabled", !this.gallery || this.busy);
     this.get("addState").toggleAttribute(
       "disabled",
       !this.gallery || this.busy,
@@ -634,7 +448,8 @@ export class ImageLabComparison extends HTMLElement {
     benchmark.toggleAttribute("disabled", this.busy);
     benchmark.textContent =
       this.labels[this.benchmarking ? "benchmark_running" : "benchmark"];
-    this.get("references").setAttribute("aria-busy", String(this.benchmarking));
+    this.get("references").setAttribute("aria-busy", String(this.busy));
+    this.get("gallery").inert = this.busy;
     this.get("reload").hidden = Boolean(this.gallery) || this.busy;
     this.get("draw").hidden = !this.frameUrl;
     this.get("draw").textContent =
@@ -658,14 +473,8 @@ export class ImageLabComparison extends HTMLElement {
 
   private show(tab: Tab) {
     this.tab = tab;
-    for (const key of tabs) {
-      this.get(key).hidden = tab !== key;
-      this.get("tab-" + key).setAttribute("aria-selected", String(key === tab));
-      this.get("tab-" + key).setAttribute(
-        "variant",
-        key === tab ? "brand" : "neutral",
-      );
-    }
+    this.get("nav").setAttribute("active", tab);
+    for (const key of tabs) this.get(key).hidden = tab !== key;
     if (tab === "references") this.renderGallery();
     else this.clearThumbnails();
     this.refresh();
@@ -762,20 +571,19 @@ export class ImageLabComparison extends HTMLElement {
     this.groupOptions(this.get("captureGroup"));
   }
 
-  private stateOptions(select: HTMLSelectElement, state?: string) {
-    const selected = state ?? select.value;
-    select.replaceChildren(
-      ...(this.gallery?.states ?? []).map(
-        (item) => new Option(item.name, item.id, false, item.id === selected),
-      ),
-    );
+  private stateOptions(select: HaSelect, state = select.value) {
+    select.options = (this.gallery?.states ?? []).map(({ id, name }) => ({
+      value: id, label: name,
+    }));
+    select.value = select.options.some((option) => option.value === state)
+      ? state : select.options[0]?.value ?? "";
   }
 
-  private groupOptions(select: HTMLSelectElement, validation = false) {
-    select.replaceChildren(
-      new Option(this.labels.training, "training"),
-      new Option(this.labels.validation, "validation"),
-    );
+  private groupOptions(select: HaSelect, validation = select.value === "validation") {
+    select.options = [
+      { label: this.labels.training, value: "training" },
+      { label: this.labels.validation, value: "validation" },
+    ];
     select.value = validation ? "validation" : "training";
   }
 
@@ -785,6 +593,7 @@ export class ImageLabComparison extends HTMLElement {
       this.setFrame();
       this.captured = false;
       this.result = undefined;
+      this.matchId = undefined;
       this.drawing = false;
       this.start = undefined;
       this.renderResult();
@@ -1038,17 +847,21 @@ export class ImageLabComparison extends HTMLElement {
   private renderDirty() {
     const status = this.get("dirty");
     status.textContent = "";
-    if (!this.gallery) return;
-    try {
-      if (
-        JSON.stringify(this.readSettings()) !==
-        JSON.stringify(this.gallery.settings)
-      ) {
-        status.textContent = this.labels.dirty;
+    let changed = false;
+    if (this.gallery) {
+      try {
+        const draft = this.readSettings();
+        const saved = this.gallery.settings;
+        changed = draft.max_distance !== saved.max_distance ||
+          draft.min_margin !== saved.min_margin ||
+          coordinates.some((key) =>
+            Math.abs((draft.region?.[key] ?? -1) - (saved.region?.[key] ?? -1)) > 1e-9);
+        if (changed) status.textContent = this.labels.dirty;
+      } catch {
+        status.textContent = this.labels.invalid_settings;
       }
-    } catch {
-      status.textContent = this.labels.invalid_settings;
     }
+    this.get("save").toggleAttribute("disabled", this.busy || !changed);
   }
 
   private setRegion(region: Region | null) {
@@ -1114,6 +927,29 @@ export class ImageLabComparison extends HTMLElement {
     return button;
   }
 
+  private confirmRemoval(question: Label, name: string, remove: () => void) {
+    const dialog = document.createElement("ha-dialog");
+    dialog.setAttribute("header-title", this.labels[question]);
+    dialog.setAttribute("width", "small");
+    const item = document.createElement("p");
+    item.textContent = name;
+    const footer = document.createElement("ha-dialog-footer");
+    footer.slot = "footer";
+    const cancel = this.button("cancel", () => dialog.removeAttribute("open"));
+    cancel.slot = "secondaryAction";
+    const confirm = this.button("remove", () => {
+      dialog.removeAttribute("open");
+      remove();
+    });
+    confirm.slot = "primaryAction";
+    confirm.setAttribute("variant", "danger");
+    footer.append(cancel, confirm);
+    dialog.append(item, footer);
+    dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+    this.get("dialogSlot").replaceChildren(dialog);
+    dialog.setAttribute("open", "");
+  }
+
   private renderGallery() {
     this.clearThumbnails();
     const node = this.get("gallery");
@@ -1150,10 +986,10 @@ export class ImageLabComparison extends HTMLElement {
           this.renderGallery();
         }),
       );
-      const remove = this.button("remove", () => {
-        if (window.confirm(this.labels.confirm_state))
-          void this.galleryMutation("delete_state", { state_id: state.id });
-      });
+      const remove = this.button("remove", () =>
+        this.confirmRemoval("confirm_state", state.name, () =>
+          this.galleryMutation("delete_state", { state_id: state.id })),
+      );
       controls.append(name, rename, remove);
       section.append(title, controls);
       for (const validation of [false, true]) {
@@ -1200,11 +1036,11 @@ export class ImageLabComparison extends HTMLElement {
     this.thumbnailObserver?.observe(image);
     const title = document.createElement("strong");
     title.textContent = ref.name;
-    const state = document.createElement("select");
-    state.setAttribute("aria-label", this.labels.state);
+    const state = document.createElement("ha-select") as HaSelect;
+    state.label = this.labels.state;
     this.stateOptions(state, ref.state_id);
-    const group = document.createElement("select");
-    group.setAttribute("aria-label", this.labels.references);
+    const group = document.createElement("ha-select") as HaSelect;
+    group.label = this.labels.references;
     this.groupOptions(group, ref.validation);
     const controls = document.createElement("div");
     controls.className = "row";
@@ -1215,10 +1051,10 @@ export class ImageLabComparison extends HTMLElement {
         validation: group.value === "validation",
       }),
     );
-    const remove = this.button("remove", () => {
-      if (window.confirm(this.labels.confirm_remove))
-        void this.galleryMutation("delete", { reference_id: ref.id });
-    });
+    const remove = this.button("remove", () =>
+      this.confirmRemoval("confirm_remove", ref.name, () =>
+        this.galleryMutation("delete", { reference_id: ref.id })),
+    );
     if (ref.validation)
       controls.append(this.button("test_image", () => this.evaluate(ref.id)));
     controls.append(move, remove);

@@ -15,7 +15,7 @@ from aiohttp import ClientError, ClientTimeout
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.requirements import RequirementsNotFound, async_process_requirements
-from homeassistant.util.file import write_utf8_file_atomic
+from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
 from .const import DOMAIN
@@ -337,6 +337,7 @@ class ObjectDetector:
                 OSError,
                 TimeoutError,
                 asyncio.IncompleteReadError,
+                WriteError,
             ) as err:
                 _LOGGER.debug(
                     "Could not download or cache the NanoDet model", exc_info=True

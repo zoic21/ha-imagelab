@@ -109,7 +109,6 @@ def compare(
 
     names = {state["id"]: state["name"] for state in gallery["states"]}
     counts = dict.fromkeys(names.values(), 0)
-    scores: dict[str, float] = {}
     closest: dict[str, tuple[float, Reference]] = {}
 
     for reference in gallery["references"]:
@@ -125,11 +124,10 @@ def compare(
         distance = ImageStat.Stat(ImageChops.difference(query, ref)).mean[0]
         if label not in closest or distance < closest[label][0]:
             closest[label] = (distance, reference)
-            scores[label] = round(distance, 2)
 
     data = {
         "state": "unknown",
-        "scores": scores,
+        "scores": {label: round(match[0], 2) for label, match in closest.items()},
         "ref_counts": counts,
         "confidence": 0.0,
         "best_state": None,
@@ -137,18 +135,19 @@ def compare(
         "margin": None,
         "reference_id": None,
     }
-    if not scores:
+    if not closest:
         return ModuleResult(data, "no_references")
 
-    ranking = sorted(scores, key=lambda label: (scores[label], label))
+    ranking = sorted(closest, key=lambda label: (closest[label][0], label))
     best = ranking[0]
-    distance = scores[best]
-    margin = round(scores[ranking[1]] - distance, 2) if len(ranking) > 1 else None
+    distance = closest[best][0]
+    margin = closest[ranking[1]][0] - distance if len(ranking) > 1 else None
+    reported_margin = round(margin, 2) if margin is not None else None
     data.update(
         best_state=best,
-        distance=distance,
-        margin=margin,
-        confidence=margin if margin is not None else 0.0,
+        distance=round(distance, 2),
+        margin=reported_margin,
+        confidence=reported_margin or 0.0,
         reference_id=closest[best][1]["id"],
     )
     if distance > settings["max_distance"]:

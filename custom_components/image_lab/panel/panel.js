@@ -1,92 +1,5 @@
+import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
-const strings = {
-    en: {
-        profiles: "Analyses",
-        add: "Add analysis",
-        settings: "Manage analyses",
-        back: "Back to analyses",
-        empty: "Create an analysis to test an image source.",
-        select: "Select an analysis to see its image source.",
-        loading: "Loading analyses…",
-        loadError: "Could not load analyses.",
-        retry: "Retry",
-        test: "Test source",
-        testing: "Retrieving image…",
-        preview: "Source image",
-        id: "Analysis ID",
-        copy: "Copy",
-        copied: "Copied",
-        paletteReady: "Palette extracted",
-        dominant: "Dominant color",
-        comparison: "Image comparison",
-        palette: "Color palette",
-        object_detection: "Object detection",
-        detecting: "Analyzing image…",
-        noObjects: "No objects detected.",
-        objectFound: "1 object detected",
-        objectsFound: "objects detected",
-        objectLimit: "Showing the objects with the highest confidence.",
-        object_engine_unavailable: "Could not load the ncnn detection engine.",
-        object_model_unavailable: "Could not download or load the NanoDet model. Check the connection and try again.",
-        object_detection_failed: "Could not detect objects in this image.",
-        camera: "Camera snapshot",
-        media_player: "Media player artwork",
-        upload: "Imported image",
-        profile_not_found: "This analysis has been removed.",
-        profile_unavailable: "This analysis is unavailable.",
-        image_missing: "There is no imported image. Reconfigure the analysis to add one.",
-        source_unavailable: "The image source is unavailable.",
-        source_no_image: "The source currently has no image.",
-        image_too_large: "The image exceeds 10 MiB or 24 megapixels.",
-        invalid_image: "The source did not provide a valid still JPEG, PNG or WebP image.",
-        storage_error: "The imported image could not be read.",
-        testError: "Could not test the image source.",
-        copyError: "Could not copy the ID.",
-    },
-    fr: {
-        profiles: "Analyses",
-        add: "Ajouter une analyse",
-        settings: "Gérer les analyses",
-        back: "Retour aux analyses",
-        empty: "Créez une analyse pour tester une source d’image.",
-        select: "Sélectionnez une analyse pour voir sa source d’image.",
-        loading: "Chargement des analyses…",
-        loadError: "Impossible de charger les analyses.",
-        retry: "Réessayer",
-        test: "Tester la source",
-        testing: "Récupération de l’image…",
-        preview: "Image source",
-        id: "Identifiant de l’analyse",
-        copy: "Copier",
-        copied: "Copié",
-        paletteReady: "Palette extraite",
-        dominant: "Couleur dominante",
-        comparison: "Comparaison d’images",
-        palette: "Palette de couleurs",
-        object_detection: "Détection d’objets",
-        detecting: "Analyse de l’image…",
-        noObjects: "Aucun objet détecté.",
-        objectFound: "1 objet détecté",
-        objectsFound: "objets détectés",
-        objectLimit: "Seuls les objets les plus fiables sont affichés.",
-        object_engine_unavailable: "Impossible de charger le moteur de détection ncnn.",
-        object_model_unavailable: "Impossible de télécharger ou de charger le modèle NanoDet. Vérifiez la connexion et réessayez.",
-        object_detection_failed: "Impossible de détecter les objets sur cette image.",
-        camera: "Capture de caméra",
-        media_player: "Pochette du lecteur multimédia",
-        upload: "Image importée",
-        profile_not_found: "Cette analyse a été supprimée.",
-        profile_unavailable: "Cette analyse est indisponible.",
-        image_missing: "Aucune image importée. Reconfigurez l’analyse pour en ajouter une.",
-        source_unavailable: "La source d’image est indisponible.",
-        source_no_image: "La source ne fournit pas d’image actuellement.",
-        image_too_large: "L’image dépasse 10 Mio ou 24 mégapixels.",
-        invalid_image: "La source ne fournit pas une image fixe JPEG, PNG ou WebP valide.",
-        storage_error: "Impossible de lire l’image importée.",
-        testError: "Impossible de tester la source d’image.",
-        copyError: "Impossible de copier l’identifiant.",
-    },
-};
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
@@ -278,10 +191,8 @@ class ImageLabPanel extends HTMLElement {
             const previous = this.selected;
             this.profiles = profiles;
             const current = this.selected;
-            if (previous && (!current || previous.module !== current.module ||
-                previous.source_type !== current.source_type || previous.entity_id !== current.entity_id ||
-                previous.palette_size !== current.palette_size ||
-                (current.module === "object_detection" && previous.modified_at !== current.modified_at) ||
+            if (previous && (!current || previous.modified_at !== current.modified_at ||
+                previous.entity_id !== current.entity_id ||
                 previous.available !== current.available)) {
                 this.clearTest();
             }
@@ -368,7 +279,7 @@ class ImageLabPanel extends HTMLElement {
         this.element("list").replaceChildren(...rows);
         const isComparison = profile?.module === "comparison";
         this.comparison.hidden = !isComparison;
-        this.comparison.configure(this._hass, isComparison ? profile.profile_id : undefined, isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}` : undefined, profile?.available);
+        this.comparison.configure(this._hass, isComparison ? profile.profile_id : undefined, isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}/${profile.image_revision ?? ""}` : undefined, profile?.available);
         this.element("test").hidden = isComparison;
         if (!profile)
             return;

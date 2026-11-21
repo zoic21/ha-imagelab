@@ -12,6 +12,7 @@ CONF_PALETTE_SIZE = "palette_size"
 CONF_OBJECT_LABELS = "object_labels"
 CONF_OBJECT_CONFIDENCE = "object_confidence"
 CONF_IMAGE_KEY = "image_key"
+CONF_IMAGE_REVISION = "image_revision"
 CONF_FILE = "file"
 
 DEFAULT_PALETTE_SIZE = 5

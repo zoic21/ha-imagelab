@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from shutil import rmtree
@@ -20,6 +22,8 @@ from .images import ImageError, ImageFrame, read_image_file, read_upload, valida
 from .models import ModuleResult
 
 STORAGE_VERSION = 1
+DEFAULT_HISTORY = {"mode": "all", "limit": 10}
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -57,6 +61,8 @@ class ComparisonStore:
                     "max_distance": 25.0,
                     "min_margin": 3.0,
                 },
+                "history_settings": DEFAULT_HISTORY.copy(),
+                "history": [],
                 "states": [],
                 "references": [],
             }
@@ -75,6 +81,8 @@ class ComparisonStore:
             "engine", "pillow"
         ) not in ("pillow", "tarsius"):
             raise ImageError("storage_error")
+        data.setdefault("history_settings", DEFAULT_HISTORY.copy())
+        data.setdefault("history", [])
         return data
 
     def _save(self, data: ComparisonData) -> None:
@@ -88,7 +96,19 @@ class ComparisonStore:
         self, operation: str, values: dict, capture: ImageFrame | None
     ) -> ComparisonData:
         data = self.load()
-        if operation == "settings":
+        if operation == "history_settings":
+            data["history_settings"] = values
+            self._save_history(data)
+            return data
+        if operation == "correct":
+            item = self._history_item(data, values["capture_id"])
+            self._state(data, values["state_id"])
+            ref = next((r for r in data["references"] if r["id"] == item["id"]), None)
+            if ref is None:
+                ref = {"id": item["id"], "name": item["time"]}
+                data["references"].append(ref)
+            ref.update(state_id=values["state_id"], validation=values["validation"])
+        elif operation == "settings":
             data["settings"].update(values)
         elif operation == "state":
             state_id = values.get("state_id")
@@ -143,10 +163,64 @@ class ComparisonStore:
             else:
                 data["references"].remove(reference)
                 self._save(data)
-                (self.images / reference["id"]).unlink(missing_ok=True)
+                if not any(item["id"] == reference["id"] for item in data["history"]):
+                    (self.images / reference["id"]).unlink(missing_ok=True)
                 return data
         self._save(data)
         return data
+
+    @staticmethod
+    def _history_item(data: ComparisonData, image_id: str):
+        for item in data["history"]:
+            if item["id"] == image_id:
+                return item
+        raise ImageError("capture_expired")
+
+    def _save_history(
+        self, data: ComparisonData, new_image: Path | None = None
+    ) -> None:
+        limit = data["history_settings"]["limit"]
+        expired = data["history"][:-limit]
+        del data["history"][:-limit]
+        try:
+            self._save(data)
+        except (OSError, WriteError):
+            if new_image is not None:
+                new_image.unlink(missing_ok=True)
+            raise
+        kept = {ref["id"] for ref in data["references"]}
+        for item in expired:
+            if item["id"] not in kept:
+                (self.images / item["id"]).unlink(missing_ok=True)
+
+    def _record(
+        self, data: ComparisonData, frame: ImageFrame, result: ModuleResult
+    ) -> None:
+        mode = data["history_settings"]["mode"]
+        history = data["history"]
+        state_id = result.data.get("state_id")
+        if mode == "off" or (
+            mode == "changes"
+            and state_id
+            and history
+            and history[-1]["state_id"] == state_id
+        ):
+            return
+        image_id = uuid4().hex
+        self.images.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = self.images / image_id
+        write_utf8_file_atomic(str(path), frame.content, private=True, mode="wb")
+        history.append(
+            {
+                "id": image_id,
+                "time": datetime.now(UTC).isoformat(),
+                "state_id": state_id,
+                "state": result.data.get("state"),
+                "reason": result.reason,
+                "engine": data["settings"]["engine"],
+            }
+        )
+        self._save_history(data, path)
 
     @staticmethod
     def _state(data: ComparisonData, state_id: str):
@@ -186,6 +260,7 @@ class ComparisonStore:
         frame: ImageFrame | None,
         reference_id: str | None,
         gallery: ComparisonData,
+        record: bool = False,
     ) -> tuple[ModuleResult, ImageFrame]:
         expected = None
         if reference_id is not None:
@@ -204,6 +279,11 @@ class ComparisonStore:
         result.data["engine"] = engine
         if expected is not None:
             result.data["expected_state"] = expected
+        if record:
+            try:
+                self._record(gallery, frame, result)
+            except (OSError, WriteError):
+                _LOGGER.exception("Could not save history for %s", self.profile_id)
         return result, frame
 
     async def async_run(
@@ -211,6 +291,8 @@ class ComparisonStore:
         frame: ImageFrame | None,
         reference_id: str | None,
         settings: Settings | None,
+        *,
+        record: bool = False,
     ) -> tuple[ModuleResult, ImageFrame]:
         """Run against a consistent gallery while keeping I/O off the event loop."""
 
@@ -222,7 +304,7 @@ class ComparisonStore:
                 if gallery["settings"]["engine"] == "tarsius":
                     await async_ensure_tarsius(self.hass)
                 return await self.hass.async_add_executor_job(
-                    self._run, frame, reference_id, gallery
+                    self._run, frame, reference_id, gallery, record
                 )
 
         return await asyncio.shield(
@@ -249,9 +331,11 @@ class ComparisonStore:
         )
 
     def _image(self, ref_id: str, thumbnail: bool) -> GalleryImage:
-        ref = self._reference(self.load(), ref_id)
+        data = self.load()
+        if not any(ref["id"] == ref_id for ref in data["references"]):
+            self._history_item(data, ref_id)
         try:
-            frame = validate_image(read_image_file(self.images / ref["id"]))
+            frame = validate_image(read_image_file(self.images / ref_id))
         except FileNotFoundError as err:
             raise ImageError("reference_not_found") from err
         if not thumbnail:

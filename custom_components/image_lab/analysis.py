@@ -23,7 +23,7 @@ from .const import (
     DOMAIN,
     SourceType,
 )
-from .images import ImageError, ImageFrame, async_get_frame
+from .images import ImageError, ImageFrame, async_get_frame, crop_frame
 from .models import ModuleResult
 from .object_detection import ObjectDetector
 from .palette import extract_palette
@@ -115,6 +115,7 @@ async def async_analyze(
     *,
     reference_id: str | None = None,
     settings_override: Settings | None = None,
+    scheduled_capture: Awaitable[ImageFrame] | None = None,
 ) -> AnalysisResult:
     """Load a profile, acquire its source and run its module outside the event loop."""
     response: ServiceResponse = {
@@ -140,16 +141,35 @@ async def async_analyze(
 
     try:
         frame = None
-        if reference_id is None:
+        if scheduled_capture is not None:
+            frame = await scheduled_capture
+            if (
+                entry.state is not ConfigEntryState.LOADED
+                or entry.data is not settings
+                or hass.config_entries.async_get_entry(profile_id) is not entry
+            ):
+                return AnalysisResult({**response, "reason": "profile_unavailable"})
+        elif reference_id is None:
             frame = await async_get_frame(
                 hass,
                 source,
                 resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
                 settings[CONF_IMAGE_KEY],
             )
-        result, frame = await MODULES[module_id].process(
-            hass, entry, frame, reference_id, settings_override
-        )
+        if module_id == "comparison" and scheduled_capture is not None:
+            result, frame = await get_comparison_store(hass, profile_id).async_run(
+                frame, None, None, record=True
+            )
+        else:
+            if (
+                frame
+                and module_id != "comparison"
+                and (region := settings.get("region"))
+            ):
+                frame = await hass.async_add_executor_job(crop_frame, frame, region)
+            result, frame = await MODULES[module_id].process(
+                hass, entry, frame, reference_id, settings_override
+            )
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})
     except OSError:

@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from math import isfinite
 from time import monotonic
+from typing import ClassVar
 from uuid import UUID, uuid4
 
 import probatio
@@ -46,7 +47,7 @@ def _title(value: str) -> str:
 
 
 def _number(maximum: float):
-    def validate(value: int | float) -> float:
+    def validate(value: float) -> float:
         if isinstance(value, bool) or not 0 <= value <= maximum or not isfinite(value):
             raise probatio.Invalid("Number outside range")
         return float(value)
@@ -88,7 +89,22 @@ TARGET = {
     probatio.Required("state_id"): ID,
     probatio.Required("validation"): bool,
 }
+
+
+def _history_limit(n: int) -> int:
+    if type(n) is not int or not 1 <= n <= 100:
+        raise probatio.Invalid("History limit must be an integer from 1 to 100")
+    return n
+
+
 SCHEMAS = {
+    "correct": probatio.Schema({**TARGET, probatio.Required("capture_id"): ID}),
+    "history_settings": probatio.Schema(
+        {
+            probatio.Required("mode"): probatio.In(("off", "all", "changes")),
+            probatio.Required("limit"): _history_limit,
+        }
+    ),
     "benchmark": probatio.Schema({probatio.Optional("settings"): SETTINGS}),
     "settings": SETTINGS,
     "state": probatio.Schema(
@@ -166,7 +182,7 @@ class ComparisonView(HomeAssistantView):
     """List and edit a comparison gallery and test a capture or validation image."""
 
     url = f"/api/{DOMAIN}/comparison/{{profile_id}}"
-    extra_urls = [f"/api/{DOMAIN}/comparison/{{profile_id}}/{{operation}}"]
+    extra_urls: ClassVar[list[str]] = [f"/api/{DOMAIN}/comparison/{{profile_id}}/{{operation}}"]
     name = f"api:{DOMAIN}:comparison"
 
     async def get(

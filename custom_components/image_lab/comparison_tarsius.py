@@ -11,9 +11,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.requirements import RequirementsNotFound, async_process_requirements
 from PIL import Image, ImageOps
 
-from .comparison import Bounds, ComparisonData
+from .comparison import ComparisonData
 from .const import DOMAIN
-from .images import ImageError, ImageFrame, read_image_file, validate_image
+from .images import Bounds, ImageError, ImageFrame, read_image_file, validate_image
 from .models import ModuleResult
 
 if TYPE_CHECKING:

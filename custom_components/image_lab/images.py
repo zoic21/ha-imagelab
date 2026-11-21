@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from typing import TypedDict
 from uuid import UUID
 
 from aiohttp import ClientError
@@ -12,7 +13,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.file import write_utf8_file_atomic
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .const import DOMAIN, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, SourceType
 
@@ -34,6 +35,44 @@ class ImageFrame:
     content_type: str
     width: int
     height: int
+
+
+Bounds = tuple[float, float, float, float]
+
+
+class Region(TypedDict):
+    """A rectangle relative to the oriented image dimensions."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+def crop_image(image: Image.Image, bounds: Bounds | None) -> Image.Image:
+    image = ImageOps.exif_transpose(image)
+    if bounds is None:
+        return image
+
+    left, top, span_x, span_y = bounds
+    width, height = image.size
+    x = min(width - 1, round(left * width))
+    y = min(height - 1, round(top * height))
+    right = max(x + 1, round((left + span_x) * width))
+    bottom = max(y + 1, round((top + span_y) * height))
+    return image.crop((x, y, min(right, width), min(bottom, height)))
+
+
+def crop_frame(frame: ImageFrame, region: Region) -> ImageFrame:
+    """Provide a lossless, oriented zone for modules using image coordinates."""
+    bounds = (region["x"], region["y"], region["width"], region["height"])
+    with Image.open(BytesIO(frame.content)) as original:
+        cropped = crop_image(original, bounds)
+        if cropped.mode not in ("RGB", "RGBA", "L"):
+            cropped = cropped.convert("RGBA")
+        buffer = BytesIO()
+        cropped.save(buffer, "PNG", compress_level=1)
+    return ImageFrame(buffer.getvalue(), "image/png", *cropped.size)
 
 
 def validate_image(content: bytes) -> ImageFrame:

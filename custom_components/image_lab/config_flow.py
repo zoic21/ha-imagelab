@@ -209,6 +209,14 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     is None
                 ):
                     return self.async_abort(reason="profile_not_found")
+                if (
+                    self._entry.data.get(CONF_ENTITY_ID)
+                    == self._settings.get(CONF_ENTITY_ID)
+                    and source is SourceType.CAMERA
+                    and self._settings[CONF_MODULE] != "comparison"
+                    and self._entry.data.get("region")
+                ):
+                    self._settings["region"] = self._entry.data["region"]
                 options = dict(self._entry.options)
                 if self._entry.data[CONF_MODULE] != self._settings[CONF_MODULE]:
                     options.clear()

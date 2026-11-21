@@ -5,23 +5,21 @@ from io import BytesIO
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 
-from PIL import Image, ImageChops, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageStat
 from PIL.ImageFilter import GaussianBlur
 
-from .images import ImageError, ImageFrame, read_image_file, validate_image
+from .images import (
+    Bounds,
+    ImageError,
+    ImageFrame,
+    Region,
+    crop_image,
+    read_image_file,
+    validate_image,
+)
 from .models import ModuleResult
 
 MAX_COMPARE_SIZE = (640, 360)
-Bounds = tuple[float, float, float, float]
-
-
-class Region(TypedDict):
-    """A rectangle relative to the oriented image dimensions."""
-
-    x: float
-    y: float
-    width: float
-    height: float
 
 
 class Settings(TypedDict):
@@ -52,23 +50,11 @@ class Reference(TypedDict):
 class ComparisonData(TypedDict):
     """Persisted settings and gallery for one analysis."""
 
+    history: NotRequired[list[dict]]
+    history_settings: NotRequired[dict]
     settings: Settings
     states: list[State]
     references: list[Reference]
-
-
-def _crop(image: Image.Image, bounds: Bounds | None) -> Image.Image:
-    image = ImageOps.exif_transpose(image)
-    if bounds is None:
-        return image
-
-    left, top, span_x, span_y = bounds
-    width, height = image.size
-    x = min(width - 1, round(left * width))
-    y = min(height - 1, round(top * height))
-    right = max(x + 1, round((left + span_x) * width))
-    bottom = max(y + 1, round((top + span_y) * height))
-    return image.crop((x, y, min(right, width), min(bottom, height)))
 
 
 def _preprocess(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -87,12 +73,10 @@ def _reference_features(
     """Reuse small grayscale images when the same immutable reference is tested."""
     original = validate_image(read_image_file(path))
     with Image.open(BytesIO(original.content)) as image:
-        return _preprocess(_crop(image, bounds), size)
+        return _preprocess(crop_image(image, bounds), size)
 
 
-def compare(
-    frame: ImageFrame, gallery: ComparisonData, images: Path
-) -> ModuleResult:
+def compare(frame: ImageFrame, gallery: ComparisonData, images: Path) -> ModuleResult:
     """Use the best reference per state, then apply the distance and margin thresholds."""
     settings = gallery["settings"]
     region = settings["region"]
@@ -102,7 +86,7 @@ def compare(
         else None
     )
     with Image.open(BytesIO(frame.content)) as image:
-        crop = _crop(image, bounds)
+        crop = crop_image(image, bounds)
         width, height = crop.size
         scale = min(1, MAX_COMPARE_SIZE[0] / width, MAX_COMPARE_SIZE[1] / height)
         size = (max(1, int(width * scale)), max(1, int(height * scale)))

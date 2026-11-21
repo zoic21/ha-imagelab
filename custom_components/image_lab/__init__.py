@@ -34,7 +34,7 @@ from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 from .analysis import async_analyze, resolve_entity_id
-from .comparison_api import ComparisonImageView, ComparisonView, drop_captures
+from .comparison_api import REGION, ComparisonImageView, ComparisonView, drop_captures
 from .comparison_store import async_remove_comparison
 from .const import (
     CONF_IMAGE_KEY,
@@ -47,8 +47,9 @@ from .const import (
     DOMAIN,
     PANEL_PATH,
     SERVICE_ANALYZE,
+    SourceType,
 )
-from .images import get_image_storage
+from .images import ImageError, async_get_frame, get_image_storage
 from .output import OUTPUTS, OutputCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -84,6 +85,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     hass.http.register_view(ImageLabPreviewView)
+    hass.http.register_view(CameraZoneView)
     hass.http.register_view(ComparisonView)
     hass.http.register_view(ComparisonImageView)
 
@@ -158,6 +160,7 @@ def async_subscribe_profiles(
             {
                 CONF_PROFILE_ID: entry.entry_id,
                 CONF_IMAGE_REVISION: entry.data.get(CONF_IMAGE_REVISION),
+                "region": entry.data.get("region"),
                 "modified_at": entry.modified_at.isoformat(),
                 "title": entry.title,
                 "output_entity_id": (
@@ -248,3 +251,58 @@ class ImageLabPreviewView(HomeAssistantView):
             content_type=result.frame.content_type,
             headers=headers,
         )
+
+
+class CameraZoneView(HomeAssistantView):
+    """Edit the region of a palette or detection profile on the full camera frame."""
+
+    url = f"/api/{DOMAIN}/zone/{{profile_id}}"
+    name = f"api:{DOMAIN}:zone"
+
+    @staticmethod
+    def _entry(request: web.Request, profile_id: str) -> ConfigEntry:
+        if not request[KEY_HASS_USER].is_admin:
+            raise web.HTTPForbidden
+        entry = request.app[KEY_HASS].config_entries.async_get_entry(profile_id)
+        if (
+            entry is None
+            or entry.domain != DOMAIN
+            or entry.data[CONF_SOURCE_TYPE] != "camera"
+            or entry.data[CONF_MODULE] == "comparison"
+        ):
+            raise web.HTTPNotFound
+        return entry
+
+    async def get(self, request: web.Request, profile_id: str) -> web.Response:
+        entry = self._entry(request, profile_id)
+        hass = request.app[KEY_HASS]
+        try:
+            frame = await async_get_frame(
+                hass,
+                SourceType.CAMERA,
+                resolve_entity_id(hass, entry.data[CONF_ENTITY_ID]),
+                "",
+            )
+        except ImageError as err:
+            return self.json({"reason": err.reason}, status_code=422)
+        return web.Response(
+            body=frame.content,
+            content_type=frame.content_type,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def post(self, request: web.Request, profile_id: str) -> web.Response:
+        self._entry(request, profile_id)
+        try:
+            values = await request.json()
+            entry = self._entry(request, profile_id)
+            region = probatio.Schema(
+                {probatio.Required("region"): probatio.Any(None, REGION)}
+            )(values)["region"]
+        except (probatio.Invalid, ValueError):
+            return self.json({"reason": "invalid_request"}, status_code=400)
+        hass = request.app[KEY_HASS]
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "region": region}
+        )
+        return self.json({"region": region})

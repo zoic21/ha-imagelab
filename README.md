@@ -50,7 +50,21 @@ Dans Image Lab, ouvrir le profil puis **Configurer l’analyse**. Dans la fiche 
 
 Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
-Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. La première capture automatique a lieu à la fin de cet intervalle. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
+Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
+
+### Suivre plusieurs zones sur une caméra
+
+Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.
+
+Pour une comparaison, tracer le rectangle dans **Aperçu** puis l’enregistrer dans **Réglages**. Pour la palette et la détection, utiliser **Modifier la zone caméra**, tracer sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer. **Tester la source** montre le résultat sur le cadrage choisi.
+
+Quand plusieurs analyses automatiques de la même caméra arrivent à échéance ensemble, Home Assistant prend une seule image pour toutes ces zones. Avec des intervalles de 2 et 5 minutes, les deux zones partagent donc la capture toutes les 10 minutes. Un test ou une action manuelle demande sa propre capture.
+
+### Revoir et corriger les captures
+
+Dans un profil de comparaison, **Historique** affiche les captures automatiques, la date, le moteur et l’état prédit. Toucher une vignette ouvre l’original. Par défaut, le profil conserve les **10 dernières images**. Le nombre est réglable **de 1 à 100**. Choisir **Toutes les analyses**, **Changements et états indéterminés** ou **Désactivé**, puis **Enregistrer**. Réduire le nombre retire immédiatement les plus anciennes. Désactiver suspend l’ajout de captures.
+
+Pour corriger une prédiction, choisir l’état attendu et **Images de référence** ou **Images de validation**, puis **Corriger l’état**. La galerie conserve l’original même après sa sortie de l’historique. La prédiction d’origine reste consultable dans l’historique. Les appels manuels, les aperçus et les tentatives sans image ne remplissent pas cet historique.
 
 ### Comparer des images
 

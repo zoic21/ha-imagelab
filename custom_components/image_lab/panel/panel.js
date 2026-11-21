@@ -1,5 +1,6 @@
 import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
+import { editZone } from "./zone.js";
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
@@ -71,6 +72,14 @@ template.innerHTML = `
       border-radius: var(--ha-border-radius-md, 8px);
     }
     .dominant { display: block; font-size: 12px; }
+    .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
+      width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
+    .zoneFrame img { width:100%; max-height:none; }
+    .selection { position:absolute; pointer-events:none; border:2px solid #28d7cd; box-sizing:border-box;
+      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:#28d7cd22; }
+    .zoneFields { display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:8px; }
+    .zoneFields label { display:grid; gap:3px; }
+    .zoneFields input { font:inherit; width:100%; box-sizing:border-box; }
     #back { margin-bottom: 10px; }
     :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
     @media (max-width: 400px) { header { padding-inline-end: 8px; } .heading { gap: 4px; } }
@@ -107,8 +116,10 @@ template.innerHTML = `
           </div>
           <div class="toolbar">
             <ha-button id="test" variant="brand"></ha-button>
+            <ha-button id="zone" appearance="outlined" hidden></ha-button>
             <ha-button id="settings" href="/config/integrations/integration/image_lab" appearance="plain" variant="neutral"></ha-button>
           </div>
+          <p class="secondary" id="cameraZones" hidden></p>
           <p id="status" class="secondary" role="status"></p>
           <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
           <section id="palette" aria-labelledby="paletteTitle" hidden>
@@ -137,6 +148,7 @@ class ImageLabPanel extends HTMLElement {
     failed = false;
     activeTest;
     previewUrl;
+    zoneScope;
     strings = strings.en;
     comparison;
     constructor() {
@@ -157,6 +169,14 @@ class ImageLabPanel extends HTMLElement {
                 }));
         });
         this.element("test").addEventListener("click", () => void this.test());
+        this.element("zone").addEventListener("click", () => {
+            const profile = this.selected;
+            if (!profile || !this._hass)
+                return;
+            this.zoneScope?.abort();
+            this.zoneScope = new AbortController();
+            void editZone(this.element("profile"), profile.region, this.strings, "/api/image_lab/zone/" + encodeURIComponent(profile.profile_id), this._hass.fetchWithAuth.bind(this._hass), this.zoneScope.signal);
+        });
         this.element("copy").addEventListener("click", () => void this.copyId());
         this.render();
     }
@@ -235,6 +255,7 @@ class ImageLabPanel extends HTMLElement {
             this.element("title").focus();
     }
     clearTest() {
+        this.zoneScope?.abort();
         this.activeTest?.abort();
         this.activeTest = undefined;
         this.element("status").textContent = "";
@@ -294,6 +315,22 @@ class ImageLabPanel extends HTMLElement {
         this.element("test").hidden = isComparison;
         if (!profile)
             return;
+        this.element("zone").hidden = profile.source_type !== "camera" || isComparison;
+        this.element("zone").textContent = labels.zone;
+        const cameraZones = this.element("cameraZones");
+        cameraZones.hidden = profile.source_type !== "camera";
+        if (!cameraZones.hidden) {
+            const others = this.profiles?.filter(p => p.source_type === "camera" && p.entity_id === profile.entity_id && p !== profile) ?? [];
+            cameraZones.textContent = labels.cameraZones;
+            for (const p of others) {
+                const button = document.createElement("ha-button");
+                button.setAttribute("appearance", "plain");
+                button.setAttribute("size", "s");
+                button.textContent = p.title;
+                button.onclick = () => this.select(p);
+                cameraZones.append(button);
+            }
+        }
         this.element("title").textContent = profile.title;
         this.element("profileId").textContent = profile.profile_id;
         this.element("settings").setAttribute("href", `/config/integrations/integration/image_lab#config_entry=${encodeURIComponent(profile.profile_id)}`);

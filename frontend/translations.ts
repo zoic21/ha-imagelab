@@ -1,5 +1,9 @@
 export const panelStrings = {
   en: {
+    zone: "Edit camera zone", drawZone: "Draw a rectangle on the image or enter its bounds as percentages.",
+    cameraZones: "To track another zone, add an analysis using this same camera.",
+    cancel: "Cancel", save: "Save", fullZone: "Use full image", saveZoneError: "Could not save this zone.",
+    x: "Left (%)", y: "Top (%)", width: "Width (%)", height: "Height (%)",
     profiles: "Analyses",
     add: "Add analysis",
     settings: "Configure analysis",
@@ -45,6 +49,10 @@ export const panelStrings = {
     copyError: "Could not copy the ID.",
   },
   fr: {
+    zone: "Modifier la zone caméra", drawZone: "Tracez un rectangle sur l’image ou saisissez ses coordonnées en pourcentage.",
+    cameraZones: "Pour suivre une autre zone, ajoutez une analyse avec cette même caméra.",
+    cancel: "Annuler", save: "Enregistrer", fullZone: "Utiliser toute l’image", saveZoneError: "Impossible d’enregistrer la zone.",
+    x: "Gauche (%)", y: "Haut (%)", width: "Largeur (%)", height: "Hauteur (%)",
     profiles: "Analyses",
     add: "Ajouter une analyse",
     settings: "Configurer l’analyse",
@@ -93,6 +101,10 @@ export const panelStrings = {
 
 export const comparisonStrings = {
   en: {
+    close: "Close", viewCapture: "View original capture",
+    history: "History", historyMode: "Save automatic captures", historyLimit: "Images to keep (1–100)",
+    off: "Disabled", changes: "State changes and unknown states", all: "Every analysis",
+    refreshHistory: "Refresh", emptyHistory: "No automatic captures saved.", correct: "Correct state",
     preview: "Preview",
     references: "References",
     settings: "Settings",
@@ -190,6 +202,10 @@ export const comparisonStrings = {
     stop_draw: "Finish drawing",
   },
   fr: {
+    close: "Fermer", viewCapture: "Afficher la capture originale",
+    history: "Historique", historyMode: "Conserver les captures automatiques", historyLimit: "Images à conserver (1–100)",
+    off: "Désactivé", changes: "Changements et états indéterminés", all: "Toutes les analyses",
+    refreshHistory: "Actualiser", emptyHistory: "Aucune capture automatique enregistrée.", correct: "Corriger l’état",
     preview: "Aperçu",
     references: "Références",
     settings: "Réglages",

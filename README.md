@@ -1,6 +1,6 @@
 # Image Lab pour Home Assistant
 
-Image Lab est une intégration Home Assistant pour comparer des images à des références et en extraire une palette de couleurs. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans le panneau Image Lab et peut être lancée à la demande dans une automatisation. Les images sont traitées localement par Home Assistant.
+Image Lab est une intégration Home Assistant pour comparer des images à des références, en extraire une palette de couleurs et détecter des objets. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans le panneau Image Lab et peut être lancée à la demande dans une automatisation. Les images sont traitées localement par Home Assistant.
 
 ## Installation via HACS
 
@@ -18,17 +18,19 @@ Le panneau et les appels manuels à l’action sont réservés aux administrateu
 - Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
 - Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages**, vérifier le rectangle et sélectionner **Enregistrer**.
 
-## Première version
+## Outils disponibles
 
 | Outil | Ce qu’on configure | Ce que l’analyse renvoie |
 | --- | --- | --- |
 | **Comparaison d’images** | Une source, une zone facultative, des états nommés et plusieurs images de référence par état | L’état reconnu ou `unknown`, les distances par état et la référence la plus proche |
 | **Extraction de palette** | Une source et le nombre de couleurs demandé | Une couleur dominante et la palette RGB, utilisables dans une automatisation |
+| **Détection d’objets** | Une capture caméra ou une image importée, des catégories et un seuil de confiance | La présence, le nombre par catégorie, le score et le rectangle de chaque objet détecté |
 
 Exemples d’usage :
 
 - Déterminer si un volet de piscine est ouvert, fermé ou intermédiaire à partir d’une capture caméra. Les références prises de jour et de nuit peuvent appartenir au même état.
 - Extraire les couleurs de la pochette d’un lecteur multimédia et transmettre la palette à l’automatisation qui pilote les lumières.
+- Vérifier la présence d’une personne, d’un chien ou d’un véhicule dans une capture prise au déclenchement d’une automatisation.
 
 Les sources disponibles sont une **capture de caméra Home Assistant**, la **pochette d’un lecteur multimédia** ou une **image importée**. Le panneau propose les sources que l’outil sélectionné sait utiliser.
 
@@ -54,6 +56,14 @@ Pour migrer les références Pyscript, choisir **Importer les dossiers par état
 2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
 3. Pour modifier le nombre de couleurs, ouvrir **Gérer les analyses** et reconfigurer l’analyse.
 
+### Détecter des objets
+
+1. Créer une analyse **Détection d’objets** et choisir une caméra ou importer une image.
+2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
+3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Gérer les analyses** et reconfigurer l’analyse.
+
+NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
+
 ## Architecture
 
 ```mermaid
@@ -65,6 +75,7 @@ flowchart TD
     Runner --> Tools["Modules d’analyse"]
     Tools --> Compare["Comparaison"]
     Tools --> Palette["Palette"]
+    Tools --> Objects["Détection d’objets"]
 ```
 
 Une intégration `custom_components/image_lab` regroupe le backend Python et le panneau TypeScript. Chaque analyse dispose d’un identifiant stable et d’une entrée de configuration Home Assistant avec sa source et ses options. Renommer l’analyse conserve son identifiant. Le panneau est enregistré une seule fois pour l’intégration.
@@ -100,6 +111,15 @@ La palette renvoie `data.dominant_rgb`, `data.dominant_hex`, `data.palette_rgb` 
 
 Dans une automatisation à cinq couleurs qui appelait le Pyscript, conserver la taille par défaut, remplacer l’appel par `image_lab.analyze` et lire `analysis.data.palette_rgb` après avoir vérifié `analysis.status == 'ok'`.
 
+La détection d’objets renvoie `data.detected`, `data.count`, `data.counts` et `data.objects`. Chaque objet contient `label` (identifiant COCO, par exemple `person` ou `traffic_light`), `confidence` (de 0 à 1) et `box` (`x_min`, `y_min`, `x_max`, `y_max` entre 0 et 1, par rapport à l’image orientée). Une image sans détection donne `status: ok` et `data.count: 0`. La réponse contient au plus les 100 détections les plus fiables et indique `data.truncated: true` si cette limite est atteinte et d’autres objets ont été détectés.
+
+Après l’appel à `image_lab.analyze`, cette condition vérifie la présence d’une personne.
+
+```yaml
+- condition: template
+  value_template: "{{ analysis.status == 'ok' and analysis.data.counts.get('person', 0) > 0 }}"
+```
+
 ## Plan de réalisation
 
 | Étape | Travail | Critère de validation |
@@ -115,7 +135,6 @@ La plateforme de validation de la première version est **Home Assistant OS x86�
 
 | Évolution | Approche |
 | --- | --- |
-| **Détection d’objets sur image fixe** | Ajouter un module qui analyse un JPEG à la demande, filtre les catégories et les scores, puis renvoie la présence, le nombre et les rectangles des objets. Premier candidat : NanoDet-Plus 416 × 416 avec `ncnn`, Pillow et NumPy. |
 | **Lecture de compteurs mécaniques** | Évaluer `tarsius` pour lire les rouleaux et aiguilles. L’éditeur définit les zones et la rotation. Le module conserve la dernière lecture acceptée et contrôle la cohérence des nouvelles valeurs avant de publier un capteur Énergie. Un test de réglage ne valide pas une nouvelle valeur. |
 | **Reconnaissance d’un objet précis** | Recadrer l’objet détecté, puis comparer ce recadrage à plusieurs exemples annotés sous des angles différents. Évaluer les faux positifs sur des objets similaires et prévoir une identité inconnue. |
 | **Comparaison plus robuste** | Utiliser le comparatif Pillow/Tarsius avec des captures de jour, de nuit et des scènes ambiguës pour mesurer les erreurs et la latence avant de choisir un moteur par défaut. |
@@ -125,7 +144,7 @@ La plateforme de validation de la première version est **Home Assistant OS x86�
 
 Un prototype NanoDet-Plus 416 × 416 a fonctionné dans l’image officielle de **Core 2026.10.4 x86‑64**, sur CPU, avec `ncnn` et sans OpenCV. Le modèle converti pèse **2,42 Mo**. Une action Home Assistant a récupéré un JPEG via une caméra alimentée par un fichier de test et renvoyé les détections. Sur un AMD EPYC, la médiane de 30 analyses était de **26,5 ms** sur un thread, décodage et traitement des résultats compris.
 
-Avant d’intégrer ce module, mesurer la latence sur un Intel N100 et vérifier la détection sur de vraies captures de caméra, de jour et de nuit. Vérifier également les conditions de redistribution des poids retenus et choisir leur mode de distribution. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Paquet Python ncnn](https://pypi.org/project/ncnn/) · [Tarsius](https://github.com/RaHehl/tarsius)
+La mesure sur Intel N100 et la validation sur des captures de jour et de nuit restent à faire. [Paquet Python ncnn](https://pypi.org/project/ncnn/)
 
 ## Développer le panneau
 

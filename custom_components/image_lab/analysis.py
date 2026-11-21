@@ -13,15 +13,19 @@ from .comparison_store import get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
+    CONF_OBJECT_CONFIDENCE,
+    CONF_OBJECT_LABELS,
     CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
     CONF_SOURCE_TYPE,
+    DEFAULT_OBJECT_CONFIDENCE,
     DEFAULT_PALETTE_SIZE,
     DOMAIN,
     SourceType,
 )
 from .images import ImageError, ImageFrame, async_get_frame
 from .models import ModuleResult
+from .object_detection import ObjectDetector
 from .palette import extract_palette
 
 
@@ -51,6 +55,25 @@ async def _async_compare(
     )
 
 
+async def _async_detect_objects(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    frame: ImageFrame | None,
+    reference_id: str | None,
+    settings: Settings | None,
+) -> tuple[ModuleResult, ImageFrame]:
+    assert frame is not None
+    key = f"{DOMAIN}.object_detector"
+    if key not in hass.data:
+        hass.data[key] = ObjectDetector()
+    return await hass.data[key].async_detect(
+        hass,
+        frame,
+        entry.data.get(CONF_OBJECT_LABELS, []),
+        entry.data.get(CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE),
+    )
+
+
 @dataclass(frozen=True)
 class AnalysisModule:
     """Sources and image processor for a configured module."""
@@ -67,6 +90,9 @@ MODULES = {
         (SourceType.CAMERA, SourceType.UPLOAD), _async_compare
     ),
     "palette": AnalysisModule(tuple(SourceType), _async_palette),
+    "object_detection": AnalysisModule(
+        (SourceType.CAMERA, SourceType.UPLOAD), _async_detect_objects
+    ),
 }
 
 

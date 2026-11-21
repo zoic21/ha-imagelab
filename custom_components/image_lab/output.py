@@ -39,6 +39,26 @@ BINARY_CLASSES = (
 )
 
 
+def scheduled_frame(
+    hass: HomeAssistant, camera: str | None
+) -> asyncio.Task[ImageFrame]:
+    """Share an acquisition in progress without reusing a previously captured frame."""
+    pending = hass.data.setdefault(f"{DOMAIN}.camera_frames", {})
+    task = pending.get(camera)
+    if task is None or task.done():
+        task = hass.async_create_task(
+            async_get_frame(hass, SourceType.CAMERA, camera, "")
+        )
+        pending[camera] = task
+
+        def release(completed: asyncio.Task[ImageFrame]) -> None:
+            if pending.get(camera) is completed:
+                del pending[camera]
+
+        task.add_done_callback(release)
+    return task
+
+
 class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     """Serialize manual and scheduled analyses, retaining only their response."""
 
@@ -51,6 +71,9 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         )
         self.unique_id = f"{entry.entry_id}_{kind}"
         self.analysis_lock = asyncio.Lock()
+        self._retained: ServiceResponse | None = None
+        self._unloaded = asyncio.Event()
+        entry.async_on_unload(self._unloaded.set)
         super().__init__(
             hass,
             _LOGGER,
@@ -59,19 +82,90 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             update_interval=None,
         )
 
+    @property
+    def entity_response(self) -> ServiceResponse | None:
+        """Keep a rejected transition out of the entity while returning the observation."""
+        return self._retained if self._retained is not None else self.data
+
+    def _state_key(self, response: ServiceResponse | None) -> str | int | bool | None:
+        if not response or response["status"] != "ok":
+            return None
+        data = response["data"]
+        if self.kind in ("binary", "enum"):
+            state = data.get("state_id")
+            if self.kind == "binary" and state not in (
+                self.config_entry.options["on_state"],
+                self.config_entry.options["off_state"],
+            ):
+                return None
+            return state
+        if self.kind == "count":
+            return None if data.get("truncated") else data.get("count")
+        return data.get("detected" if self.kind == "occupancy" else "dominant_hex")
+
+    async def _measure(
+        self, frame: asyncio.Task[ImageFrame] | None = None
+    ) -> ServiceResponse:
+        entry = self.config_entry
+        first = (
+            await async_analyze(self.hass, entry.entry_id, scheduled_capture=frame)
+        ).response
+        delay = entry.options.get("confirmation_seconds", 0)
+        previous = self.entity_response
+        candidate = self._state_key(first)
+        baseline = self._state_key(previous)
+        if (
+            not delay
+            or entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA
+            or candidate is None
+            or baseline is None
+            or candidate == baseline
+        ):
+            self._retained = None
+            return first
+
+        # Unloading the profile wakes the delay without taking another snapshot.
+        try:
+            await asyncio.wait_for(self._unloaded.wait(), delay)
+        except TimeoutError:
+            pass
+        if self._unloaded.is_set():
+            return {
+                **first,
+                "status": "error",
+                "data": {},
+                "reason": "profile_unavailable",
+            }
+
+        confirmation_frame = None
+        if frame is not None:
+            camera = resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID])
+            confirmation_frame = scheduled_frame(self.hass, camera)
+        second = (
+            await async_analyze(
+                self.hass, entry.entry_id, scheduled_capture=confirmation_frame
+            )
+        ).response
+        if second["status"] == "error":
+            self._retained = None
+            return {**second, "confirmation": "failed"}
+        if self._state_key(second) != candidate:
+            self._retained = previous
+            return {**second, "confirmation": "disagreed"}
+        self._retained = None
+        return {**second, "confirmation": "confirmed"}
+
     async def _async_update_data(self) -> ServiceResponse:
         async with self.analysis_lock:
-            return (await async_analyze(self.hass, self.config_entry.entry_id)).response
+            return await self._measure()
 
     async def async_process_capture(self, frame: asyncio.Task[ImageFrame]) -> None:
         async with self.analysis_lock:
-            if getattr(self.config_entry, "runtime_data", None) is not self:
+            if self._unloaded.is_set():
                 return
-            result = await async_analyze(
-                self.hass, self.config_entry.entry_id, scheduled_capture=frame
-            )
-            if getattr(self.config_entry, "runtime_data", None) is self:
-                self.async_set_updated_data(result.response)
+            response = await self._measure(frame)
+            if not self._unloaded.is_set():
+                self.async_set_updated_data(response)
 
 
 class CameraSchedule:
@@ -80,7 +174,7 @@ class CameraSchedule:
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self.profiles: dict[OutputCoordinator, int] = {}
-        self.active: set[str] = set()
+        self.active: set[OutputCoordinator] = set()
         self.minute = 0
         self.cancel: Callable[[], None] | None = None
 
@@ -117,25 +211,25 @@ class CameraSchedule:
         )
 
     async def _run(self, camera: str, group: list[OutputCoordinator]) -> None:
-        group = [c for c in group if c in self.profiles]
-        if camera in self.active or not group:
+        group = [c for c in group if c in self.profiles and c not in self.active]
+        if not group:
             return
-        self.active.add(camera)
-        try:
-            frame = self.hass.async_create_task(
-                async_get_frame(self.hass, SourceType.CAMERA, camera, "")
-            )
-            jobs = [c.async_process_capture(frame) for c in group]
-            # Consume the acquisition exception even if all entries unload mid-capture.
-            results = await asyncio.gather(frame, *jobs, return_exceptions=True)
-            for coordinator, result in zip(group, results[1:]):
-                if isinstance(result, Exception):
-                    coordinator.async_set_update_error(result)
-                    _LOGGER.error(
-                        "Zone analysis failed for %s", coordinator.name, exc_info=result
-                    )
-        finally:
-            self.active.discard(camera)
+        frame = scheduled_frame(self.hass, camera)
+        self.active.update(group)
+
+        async def process(coordinator: OutputCoordinator) -> None:
+            try:
+                await coordinator.async_process_capture(frame)
+            except Exception as err:
+                coordinator.async_set_update_error(err)
+                _LOGGER.exception("Zone analysis failed for %s", coordinator.name)
+            finally:
+                self.active.discard(coordinator)
+
+        # Consume the acquisition exception even when every profile unloads first.
+        await asyncio.gather(
+            frame, *(process(c) for c in group), return_exceptions=True
+        )
 
 
 class OutputEntity(CoordinatorEntity[OutputCoordinator]):
@@ -164,10 +258,10 @@ class OutputEntity(CoordinatorEntity[OutputCoordinator]):
 
     @property
     def available(self) -> bool:
-        response = self.coordinator.data
+        response = self.coordinator.entity_response
         return super().available and (response is None or response["status"] != "error")
 
     @property
     def result(self) -> dict:
-        response = self.coordinator.data
+        response = self.coordinator.entity_response
         return response["data"] if response and response["status"] == "ok" else {}

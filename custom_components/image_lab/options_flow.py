@@ -50,11 +50,28 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
                     unit_of_measurement="min",
                 )
             )
+            fields[
+                probatio.Required(
+                    "confirmation_seconds",
+                    default=entry.options.get("confirmation_seconds", 0),
+                )
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=60,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            )
         errors = {}
         if user_input is not None:
             kind = user_input["output"]
             minutes = user_input.get("interval_minutes", 0) if camera else 0
-            if (
+            delay = user_input.get("confirmation_seconds", 0) if camera else 0
+            if not float(delay).is_integer() or not 0 <= delay <= 60:
+                errors["confirmation_seconds"] = "invalid_delay"
+            elif (
                 minutes < 0
                 or not float(minutes).is_integer()
                 or minutes >= timedelta.max.days * 1440
@@ -67,6 +84,8 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
                     return self.async_create_entry(data={})
             else:
                 self._output = {"output": kind, "interval_minutes": int(minutes)}
+                if camera:
+                    self._output["confirmation_seconds"] = int(delay)
                 if kind != "binary":
                     return self.async_create_entry(data=self._output)
                 return await self.async_step_mapping()

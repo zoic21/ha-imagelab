@@ -71,7 +71,7 @@ def test_history_write_error_does_not_leave_an_original(tmp_path):
 def test_same_camera_and_different_schedules_share_due_frames():
     async def run():
         source = two_colors()
-        hass = SimpleNamespace(async_create_task=asyncio.create_task)
+        hass = SimpleNamespace(async_create_task=asyncio.create_task, data={})
         schedule = output.CameraSchedule(hass)
         groups = []
         for minutes, x in ((1, 0.0), (2, 0.5)):

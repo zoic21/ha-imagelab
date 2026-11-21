@@ -212,10 +212,12 @@
         "title": "Entité de résultat et planification",
         "data": {
           "output": "Entité de résultat",
-          "interval_minutes": "Intervalle entre les captures"
+          "interval_minutes": "Intervalle entre les captures",
+          "confirmation_seconds": "Délai de confirmation d’un changement"
         },
         "data_description": {
-          "interval_minutes": "Indiquez 0 pour une mise à jour manuelle. Un intervalle positif lance l’analyse avec les réglages enregistrés, même lorsque le panneau est fermé."
+          "interval_minutes": "Indiquez 0 pour une mise à jour manuelle. Un intervalle positif lance l’analyse avec les réglages enregistrés, même lorsque le panneau est fermé.",
+          "confirmation_seconds": "De 1 à 60 secondes avant une seconde capture. Le changement est publié si les deux résultats concordent. 0 désactive la confirmation."
         }
       },
       "mapping": {
@@ -232,7 +234,8 @@
       "invalid_interval": "Saisissez un nombre entier de minutes supérieur ou égal à zéro.",
       "select_output": "Choisissez une entité de résultat ou réglez l’intervalle sur zéro.",
       "different_states": "Choisissez deux états différents.",
-      "state_removed": "Un état a été supprimé. Vérifiez les associations."
+      "state_removed": "Un état a été supprimé. Vérifiez les associations.",
+      "invalid_delay": "Saisissez un nombre entier de secondes entre 0 et 60."
     },
     "abort": {
       "need_two_states": "Créez au moins deux états dans Image Lab → Références, puis configurez à nouveau l’entité.",

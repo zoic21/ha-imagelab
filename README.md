@@ -52,6 +52,10 @@ Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Référe
 
 Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
 
+Dans les options d’un profil caméra, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible. Les aperçus et les images de validation restent des essais indépendants.
+
+L’action renvoie la dernière observation et, lorsqu’une seconde capture a été demandée, le champ `confirmation` vaut `confirmed`, `disagreed` ou `failed`. Les deux prises de vue automatiques suivent les réglages d’historique du profil.
+
 ### Suivre plusieurs zones sur une caméra
 
 Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.

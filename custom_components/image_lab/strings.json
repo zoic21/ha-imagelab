@@ -212,10 +212,12 @@
         "title": "Result entity and schedule",
         "data": {
           "output": "Result entity",
-          "interval_minutes": "Camera interval"
+          "interval_minutes": "Camera interval",
+          "confirmation_seconds": "Delay before confirming a change"
         },
         "data_description": {
-          "interval_minutes": "Use 0 for manual updates only. A positive interval runs the analysis with the saved settings, even when the panel is closed."
+          "interval_minutes": "Use 0 for manual updates only. A positive interval runs the analysis with the saved settings, even when the panel is closed.",
+          "confirmation_seconds": "Wait 1–60 seconds before taking a second snapshot. Publish the change when both results agree. Set to 0 to disable."
         }
       },
       "mapping": {
@@ -232,7 +234,8 @@
       "invalid_interval": "Enter a whole number of minutes, zero or greater.",
       "select_output": "Select a result entity or set the interval to zero.",
       "different_states": "Choose two different states.",
-      "state_removed": "A state was removed. Select the mapping again."
+      "state_removed": "A state was removed. Select the mapping again.",
+      "invalid_delay": "Enter a whole number of seconds from 0 to 60."
     },
     "abort": {
       "need_two_states": "Create at least two states in Image Lab → References, then configure the entity again.",

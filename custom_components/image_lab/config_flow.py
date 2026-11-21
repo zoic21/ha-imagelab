@@ -222,6 +222,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     options.clear()
                 elif options and source is not SourceType.CAMERA:
                     options["interval_minutes"] = 0
+                    options.pop("confirmation_seconds", None)
                 return self.async_update_reload_and_abort(
                     self._entry,
                     title=self._title,

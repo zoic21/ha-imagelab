@@ -26,7 +26,7 @@ class ImageLabSensor(OutputEntity, SensorEntity):
     def options(self) -> list[str] | None:
         if self.coordinator.kind != "enum":
             return None
-        response = self.coordinator.data
+        response = self.coordinator.entity_response
         return list(response["data"].get("ref_counts", {})) if response else []
 
     @property

@@ -119,6 +119,7 @@ def async_subscribe_profiles(
         profiles = [
             {
                 CONF_PROFILE_ID: entry.entry_id,
+                "modified_at": entry.modified_at.isoformat(),
                 "title": entry.title,
                 CONF_MODULE: entry.data[CONF_MODULE],
                 CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
@@ -175,6 +176,24 @@ class ImageLabPreviewView(HomeAssistantView):
             headers["X-Image-Lab-Palette-Rgb"] = dumps(
                 result.response["data"]["palette_rgb"], separators=(",", ":")
             )
+        elif result.response[CONF_MODULE] == "object_detection":
+            # Compact rows keep the preview header below HTTP field-size limits.
+            data = result.response["data"]
+            headers["X-Image-Lab-Objects"] = dumps(
+                [
+                    [
+                        item["label"],
+                        item["confidence"],
+                        *(
+                            item["box"][key]
+                            for key in ("x_min", "y_min", "x_max", "y_max")
+                        ),
+                    ]
+                    for item in data["objects"]
+                ],
+                separators=(",", ":"),
+            )
+            headers["X-Image-Lab-Objects-Truncated"] = "1" if data["truncated"] else "0"
         return web.Response(
             body=result.frame.content,
             content_type=result.frame.content_type,

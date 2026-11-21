@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors."
+          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors. Object detection identifies categories of objects."
         }
       },
       "reconfigure": {
@@ -26,10 +26,14 @@
         "title": "Image source",
         "data": {
           "source_type": "Source",
-          "palette_size": "Number of colors"
+          "palette_size": "Number of colors",
+          "object_confidence": "Confidence threshold",
+          "object_labels": "Object categories"
         },
         "data_description": {
-          "palette_size": "From 1 to 10. Available colors are repeated to fill the palette if needed."
+          "palette_size": "From 1 to 10. Available colors are repeated to fill the palette if needed.",
+          "object_confidence": "From 5 to 100%. Defaults to 40%.",
+          "object_labels": "Leave empty to detect all categories."
         }
       },
       "select_entity": {
@@ -60,7 +64,8 @@
       "invalid_image": "Select a valid still JPEG, PNG or WebP image.",
       "image_too_large": "The image exceeds 10 MiB or 24 megapixels.",
       "profile_not_found": "This analysis has been removed.",
-      "storage_error": "The image could not be saved."
+      "storage_error": "The image could not be saved.",
+      "invalid_object_confidence": "Enter a whole percentage from 5 to 100."
     },
     "abort": {
       "profile_not_found": "This analysis has been removed."
@@ -70,7 +75,8 @@
     "module": {
       "options": {
         "comparison": "Image comparison",
-        "palette": "Color palette"
+        "palette": "Color palette",
+        "object_detection": "Object detection"
       }
     },
     "source_type": {
@@ -78,6 +84,90 @@
         "camera": "Camera snapshot",
         "media_player": "Media player artwork",
         "upload": "Imported image"
+      }
+    },
+    "object_labels": {
+      "options": {
+        "person": "Person",
+        "bicycle": "Bicycle",
+        "car": "Car",
+        "motorcycle": "Motorcycle",
+        "airplane": "Airplane",
+        "bus": "Bus",
+        "train": "Train",
+        "truck": "Truck",
+        "boat": "Boat",
+        "traffic_light": "Traffic light",
+        "fire_hydrant": "Fire hydrant",
+        "stop_sign": "Stop sign",
+        "parking_meter": "Parking meter",
+        "bench": "Bench",
+        "bird": "Bird",
+        "cat": "Cat",
+        "dog": "Dog",
+        "horse": "Horse",
+        "sheep": "Sheep",
+        "cow": "Cow",
+        "elephant": "Elephant",
+        "bear": "Bear",
+        "zebra": "Zebra",
+        "giraffe": "Giraffe",
+        "backpack": "Backpack",
+        "umbrella": "Umbrella",
+        "handbag": "Handbag",
+        "tie": "Tie",
+        "suitcase": "Suitcase",
+        "frisbee": "Frisbee",
+        "skis": "Skis",
+        "snowboard": "Snowboard",
+        "sports_ball": "Sports ball",
+        "kite": "Kite",
+        "baseball_bat": "Baseball bat",
+        "baseball_glove": "Baseball glove",
+        "skateboard": "Skateboard",
+        "surfboard": "Surfboard",
+        "tennis_racket": "Tennis racket",
+        "bottle": "Bottle",
+        "wine_glass": "Wine glass",
+        "cup": "Cup",
+        "fork": "Fork",
+        "knife": "Knife",
+        "spoon": "Spoon",
+        "bowl": "Bowl",
+        "banana": "Banana",
+        "apple": "Apple",
+        "sandwich": "Sandwich",
+        "orange": "Orange",
+        "broccoli": "Broccoli",
+        "carrot": "Carrot",
+        "hot_dog": "Hot dog",
+        "pizza": "Pizza",
+        "donut": "Donut",
+        "cake": "Cake",
+        "chair": "Chair",
+        "couch": "Couch",
+        "potted_plant": "Potted plant",
+        "bed": "Bed",
+        "dining_table": "Dining table",
+        "toilet": "Toilet",
+        "tv": "TV",
+        "laptop": "Laptop",
+        "mouse": "Mouse",
+        "remote": "Remote",
+        "keyboard": "Keyboard",
+        "cell_phone": "Cell phone",
+        "microwave": "Microwave",
+        "oven": "Oven",
+        "toaster": "Toaster",
+        "sink": "Sink",
+        "refrigerator": "Refrigerator",
+        "book": "Book",
+        "clock": "Clock",
+        "vase": "Vase",
+        "scissors": "Scissors",
+        "teddy_bear": "Teddy bear",
+        "hair_drier": "Hair drier",
+        "toothbrush": "Toothbrush"
       }
     }
   },

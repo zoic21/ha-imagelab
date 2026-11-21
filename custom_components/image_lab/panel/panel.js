@@ -20,6 +20,15 @@ const strings = {
         dominant: "Dominant color",
         comparison: "Image comparison",
         palette: "Color palette",
+        object_detection: "Object detection",
+        detecting: "Analyzing image…",
+        noObjects: "No objects detected.",
+        objectFound: "1 object detected",
+        objectsFound: "objects detected",
+        objectLimit: "Showing the objects with the highest confidence.",
+        object_engine_unavailable: "Could not load the ncnn detection engine.",
+        object_model_unavailable: "Could not download or load the NanoDet model. Check the connection and try again.",
+        object_detection_failed: "Could not detect objects in this image.",
         camera: "Camera snapshot",
         media_player: "Media player artwork",
         upload: "Imported image",
@@ -54,6 +63,15 @@ const strings = {
         dominant: "Couleur dominante",
         comparison: "Comparaison d’images",
         palette: "Palette de couleurs",
+        object_detection: "Détection d’objets",
+        detecting: "Analyse de l’image…",
+        noObjects: "Aucun objet détecté.",
+        objectFound: "1 objet détecté",
+        objectsFound: "objets détectés",
+        objectLimit: "Seuls les objets les plus fiables sont affichés.",
+        object_engine_unavailable: "Impossible de charger le moteur de détection ncnn.",
+        object_model_unavailable: "Impossible de télécharger ou de charger le modèle NanoDet. Vérifiez la connexion et réessayez.",
+        object_detection_failed: "Impossible de détecter les objets sur cette image.",
         camera: "Capture de caméra",
         media_player: "Pochette du lecteur multimédia",
         upload: "Image importée",
@@ -107,10 +125,29 @@ template.innerHTML = `
     .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
     code { overflow-wrap: anywhere; }
     figure { margin: 16px 0 0; }
+    #imageStage { position: relative; --preview-height: min(55dvh, 520px); }
+    #imageStage.with-objects {
+      width: min(100%, calc(var(--preview-height) * var(--image-aspect)));
+      margin-inline: auto; overflow: hidden;
+      border-radius: var(--ha-border-radius-md, 8px);
+    }
     img {
-      display: block; width: 100%; max-height: min(55dvh, 520px); object-fit: contain;
+      display: block; width: 100%; max-height: var(--preview-height); object-fit: contain;
       background: var(--secondary-background-color); border-radius: var(--ha-border-radius-md, 8px);
     }
+    #objectsOverlay { position: absolute; inset: 0; pointer-events: none; }
+    .object-box {
+      position: absolute; box-sizing: border-box; border: 2px solid white;
+      box-shadow: 0 0 0 1px #131a22, inset 0 0 0 1px #131a22;
+    }
+    .object-box span {
+      position: absolute; top: 0; left: 0; padding: 1px 5px; white-space: nowrap;
+      font-size: 11px; line-height: 1.5; color: white; background: #131a22;
+    }
+    #objectList {
+      display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px;
+    }
+    #objectList li { margin: 0; }
     figcaption, ha-alert { margin-top: 8px; }
     #palette { margin-top: 16px; }
     #paletteTitle { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
@@ -162,9 +199,13 @@ template.innerHTML = `
             <ul id="swatches"></ul>
           </section>
           <figure id="preview" hidden>
-            <img id="image" />
+            <div id="imageStage">
+              <img id="image" />
+              <div id="objectsOverlay" aria-hidden="true"></div>
+            </div>
             <figcaption id="dimensions" class="secondary"></figcaption>
           </figure>
+          <ul id="objectList" hidden></ul>
           <div id="comparisonSlot"></div>
         </div>
       </section>
@@ -240,6 +281,7 @@ class ImageLabPanel extends HTMLElement {
             if (previous && (!current || previous.module !== current.module ||
                 previous.source_type !== current.source_type || previous.entity_id !== current.entity_id ||
                 previous.palette_size !== current.palette_size ||
+                (current.module === "object_detection" && previous.modified_at !== current.modified_at) ||
                 previous.available !== current.available)) {
                 this.clearTest();
             }
@@ -279,6 +321,10 @@ class ImageLabPanel extends HTMLElement {
         this.element("swatches").replaceChildren();
         this.element("preview").hidden = true;
         this.element("image").removeAttribute("src");
+        this.element("imageStage").classList.remove("with-objects");
+        this.element("objectsOverlay").replaceChildren();
+        this.element("objectList").replaceChildren();
+        this.element("objectList").hidden = true;
         if (this.previewUrl)
             URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = undefined;
@@ -390,6 +436,35 @@ class ImageLabPanel extends HTMLElement {
         this.element("swatches").replaceChildren(...swatches);
         this.element("palette").hidden = false;
     }
+    showObjects(objects, truncated, resources, language) {
+        const list = [];
+        const boxes = objects.map(([label, score, xMin, yMin, xMax, yMax]) => {
+            const name = resources[`component.image_lab.selector.object_labels.options.${label}`]
+                ?? label.replaceAll("_", " ");
+            const confidence = score.toLocaleString(language, { style: "percent" });
+            const box = document.createElement("div");
+            box.className = "object-box";
+            box.style.left = `${xMin * 100}%`;
+            box.style.top = `${yMin * 100}%`;
+            box.style.width = `${(xMax - xMin) * 100}%`;
+            box.style.height = `${(yMax - yMin) * 100}%`;
+            const caption = document.createElement("span");
+            caption.textContent = name;
+            box.append(caption);
+            const item = document.createElement("li");
+            item.textContent = `${name} · ${confidence}`;
+            list.push(item);
+            return box;
+        });
+        this.element("objectsOverlay").replaceChildren(...boxes);
+        const results = this.element("objectList");
+        results.replaceChildren(...list);
+        results.hidden = !objects.length;
+        const count = objects.length;
+        const summary = count === 0 ? this.strings.noObjects :
+            count === 1 ? this.strings.objectFound : `${count} ${this.strings.objectsFound}`;
+        return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
+    }
     async test() {
         const profile = this.selected;
         const hass = this._hass;
@@ -400,7 +475,9 @@ class ImageLabPanel extends HTMLElement {
         this.activeTest = controller;
         this.element("test").setAttribute("disabled", "");
         const status = this.element("status");
-        status.textContent = this.strings.testing;
+        const isDetection = profile.module === "object_detection";
+        status.textContent = isDetection ? this.strings.detecting : this.strings.testing;
+        let summary = "";
         try {
             const response = await hass.fetchWithAuth(`/api/image_lab/preview/${encodeURIComponent(profile.profile_id)}`, { signal: controller.signal, cache: "no-store" });
             if (response.status === 422) {
@@ -416,16 +493,38 @@ class ImageLabPanel extends HTMLElement {
             const blob = await response.blob();
             if (controller.signal.aborted)
                 return;
-            const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
-            if (!colors?.length)
-                throw new Error("Preview response had no palette");
-            this.showPalette(colors);
+            const width = response.headers.get("X-Image-Lab-Width");
+            const height = response.headers.get("X-Image-Lab-Height");
+            if (isDetection) {
+                const objects = JSON.parse(response.headers.get("X-Image-Lab-Objects") ?? "null");
+                if (!Array.isArray(objects) || Number(width) <= 0 || Number(height) <= 0) {
+                    throw new Error("Preview response had no detection result");
+                }
+                const language = hass.locale.language;
+                const { resources } = objects.length
+                    ? await hass.connection.sendMessagePromise({
+                        type: "frontend/get_translations", language, category: "selector",
+                        integration: ["image_lab"],
+                    }).catch(() => ({ resources: {} }))
+                    : { resources: {} };
+                if (controller.signal.aborted)
+                    return;
+                const stage = this.element("imageStage");
+                stage.style.setProperty("--image-aspect", String(Number(width) / Number(height)));
+                stage.classList.add("with-objects");
+                summary = this.showObjects(objects, response.headers.get("X-Image-Lab-Objects-Truncated") === "1", resources, language);
+            }
+            else {
+                const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
+                if (!colors?.length)
+                    throw new Error("Preview response had no palette");
+                this.showPalette(colors);
+                summary = this.strings.paletteReady;
+            }
             this.previewUrl = URL.createObjectURL(blob);
             const image = this.element("image");
             image.src = this.previewUrl;
             image.alt = this.strings.preview;
-            const width = response.headers.get("X-Image-Lab-Width");
-            const height = response.headers.get("X-Image-Lab-Height");
             const format = blob.type.split("/")[1]?.toUpperCase();
             this.element("dimensions").textContent = `${width} × ${height} px · ${format}`;
             this.element("preview").hidden = false;
@@ -438,7 +537,7 @@ class ImageLabPanel extends HTMLElement {
             if (this.activeTest === controller) {
                 this.activeTest = undefined;
                 this.element("test").removeAttribute("disabled");
-                status.textContent = this.previewUrl ? this.strings.paletteReady : "";
+                status.textContent = this.previewUrl ? summary : "";
             }
         }
     }

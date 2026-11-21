@@ -20,16 +20,22 @@ from .const import (
     CONF_FILE,
     CONF_IMAGE_KEY,
     CONF_MODULE,
+    CONF_OBJECT_CONFIDENCE,
+    CONF_OBJECT_LABELS,
     CONF_PALETTE_SIZE,
     CONF_SOURCE_TYPE,
+    DEFAULT_OBJECT_CONFIDENCE,
     DEFAULT_PALETTE_SIZE,
     DOMAIN,
     IMAGE_TYPES,
+    MAX_OBJECT_CONFIDENCE,
     MAX_PALETTE_SIZE,
+    MIN_OBJECT_CONFIDENCE,
     MIN_PALETTE_SIZE,
     SourceType,
 )
 from .images import ImageError, get_image_storage
+from .object_detection import LABELS
 
 
 def _select(options: list[str], translation_key: str) -> selector.SelectSelector:
@@ -92,7 +98,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose a supported source and the palette size when applicable."""
+        """Choose a supported source and configure module-specific options."""
         module = self._settings[CONF_MODULE]
         sources = MODULES[module].sources
         previous = self._entry.data if self._entry else {}
@@ -123,6 +129,43 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 )
             )
+        if module == "object_detection":
+            default_confidence = previous.get(
+                CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE
+            )
+            default_labels = previous.get(CONF_OBJECT_LABELS, [])
+            fields[
+                probatio.Required(CONF_OBJECT_CONFIDENCE, default=default_confidence)
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_OBJECT_CONFIDENCE,
+                    max=MAX_OBJECT_CONFIDENCE,
+                    step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+            fields[probatio.Required(CONF_OBJECT_LABELS, default=default_labels)] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(LABELS),
+                        translation_key=CONF_OBJECT_LABELS,
+                        multiple=True,
+                        sort=True,
+                    )
+                )
+            )
+            if user_input is not None:
+                confidence = user_input.get(CONF_OBJECT_CONFIDENCE, default_confidence)
+                if (
+                    MIN_OBJECT_CONFIDENCE <= confidence <= MAX_OBJECT_CONFIDENCE
+                    and confidence % 1 == 0
+                ):
+                    self._settings[CONF_OBJECT_CONFIDENCE] = int(confidence)
+                else:
+                    errors[CONF_OBJECT_CONFIDENCE] = "invalid_object_confidence"
+                labels = user_input.get(CONF_OBJECT_LABELS, default_labels)
+                self._settings[CONF_OBJECT_LABELS] = list(dict.fromkeys(labels))
         if user_input is not None and not errors:
             self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
             return await self.async_step_image()

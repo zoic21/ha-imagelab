@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes."
+          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes. La détection identifie des catégories d’objets."
         }
       },
       "reconfigure": {
@@ -26,10 +26,14 @@
         "title": "Source de l’image",
         "data": {
           "source_type": "Source",
-          "palette_size": "Nombre de couleurs"
+          "palette_size": "Nombre de couleurs",
+          "object_confidence": "Seuil de confiance",
+          "object_labels": "Catégories d’objets"
         },
         "data_description": {
-          "palette_size": "De 1 à 10. Si nécessaire, les couleurs disponibles sont répétées pour compléter la palette."
+          "palette_size": "De 1 à 10. Si nécessaire, les couleurs disponibles sont répétées pour compléter la palette.",
+          "object_confidence": "De 5 à 100 %. La valeur par défaut est 40 %.",
+          "object_labels": "Laissez ce champ vide pour détecter toutes les catégories."
         }
       },
       "select_entity": {
@@ -60,7 +64,8 @@
       "invalid_image": "Choisissez une image fixe JPEG, PNG ou WebP valide.",
       "image_too_large": "L’image dépasse 10 Mio ou 24 mégapixels.",
       "profile_not_found": "Cette analyse a été supprimée.",
-      "storage_error": "Impossible d’enregistrer cette image."
+      "storage_error": "Impossible d’enregistrer cette image.",
+      "invalid_object_confidence": "Saisissez un pourcentage entier de 5 à 100."
     },
     "abort": {
       "profile_not_found": "Cette analyse a été supprimée."
@@ -70,7 +75,8 @@
     "module": {
       "options": {
         "comparison": "Comparaison d’images",
-        "palette": "Palette de couleurs"
+        "palette": "Palette de couleurs",
+        "object_detection": "Détection d’objets"
       }
     },
     "source_type": {
@@ -78,6 +84,90 @@
         "camera": "Capture de caméra",
         "media_player": "Pochette du lecteur multimédia",
         "upload": "Image importée"
+      }
+    },
+    "object_labels": {
+      "options": {
+        "person": "Personne",
+        "bicycle": "Vélo",
+        "car": "Voiture",
+        "motorcycle": "Moto",
+        "airplane": "Avion",
+        "bus": "Bus",
+        "train": "Train",
+        "truck": "Camion",
+        "boat": "Bateau",
+        "traffic_light": "Feu de circulation",
+        "fire_hydrant": "Borne d’incendie",
+        "stop_sign": "Panneau stop",
+        "parking_meter": "Parcmètre",
+        "bench": "Banc",
+        "bird": "Oiseau",
+        "cat": "Chat",
+        "dog": "Chien",
+        "horse": "Cheval",
+        "sheep": "Mouton",
+        "cow": "Vache",
+        "elephant": "Éléphant",
+        "bear": "Ours",
+        "zebra": "Zèbre",
+        "giraffe": "Girafe",
+        "backpack": "Sac à dos",
+        "umbrella": "Parapluie",
+        "handbag": "Sac à main",
+        "tie": "Cravate",
+        "suitcase": "Valise",
+        "frisbee": "Frisbee",
+        "skis": "Skis",
+        "snowboard": "Snowboard",
+        "sports_ball": "Ballon",
+        "kite": "Cerf-volant",
+        "baseball_bat": "Batte de baseball",
+        "baseball_glove": "Gant de baseball",
+        "skateboard": "Skateboard",
+        "surfboard": "Planche de surf",
+        "tennis_racket": "Raquette de tennis",
+        "bottle": "Bouteille",
+        "wine_glass": "Verre à vin",
+        "cup": "Tasse",
+        "fork": "Fourchette",
+        "knife": "Couteau",
+        "spoon": "Cuillère",
+        "bowl": "Bol",
+        "banana": "Banane",
+        "apple": "Pomme",
+        "sandwich": "Sandwich",
+        "orange": "Orange",
+        "broccoli": "Brocoli",
+        "carrot": "Carotte",
+        "hot_dog": "Hot-dog",
+        "pizza": "Pizza",
+        "donut": "Donut",
+        "cake": "Gâteau",
+        "chair": "Chaise",
+        "couch": "Canapé",
+        "potted_plant": "Plante en pot",
+        "bed": "Lit",
+        "dining_table": "Table à manger",
+        "toilet": "Toilettes",
+        "tv": "Télévision",
+        "laptop": "Ordinateur portable",
+        "mouse": "Souris d’ordinateur",
+        "remote": "Télécommande",
+        "keyboard": "Clavier",
+        "cell_phone": "Téléphone portable",
+        "microwave": "Micro-ondes",
+        "oven": "Four",
+        "toaster": "Grille-pain",
+        "sink": "Évier",
+        "refrigerator": "Réfrigérateur",
+        "book": "Livre",
+        "clock": "Horloge",
+        "vase": "Vase",
+        "scissors": "Ciseaux",
+        "teddy_bear": "Ours en peluche",
+        "hair_drier": "Sèche-cheveux",
+        "toothbrush": "Brosse à dents"
       }
     }
   },

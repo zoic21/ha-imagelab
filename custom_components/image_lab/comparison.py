@@ -3,7 +3,7 @@
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from PIL import Image, ImageChops, ImageOps, ImageStat
 from PIL.ImageFilter import GaussianBlur
@@ -27,6 +27,7 @@ class Region(TypedDict):
 class Settings(TypedDict):
     """Image comparison parameters."""
 
+    engine: NotRequired[Literal["pillow", "tarsius"]]
     region: Region | None
     max_distance: float
     min_margin: float

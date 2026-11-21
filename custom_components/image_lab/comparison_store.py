@@ -14,6 +14,7 @@ from PIL import Image, ImageOps
 
 from .comparison import ComparisonData, Settings, compare
 from .comparison_benchmark import run_benchmark
+from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, read_image_file, read_upload, validate_image
 from .models import ModuleResult
@@ -50,7 +51,12 @@ class ComparisonStore:
                 stored = json.load(file)
         except FileNotFoundError:
             return {
-                "settings": {"region": None, "max_distance": 25.0, "min_margin": 3.0},
+                "settings": {
+                    "engine": "pillow",
+                    "region": None,
+                    "max_distance": 25.0,
+                    "min_margin": 3.0,
+                },
                 "states": [],
                 "references": [],
             }
@@ -63,6 +69,11 @@ class ComparisonStore:
             not isinstance(data, dict)
             or not {"settings", "states", "references"} <= data.keys()
         ):
+            raise ImageError("storage_error")
+        settings = data["settings"]
+        if not isinstance(settings, dict) or settings.setdefault(
+            "engine", "pillow"
+        ) not in ("pillow", "tarsius"):
             raise ImageError("storage_error")
         return data
 
@@ -78,7 +89,7 @@ class ComparisonStore:
     ) -> ComparisonData:
         data = self.load()
         if operation == "settings":
-            data["settings"] = values
+            data["settings"].update(values)
         elif operation == "state":
             state_id = values.get("state_id")
             name = values["name"]
@@ -174,9 +185,8 @@ class ComparisonStore:
         self,
         frame: ImageFrame | None,
         reference_id: str | None,
-        settings: Settings | None,
+        gallery: ComparisonData,
     ) -> tuple[ModuleResult, ImageFrame]:
-        gallery = self.load()
         expected = None
         if reference_id is not None:
             ref = self._reference(gallery, reference_id)
@@ -187,10 +197,11 @@ class ComparisonStore:
             except FileNotFoundError as err:
                 raise ImageError("reference_not_found") from err
             expected = self._state(gallery, ref["state_id"])["name"]
-        if settings is not None:
-            gallery["settings"] = settings
         assert frame is not None
-        result = compare(frame, gallery, self.images)
+        engine = gallery["settings"]["engine"]
+        process = compare_tarsius if engine == "tarsius" else compare
+        result = process(frame, gallery, self.images)
+        result.data["engine"] = engine
         if expected is not None:
             result.data["expected_state"] = expected
         return result, frame
@@ -202,18 +213,31 @@ class ComparisonStore:
         settings: Settings | None,
     ) -> tuple[ModuleResult, ImageFrame]:
         """Run against a consistent gallery while keeping I/O off the event loop."""
-        async with self.lock:
-            return await self.hass.async_add_executor_job(
-                self._run, frame, reference_id, settings
-            )
+
+        async def run() -> tuple[ModuleResult, ImageFrame]:
+            async with self.lock:
+                gallery = await self.hass.async_add_executor_job(self.load)
+                if settings is not None:
+                    gallery["settings"].update(settings)
+                if gallery["settings"]["engine"] == "tarsius":
+                    await async_ensure_tarsius(self.hass)
+                return await self.hass.async_add_executor_job(
+                    self._run, frame, reference_id, gallery
+                )
+
+        return await asyncio.shield(
+            self.hass.async_create_task(run(), "image_lab comparison")
+        )
 
     async def async_benchmark(self, settings: Settings | None) -> dict:
         """Evaluate one gallery snapshot without changing the saved settings."""
 
+        await async_ensure_tarsius(self.hass)
+
         def run() -> dict:
             gallery = self.load()
             if settings is not None:
-                gallery["settings"] = settings
+                gallery["settings"].update(settings)
             return run_benchmark(gallery, self.images)
 
         async def locked_run() -> dict:

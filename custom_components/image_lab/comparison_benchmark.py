@@ -1,17 +1,14 @@
 """Evaluate the two comparison engines against the same labelled captures."""
 
-from io import BytesIO
 from pathlib import Path
 from statistics import median
 from time import perf_counter
 from typing import Literal, TypedDict
 
-from PIL import Image, ImageOps
-
 from .comparison import ComparisonData, compare
+from .comparison_tarsius import detector_for, predict
 from .images import ImageError, read_image_file, validate_image
 
-TARSIUS_REQUIREMENT = "tarsius==0.5.3"
 Outcome = Literal["correct", "wrong", "unknown", "error"]
 
 
@@ -49,18 +46,6 @@ def _summary(measurements: list[Measurement]) -> dict:
     return {**counts, "median_ms": round(median(durations), 1) if durations else None}
 
 
-def _tarsius_image(content: bytes, max_side: int) -> bytes:
-    """Apply the displayed orientation before Tarsius interprets the crop."""
-    with Image.open(BytesIO(content)) as image:
-        if image.getexif().get(Image.ExifTags.Base.Orientation, 1) not in range(2, 9):
-            return content
-        image.thumbnail((max_side, max_side))
-        oriented = ImageOps.exif_transpose(image).convert("RGB")
-        buffer = BytesIO()
-        oriented.save(buffer, "PNG")
-        return buffer.getvalue()
-
-
 def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
     """Prepare reference features, then time each engine on held-out images."""
     validation = [ref for ref in gallery["references"] if ref["validation"]]
@@ -68,52 +53,7 @@ def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
         raise ImageError("no_validation_images")
     states = {state["id"]: state["name"] for state in gallery["states"]}
     references = [ref for ref in gallery["references"] if not ref["validation"]]
-    if len(states) < 2 or not states.keys() <= {ref["state_id"] for ref in references}:
-        raise ImageError("benchmark_needs_references")
-
-    try:
-        from tarsius import (
-            BackendError,
-            BlankRegionError,
-            ImageError as TarsiusImageError,
-            Roi,
-            RoiError,
-            StateDetector,
-            Status,
-        )
-    except (ImportError, OSError) as err:
-        raise ImageError("tarsius_unavailable") from err
-
-    region = gallery["settings"]["region"]
-    try:
-        roi = (
-            Roi(
-                region["x"],
-                region["y"],
-                min(1, region["x"] + region["width"]),
-                min(1, region["y"] + region["height"]),
-            )
-            if region
-            else Roi()
-        )
-    except RoiError as err:
-        raise ImageError("invalid_settings") from err
-
-    try:
-        detector = StateDetector(roi, tuple(states), max_per_state=len(references))
-        for ref in references:
-            try:
-                original = validate_image(read_image_file(images / ref["id"]))
-                prepared = detector.prepare(
-                    _tarsius_image(original.content, detector.frame_side)
-                )
-            except (ImageError, OSError, BlankRegionError, TarsiusImageError):
-                continue
-            detector.add(ref["id"], prepared, state=ref["state_id"])
-    except BackendError as err:
-        raise ImageError("tarsius_unavailable") from err
-    if not detector.ready:
-        raise ImageError("benchmark_needs_references")
+    detector = detector_for(gallery, images)
 
     error: Measurement = {"outcome": "error", "state": None, "duration_ms": None}
     samples: list[Sample] = []
@@ -144,16 +84,10 @@ def run_benchmark(gallery: ComparisonData, images: Path) -> dict:
 
         started = perf_counter()
         try:
-            prediction = detector.classify(
-                _tarsius_image(frame.content, detector.frame_side)
-            )
-        except (BackendError, BlankRegionError, TarsiusImageError):
+            prediction = predict(detector, frame)
+        except ImageError:
             continue
-        state = (
-            states[prediction.state]
-            if prediction.status is Status.CONFIDENT and prediction.state is not None
-            else None
-        )
+        state = states.get(prediction.state)
         sample["tarsius"] = _measurement(state, expected, started)
 
     return {

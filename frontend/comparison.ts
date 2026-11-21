@@ -1,7 +1,9 @@
 import { comparisonStrings as text } from "./translations.js";
 
 type Region = { x: number; y: number; width: number; height: number };
+type Engine = "pillow" | "tarsius";
 type Settings = {
+  engine: Engine;
   region: Region | null;
   max_distance: number;
   min_margin: number;
@@ -22,6 +24,7 @@ type Reference = {
 type Gallery = { settings: Settings; states: State[]; references: Reference[] };
 
 const engines = ["pillow", "tarsius"] as const;
+const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
 const outcomes = ["correct", "wrong", "unknown", "error"] as const;
 type Outcome = (typeof outcomes)[number];
 type Measurement = {
@@ -45,6 +48,7 @@ type Result = {
   reason?: string;
   image_id: string | null;
   data: {
+    engine?: Engine;
     state?: string;
     best_state?: string;
     scores?: Record<string, number>;
@@ -149,6 +153,7 @@ template.innerHTML = `
     <div id="gallery"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
     <fieldset><legend id="cropLabel"></legend>
@@ -196,6 +201,10 @@ export class ImageLabComparison extends HTMLElement {
       const select = event.target;
       if (select instanceof HTMLElement && select.localName === "ha-select") {
         (select as HaSelect).value = (event as CustomEvent<{ value: string }>).detail.value;
+        if (select.id === "engine") {
+          this.renderEngine();
+          this.renderDirty();
+        }
       }
     });
     this.onClick("reload", () => this.load());
@@ -391,7 +400,6 @@ export class ImageLabComparison extends HTMLElement {
       cropLabel: "crop",
       regionHint: "region_help",
       save: "save",
-      thresholdsHint: "thresholds",
     };
     for (const tab of tabs) names["tab-" + tab] = tab;
     for (const key of ["max_distance", "min_margin", ...coordinates] as const)
@@ -403,6 +411,10 @@ export class ImageLabComparison extends HTMLElement {
       this.labels.new_state,
     );
     this.get<HTMLInputElement>("stateName").placeholder = this.labels.new_state;
+    const engine = this.get<HaSelect>("engine");
+    engine.label = this.labels.engine;
+    engine.options = engines.map((value) => ({ value, label: engineNames[value] }));
+    this.renderEngine();
     this.get<HaSelect>("captureState").label = this.labels.state;
     this.get<HaSelect>("captureGroup").label = this.labels.references;
     this.get<HTMLImageElement>("frame").alt = this.labels.preview;
@@ -639,7 +651,6 @@ export class ImageLabComparison extends HTMLElement {
     panel.hidden = !result;
     if (!result) return;
 
-    const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
     const outcomeLabels = {
       correct: this.labels.benchmark_correct,
       wrong: this.labels.benchmark_wrong,
@@ -756,6 +767,12 @@ export class ImageLabComparison extends HTMLElement {
         : this.labels.failed;
     }
     panel.append(title, message);
+    if (result.data.engine) {
+      const engine = document.createElement("p");
+      engine.className = "secondary";
+      engine.textContent = engineNames[result.data.engine];
+      panel.append(engine);
+    }
     if (result.data.expected_state) {
       const expected = document.createElement("p");
       expected.textContent = `${this.labels.expected} · ${result.data.expected_state}`;
@@ -782,22 +799,33 @@ export class ImageLabComparison extends HTMLElement {
     }
     if (result.data.scores && Object.keys(result.data.scores).length) {
       const scores = result.data.scores;
+      const similarity = result.data.engine === "tarsius";
+      const order = (state: string) => Object.hasOwn(scores, state)
+        ? (similarity ? -scores[state] : scores[state]) : Infinity;
       const rows = Object.entries(result.data.ref_counts ?? {})
-        .sort(([a], [b]) => (scores[a] ?? Infinity) - (scores[b] ?? Infinity))
+        .sort(([a], [b]) => order(a) - order(b))
         .map(([state, count]) => [
           state,
           Object.hasOwn(scores, state) ? String(scores[state]) : "–",
           String(count),
         ]);
       panel.append(this.resultTable(
-        [this.labels.state, this.labels.score, this.labels.count], rows,
+        [this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows,
       ));
     }
+  }
+
+  private renderEngine() {
+    const tarsius = this.get<HaSelect>("engine").value === "tarsius";
+    this.get("thresholdFields").hidden = tarsius;
+    this.get("thresholdsHint").textContent = this.labels[tarsius ? "tarsius_settings" : "thresholds"];
   }
 
   private fillSettings() {
     if (!this.gallery) return;
     const { settings } = this.gallery;
+    this.get<HaSelect>("engine").value = settings.engine;
+    this.renderEngine();
     this.get<HTMLInputElement>("max_distance").value = String(
       settings.max_distance,
     );
@@ -830,17 +858,13 @@ export class ImageLabComparison extends HTMLElement {
   private readSettings(): Settings {
     const max = this.get<HTMLInputElement>("max_distance");
     const margin = this.get<HTMLInputElement>("min_margin");
-    if (
-      !max.validity.valid ||
-      !margin.validity.valid ||
-      !max.value ||
-      !margin.value
-    )
-      throw new Error("invalid_settings");
+    const engine = this.get<HaSelect>("engine").value === "tarsius" ? "tarsius" : "pillow";
+    const valid = max.validity.valid && !!max.value && margin.validity.valid && !!margin.value;
+    if (engine === "pillow" && !valid) throw new Error("invalid_settings");
     return {
-      region: this.readRegion(),
-      max_distance: max.valueAsNumber,
-      min_margin: margin.valueAsNumber,
+      engine, region: this.readRegion(),
+      max_distance: valid ? max.valueAsNumber : this.gallery!.settings.max_distance,
+      min_margin: valid ? margin.valueAsNumber : this.gallery!.settings.min_margin,
     };
   }
 
@@ -852,7 +876,7 @@ export class ImageLabComparison extends HTMLElement {
       try {
         const draft = this.readSettings();
         const saved = this.gallery.settings;
-        changed = draft.max_distance !== saved.max_distance ||
+        changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
           draft.min_margin !== saved.min_margin ||
           coordinates.some((key) =>
             Math.abs((draft.region?.[key] ?? -1) - (saved.region?.[key] ?? -1)) > 1e-9);

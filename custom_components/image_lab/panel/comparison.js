@@ -1,5 +1,6 @@
 import { comparisonStrings as text } from "./translations.js";
 const engines = ["pillow", "tarsius"];
+const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
 const outcomes = ["correct", "wrong", "unknown", "error"];
 const tabs = ["preview", "references", "settings"];
 const coordinates = ["x", "y", "width", "height"];
@@ -85,6 +86,7 @@ template.innerHTML = `
     <div id="gallery"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
     <fieldset><legend id="cropLabel"></legend>
@@ -129,6 +131,10 @@ export class ImageLabComparison extends HTMLElement {
             const select = event.target;
             if (select instanceof HTMLElement && select.localName === "ha-select") {
                 select.value = event.detail.value;
+                if (select.id === "engine") {
+                    this.renderEngine();
+                    this.renderDirty();
+                }
             }
         });
         this.onClick("reload", () => this.load());
@@ -293,7 +299,6 @@ export class ImageLabComparison extends HTMLElement {
             cropLabel: "crop",
             regionHint: "region_help",
             save: "save",
-            thresholdsHint: "thresholds",
         };
         for (const tab of tabs)
             names["tab-" + tab] = tab;
@@ -303,6 +308,10 @@ export class ImageLabComparison extends HTMLElement {
             this.get(id).textContent = this.labels[label];
         this.get("stateName").setAttribute("aria-label", this.labels.new_state);
         this.get("stateName").placeholder = this.labels.new_state;
+        const engine = this.get("engine");
+        engine.label = this.labels.engine;
+        engine.options = engines.map((value) => ({ value, label: engineNames[value] }));
+        this.renderEngine();
         this.get("captureState").label = this.labels.state;
         this.get("captureGroup").label = this.labels.references;
         this.get("frame").alt = this.labels.preview;
@@ -519,7 +528,6 @@ export class ImageLabComparison extends HTMLElement {
         panel.hidden = !result;
         if (!result)
             return;
-        const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
         const outcomeLabels = {
             correct: this.labels.benchmark_correct,
             wrong: this.labels.benchmark_wrong,
@@ -626,6 +634,12 @@ export class ImageLabComparison extends HTMLElement {
                 : this.labels.failed;
         }
         panel.append(title, message);
+        if (result.data.engine) {
+            const engine = document.createElement("p");
+            engine.className = "secondary";
+            engine.textContent = engineNames[result.data.engine];
+            panel.append(engine);
+        }
         if (result.data.expected_state) {
             const expected = document.createElement("p");
             expected.textContent = `${this.labels.expected} · ${result.data.expected_state}`;
@@ -647,20 +661,30 @@ export class ImageLabComparison extends HTMLElement {
         }
         if (result.data.scores && Object.keys(result.data.scores).length) {
             const scores = result.data.scores;
+            const similarity = result.data.engine === "tarsius";
+            const order = (state) => Object.hasOwn(scores, state)
+                ? (similarity ? -scores[state] : scores[state]) : Infinity;
             const rows = Object.entries(result.data.ref_counts ?? {})
-                .sort(([a], [b]) => (scores[a] ?? Infinity) - (scores[b] ?? Infinity))
+                .sort(([a], [b]) => order(a) - order(b))
                 .map(([state, count]) => [
                 state,
                 Object.hasOwn(scores, state) ? String(scores[state]) : "–",
                 String(count),
             ]);
-            panel.append(this.resultTable([this.labels.state, this.labels.score, this.labels.count], rows));
+            panel.append(this.resultTable([this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows));
         }
+    }
+    renderEngine() {
+        const tarsius = this.get("engine").value === "tarsius";
+        this.get("thresholdFields").hidden = tarsius;
+        this.get("thresholdsHint").textContent = this.labels[tarsius ? "tarsius_settings" : "thresholds"];
     }
     fillSettings() {
         if (!this.gallery)
             return;
         const { settings } = this.gallery;
+        this.get("engine").value = settings.engine;
+        this.renderEngine();
         this.get("max_distance").value = String(settings.max_distance);
         this.get("min_margin").value = String(settings.min_margin);
         this.setRegion(settings.region);
@@ -683,15 +707,14 @@ export class ImageLabComparison extends HTMLElement {
     readSettings() {
         const max = this.get("max_distance");
         const margin = this.get("min_margin");
-        if (!max.validity.valid ||
-            !margin.validity.valid ||
-            !max.value ||
-            !margin.value)
+        const engine = this.get("engine").value === "tarsius" ? "tarsius" : "pillow";
+        const valid = max.validity.valid && !!max.value && margin.validity.valid && !!margin.value;
+        if (engine === "pillow" && !valid)
             throw new Error("invalid_settings");
         return {
-            region: this.readRegion(),
-            max_distance: max.valueAsNumber,
-            min_margin: margin.valueAsNumber,
+            engine, region: this.readRegion(),
+            max_distance: valid ? max.valueAsNumber : this.gallery.settings.max_distance,
+            min_margin: valid ? margin.valueAsNumber : this.gallery.settings.min_margin,
         };
     }
     renderDirty() {
@@ -702,7 +725,7 @@ export class ImageLabComparison extends HTMLElement {
             try {
                 const draft = this.readSettings();
                 const saved = this.gallery.settings;
-                changed = draft.max_distance !== saved.max_distance ||
+                changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
                     draft.min_margin !== saved.min_margin ||
                     coordinates.some((key) => Math.abs((draft.region?.[key] ?? -1) - (saved.region?.[key] ?? -1)) > 1e-9);
                 if (changed)

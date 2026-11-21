@@ -1,11 +1,19 @@
 """Regression tests for comparison decisions and the visual crop used by Tarsius."""
 
+import json
 from io import BytesIO
+from types import SimpleNamespace
 
-from PIL import Image, ImageOps
+import pytest
+from PIL import Image, ImageDraw, ImageOps
 
 from custom_components.image_lab.comparison import compare
-from custom_components.image_lab.comparison_benchmark import _tarsius_image
+from custom_components.image_lab.comparison_store import ComparisonStore
+from custom_components.image_lab.comparison_tarsius import (
+    _tarsius_image,
+    compare_tarsius,
+    detector_for,
+)
 from custom_components.image_lab.images import validate_image
 
 
@@ -54,3 +62,57 @@ def test_tarsius_uses_displayed_coordinates():
         with Image.open(BytesIO(_tarsius_image(encoded, 1024))) as actual:
             assert actual.size == expected.size
             assert actual.tobytes() == expected.tobytes()
+
+
+def test_engine_setting_is_backward_compatible(tmp_path):
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda *parts: tmp_path.joinpath(*parts))
+    )
+    store = ComparisonStore(hass, "profile")
+    gallery = store.load()
+    old_settings = {"region": None, "max_distance": 10, "min_margin": 1}
+    gallery["settings"] = old_settings
+    store.directory.mkdir(parents=True)
+    store.manifest.write_text(json.dumps({"version": 1, "data": gallery}))
+    assert store.load()["settings"]["engine"] == "pillow"
+    store._apply("settings", {**old_settings, "engine": "tarsius"}, None)
+    store._apply("settings", old_settings, None)
+    assert store.load()["settings"]["engine"] == "tarsius"
+
+
+def test_tarsius_uses_training_images_and_preserves_state_ids(tmp_path):
+    pytest.importorskip("tarsius")
+    for name, box in (("open", (8, 14, 35, 110)), ("closed", (8, 14, 110, 35))):
+        image = Image.new("RGB", (128, 128))
+        ImageDraw.Draw(image).rectangle(box, fill="white")
+        (tmp_path / name).write_bytes(png(image))
+
+    gallery = {
+        "settings": {
+            "engine": "tarsius",
+            "region": None,
+            "max_distance": 0,
+            "min_margin": 255,
+        },
+        "states": [{"id": "a", "name": "Ouvert"}, {"id": "b", "name": "Fermé"}],
+        "references": [
+            {"id": "open", "state_id": "a", "validation": False},
+            {"id": "closed", "state_id": "b", "validation": False},
+        ],
+    }
+    frame = validate_image((tmp_path / "open").read_bytes())
+    detector = detector_for(gallery, tmp_path)
+    result = compare_tarsius(frame, gallery, tmp_path)
+    assert result.reason is None
+    assert result.data["state_id"] == "a"
+    assert result.data["reference_id"] == "open"
+    assert result.data["scores"]["Ouvert"] > result.data["scores"]["Fermé"]
+    gallery["states"][0]["name"] = "Ouverte"
+    assert detector_for(gallery, tmp_path) is detector
+    assert compare_tarsius(frame, gallery, tmp_path).data["state"] == "Ouverte"
+    gallery["settings"]["region"] = {"x": 0, "y": 0, "width": 0.8, "height": 0.8}
+    assert detector_for(gallery, tmp_path) is not detector
+    gallery["references"][1]["validation"] = True
+    assert (
+        compare_tarsius(frame, gallery, tmp_path).reason == "benchmark_needs_references"
+    )

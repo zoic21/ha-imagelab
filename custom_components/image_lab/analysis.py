@@ -2,59 +2,51 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from hashlib import sha256
 
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.helpers import entity_registry as er
 
-from .comparison import ComparisonResult, Settings
+from .comparison import Settings
 from .comparison_store import get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
+    CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
     CONF_SOURCE_TYPE,
+    DEFAULT_PALETTE_SIZE,
     DOMAIN,
     SourceType,
 )
 from .images import ImageError, ImageFrame, async_get_frame
+from .models import ModuleResult
+from .palette import extract_palette
 
 
-def _check_source(frame: ImageFrame) -> ServiceResponse:
-    """Return source metadata while the analysis engines are being added."""
-    return {
-        "mode": "source_check",
-        "width": frame.width,
-        "height": frame.height,
-        "content_type": frame.content_type,
-        "size_bytes": len(frame.content),
-        "sha256": sha256(frame.content).hexdigest(),
-    }
-
-
-async def _async_probe(
+async def _async_palette(
     hass: HomeAssistant,
-    profile_id: str,
+    entry: ConfigEntry,
     frame: ImageFrame | None,
     reference_id: str | None,
     settings: Settings | None,
-) -> tuple[ComparisonResult, ImageFrame]:
+) -> tuple[ModuleResult, ImageFrame]:
     assert frame is not None
-    return ComparisonResult(
-        await hass.async_add_executor_job(_check_source, frame)
+    size = entry.data.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
+    return ModuleResult(
+        await hass.async_add_executor_job(extract_palette, frame, size)
     ), frame
 
 
 async def _async_compare(
     hass: HomeAssistant,
-    profile_id: str,
+    entry: ConfigEntry,
     frame: ImageFrame | None,
     reference_id: str | None,
     settings: Settings | None,
-) -> tuple[ComparisonResult, ImageFrame]:
-    return await get_comparison_store(hass, profile_id).async_run(
+) -> tuple[ModuleResult, ImageFrame]:
+    return await get_comparison_store(hass, entry.entry_id).async_run(
         frame, reference_id, settings
     )
 
@@ -65,8 +57,8 @@ class AnalysisModule:
 
     sources: tuple[SourceType, ...]
     process: Callable[
-        [HomeAssistant, str, ImageFrame | None, str | None, Settings | None],
-        Awaitable[tuple[ComparisonResult, ImageFrame]],
+        [HomeAssistant, ConfigEntry, ImageFrame | None, str | None, Settings | None],
+        Awaitable[tuple[ModuleResult, ImageFrame]],
     ]
 
 
@@ -74,7 +66,7 @@ MODULES = {
     "comparison": AnalysisModule(
         (SourceType.CAMERA, SourceType.UPLOAD), _async_compare
     ),
-    "palette": AnalysisModule(tuple(SourceType), _async_probe),
+    "palette": AnalysisModule(tuple(SourceType), _async_palette),
 }
 
 
@@ -130,7 +122,7 @@ async def async_analyze(
                 settings[CONF_IMAGE_KEY],
             )
         result, frame = await MODULES[module_id].process(
-            hass, profile_id, frame, reference_id, settings_override
+            hass, entry, frame, reference_id, settings_override
         )
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})

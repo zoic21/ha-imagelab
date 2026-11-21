@@ -1,5 +1,6 @@
 """Image Lab integration for Home Assistant."""
 
+from json import dumps
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,10 @@ from .comparison_store import async_remove_comparison
 from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
+    CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
     CONF_SOURCE_TYPE,
+    DEFAULT_PALETTE_SIZE,
     DOMAIN,
     PANEL_PATH,
     SERVICE_ANALYZE,
@@ -119,6 +122,11 @@ def async_subscribe_profiles(
                 "title": entry.title,
                 CONF_MODULE: entry.data[CONF_MODULE],
                 CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
+                CONF_PALETTE_SIZE: (
+                    entry.data.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
+                    if entry.data[CONF_MODULE] == "palette"
+                    else None
+                ),
                 CONF_ENTITY_ID: resolve_entity_id(hass, entry.data.get(CONF_ENTITY_ID)),
                 "available": entry.state is ConfigEntryState.LOADED
                 and entry.disabled_by is None,
@@ -162,6 +170,11 @@ class ImageLabPreviewView(HomeAssistantView):
                 "X-Image-Lab-Height": str(result.frame.height),
             }
         )
+        if result.response[CONF_MODULE] == "palette":
+            # Send the small palette alongside the exact image used for the analysis.
+            headers["X-Image-Lab-Palette-Rgb"] = dumps(
+                result.response["data"]["palette_rgb"], separators=(",", ":")
+            )
         return web.Response(
             body=result.frame.content,
             content_type=result.frame.content_type,

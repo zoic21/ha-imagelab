@@ -12,9 +12,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
-from .comparison import ComparisonData, ComparisonResult, Settings, compare
+from .comparison import ComparisonData, Settings, compare
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, read_image_file, read_upload, validate_image
+from .models import ModuleResult
 
 STORAGE_VERSION = 1
 
@@ -173,7 +174,7 @@ class ComparisonStore:
         frame: ImageFrame | None,
         reference_id: str | None,
         settings: Settings | None,
-    ) -> tuple[ComparisonResult, ImageFrame]:
+    ) -> tuple[ModuleResult, ImageFrame]:
         gallery = self.load()
         expected = None
         if reference_id is not None:
@@ -198,7 +199,7 @@ class ComparisonStore:
         frame: ImageFrame | None,
         reference_id: str | None,
         settings: Settings | None,
-    ) -> tuple[ComparisonResult, ImageFrame]:
+    ) -> tuple[ModuleResult, ImageFrame]:
         """Run against a consistent gallery while keeping I/O off the event loop."""
         async with self.lock:
             return await self.hass.async_add_executor_job(

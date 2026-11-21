@@ -20,9 +20,13 @@ from .const import (
     CONF_FILE,
     CONF_IMAGE_KEY,
     CONF_MODULE,
+    CONF_PALETTE_SIZE,
     CONF_SOURCE_TYPE,
+    DEFAULT_PALETTE_SIZE,
     DOMAIN,
     IMAGE_TYPES,
+    MAX_PALETTE_SIZE,
+    MIN_PALETTE_SIZE,
     SourceType,
 )
 from .images import ImageError, get_image_storage
@@ -49,7 +53,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
 
     _entry: ConfigEntry | None = None
     _title: str
-    _settings: dict[str, str]
+    _settings: dict[str, Any]
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -88,23 +92,44 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose an image source supported by the module."""
-        sources = MODULES[self._settings[CONF_MODULE]].sources
-        if user_input is not None:
+        """Choose a supported source and the palette size when applicable."""
+        module = self._settings[CONF_MODULE]
+        sources = MODULES[module].sources
+        previous = self._entry.data if self._entry else {}
+        default_source = previous.get(CONF_SOURCE_TYPE)
+        if default_source not in sources:
+            default_source = sources[0]
+        fields: dict[probatio.Required, selector.Selector[Any]] = {
+            probatio.Required(CONF_SOURCE_TYPE, default=default_source): _select(
+                list(sources), CONF_SOURCE_TYPE
+            )
+        }
+        errors = {}
+        if module == "palette":
+            default_size = previous.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
+            if user_input is not None:
+                size = user_input.get(CONF_PALETTE_SIZE, default_size)
+                if MIN_PALETTE_SIZE <= size <= MAX_PALETTE_SIZE and int(size) == size:
+                    self._settings[CONF_PALETTE_SIZE] = int(size)
+                else:
+                    errors[CONF_PALETTE_SIZE] = "invalid_palette_size"
+            fields[probatio.Required(CONF_PALETTE_SIZE, default=default_size)] = (
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_PALETTE_SIZE,
+                        max=MAX_PALETTE_SIZE,
+                        step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                )
+            )
+        if user_input is not None and not errors:
             self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
             return await self.async_step_image()
-        previous_source = self._entry.data[CONF_SOURCE_TYPE] if self._entry else None
-        default = previous_source if previous_source in sources else sources[0]
-        return self.async_show_form(
-            step_id="source",
-            data_schema=probatio.Schema(
-                {
-                    probatio.Required(CONF_SOURCE_TYPE, default=default): _select(
-                        list(sources), CONF_SOURCE_TYPE
-                    )
-                }
-            ),
-        )
+        schema = probatio.Schema(fields)
+        if errors:
+            schema = self.add_suggested_values_to_schema(schema, user_input)
+        return self.async_show_form(step_id="source", data_schema=schema, errors=errors)
 
     async def async_step_image(
         self, user_input: dict[str, Any] | None = None

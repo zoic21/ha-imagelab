@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "Image comparison recognizes labelled states. Color palette currently previews its source."
+          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors."
         }
       },
       "reconfigure": {
@@ -25,7 +25,11 @@
       "source": {
         "title": "Image source",
         "data": {
-          "source_type": "Source"
+          "source_type": "Source",
+          "palette_size": "Number of colors"
+        },
+        "data_description": {
+          "palette_size": "From 1 to 10. Available colors are repeated to fill the palette if needed."
         }
       },
       "select_entity": {
@@ -52,6 +56,7 @@
     "error": {
       "name_required": "Enter a name for this analysis.",
       "invalid_entity": "Select an entity that matches the source.",
+      "invalid_palette_size": "Enter a whole number of colors from 1 to 10.",
       "invalid_image": "Select a valid still JPEG, PNG or WebP image.",
       "image_too_large": "The image exceeds 10 MiB or 24 megapixels.",
       "profile_not_found": "This analysis has been removed.",

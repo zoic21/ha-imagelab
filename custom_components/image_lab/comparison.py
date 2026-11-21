@@ -1,6 +1,5 @@
 """Compare normalized grayscale crops against labelled image references."""
 
-from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -10,6 +9,7 @@ from PIL import Image, ImageChops, ImageOps, ImageStat
 from PIL.ImageFilter import GaussianBlur
 
 from .images import ImageError, ImageFrame, read_image_file, validate_image
+from .models import ModuleResult
 
 MAX_COMPARE_SIZE = (640, 360)
 Bounds = tuple[float, float, float, float]
@@ -56,14 +56,6 @@ class ComparisonData(TypedDict):
     references: list[Reference]
 
 
-@dataclass(frozen=True)
-class ComparisonResult:
-    """Comparison output for the panel and action."""
-
-    data: dict
-    reason: str | None = None
-
-
 def _crop(image: Image.Image, bounds: Bounds | None) -> Image.Image:
     image = ImageOps.exif_transpose(image)
     if bounds is None:
@@ -99,7 +91,7 @@ def _reference_features(
 
 def compare(
     frame: ImageFrame, gallery: ComparisonData, images: Path
-) -> ComparisonResult:
+) -> ModuleResult:
     """Use the best reference per state, then apply the distance and margin thresholds."""
     settings = gallery["settings"]
     region = settings["region"]
@@ -146,7 +138,7 @@ def compare(
         "reference_id": None,
     }
     if not scores:
-        return ComparisonResult(data, "no_references")
+        return ModuleResult(data, "no_references")
 
     ranking = sorted(scores, key=lambda label: (scores[label], label))
     best = ranking[0]
@@ -160,8 +152,8 @@ def compare(
         reference_id=closest[best][1]["id"],
     )
     if distance > settings["max_distance"]:
-        return ComparisonResult(data, "distance_too_high")
+        return ModuleResult(data, "distance_too_high")
     if margin is not None and (margin == 0 or margin < settings["min_margin"]):
-        return ComparisonResult(data, "ambiguous")
+        return ModuleResult(data, "ambiguous")
     data["state"] = best
-    return ComparisonResult(data)
+    return ModuleResult(data)

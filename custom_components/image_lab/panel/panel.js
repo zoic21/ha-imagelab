@@ -16,7 +16,8 @@ const strings = {
         id: "Analysis ID",
         copy: "Copy",
         copied: "Copied",
-        sourceCheck: "Image received",
+        paletteReady: "Palette extracted",
+        dominant: "Dominant color",
         comparison: "Image comparison",
         palette: "Color palette",
         camera: "Camera snapshot",
@@ -49,7 +50,8 @@ const strings = {
         id: "Identifiant de l’analyse",
         copy: "Copier",
         copied: "Copié",
-        sourceCheck: "Image reçue",
+        paletteReady: "Palette extraite",
+        dominant: "Couleur dominante",
         comparison: "Comparaison d’images",
         palette: "Palette de couleurs",
         camera: "Capture de caméra",
@@ -110,6 +112,15 @@ template.innerHTML = `
       background: var(--secondary-background-color); border-radius: var(--ha-border-radius-md, 8px);
     }
     figcaption, ha-alert { margin-top: 8px; }
+    #palette { margin-top: 16px; }
+    #paletteTitle { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
+    #swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
+    #swatches li { min-width: 0; margin: 0; }
+    .swatch {
+      height: 32px; margin-bottom: 4px; border: 1px solid var(--divider-color);
+      border-radius: var(--ha-border-radius-md, 8px);
+    }
+    .dominant { display: block; font-size: 12px; }
     #back { margin-bottom: 10px; }
     :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
     @media (max-width: 400px) { header { padding-inline-end: 8px; } .heading { gap: 4px; } }
@@ -146,6 +157,10 @@ template.innerHTML = `
           </div>
           <p id="status" class="secondary" role="status"></p>
           <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
+          <section id="palette" aria-labelledby="paletteTitle" hidden>
+            <h3 id="paletteTitle"></h3>
+            <ul id="swatches"></ul>
+          </section>
           <figure id="preview" hidden>
             <img id="image" />
             <figcaption id="dimensions" class="secondary"></figcaption>
@@ -224,6 +239,7 @@ class ImageLabPanel extends HTMLElement {
             const current = this.selected;
             if (previous && (!current || previous.module !== current.module ||
                 previous.source_type !== current.source_type || previous.entity_id !== current.entity_id ||
+                previous.palette_size !== current.palette_size ||
                 previous.available !== current.available)) {
                 this.clearTest();
             }
@@ -259,6 +275,8 @@ class ImageLabPanel extends HTMLElement {
         this.activeTest = undefined;
         this.element("status").textContent = "";
         this.element("error").hidden = true;
+        this.element("palette").hidden = true;
+        this.element("swatches").replaceChildren();
         this.element("preview").hidden = true;
         this.element("image").removeAttribute("src");
         if (this.previewUrl)
@@ -272,6 +290,7 @@ class ImageLabPanel extends HTMLElement {
             add: labels.add, listTitle: labels.profiles, retry: labels.retry,
             back: labels.back, idLabel: labels.id, copy: labels.copy,
             settings: labels.settings, test: labels.test, selectMessage: labels.select,
+            paletteTitle: labels.palette,
         })) {
             this.element(id).textContent = message;
         }
@@ -350,6 +369,27 @@ class ImageLabPanel extends HTMLElement {
                 this.showError("copyError");
         }
     }
+    showPalette(colors) {
+        const swatches = colors.map((rgb, index) => {
+            const row = document.createElement("li");
+            const swatch = document.createElement("div");
+            const code = document.createElement("code");
+            const hex = `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+            swatch.className = "swatch";
+            swatch.style.backgroundColor = hex;
+            code.textContent = hex;
+            row.append(swatch, code);
+            if (index === 0) {
+                const label = document.createElement("span");
+                label.className = "dominant secondary";
+                label.textContent = this.strings.dominant;
+                row.append(label);
+            }
+            return row;
+        });
+        this.element("swatches").replaceChildren(...swatches);
+        this.element("palette").hidden = false;
+    }
     async test() {
         const profile = this.selected;
         const hass = this._hass;
@@ -376,6 +416,10 @@ class ImageLabPanel extends HTMLElement {
             const blob = await response.blob();
             if (controller.signal.aborted)
                 return;
+            const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
+            if (!colors?.length)
+                throw new Error("Preview response had no palette");
+            this.showPalette(colors);
             this.previewUrl = URL.createObjectURL(blob);
             const image = this.element("image");
             image.src = this.previewUrl;
@@ -394,7 +438,7 @@ class ImageLabPanel extends HTMLElement {
             if (this.activeTest === controller) {
                 this.activeTest = undefined;
                 this.element("test").removeAttribute("disabled");
-                status.textContent = this.previewUrl ? this.strings.sourceCheck : "";
+                status.textContent = this.previewUrl ? this.strings.paletteReady : "";
             }
         }
     }

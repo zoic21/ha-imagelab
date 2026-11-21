@@ -2,7 +2,7 @@
 
 Image Lab est un projet d’intégration Home Assistant pour analyser localement des images. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans un panneau Home Assistant et peut être lancée à la demande dans une automatisation.
 
-La version de développement permet de comparer des images et de tester la source du module de palette. L’extraction des couleurs arrive à l’étape 3.
+La version de développement permet de comparer des images à des références et d’extraire une palette de couleurs.
 
 ## Installation de développement
 
@@ -10,7 +10,7 @@ La version de développement permet de comparer des images et de tester la sourc
 2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
 3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. Le panneau permet également d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
 
-Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque test. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
+Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque analyse. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
 Les validations HACS et hassfest tournent sur GitHub Actions à chaque modification de `main` et sur les pull requests.
 
@@ -40,6 +40,11 @@ Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le dé
 
 Pour migrer les références Pyscript, choisir **Importer les dossiers par état** dans un navigateur qui prend en charge la sélection de dossiers. Sélectionner le dossier `references` qui contient un sous-dossier par état. Les images sont importées comme références et les états correspondants sont créés. Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s’applique à chaque image lors du calcul.
 
+### Extraire une palette
+
+1. Créer une analyse **Palette de couleurs** et choisir un lecteur multimédia, une caméra ou une image importée. Régler le nombre de couleurs de 1 à 10. Les analyses existantes utilisent cinq couleurs par défaut.
+2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
+3. Pour modifier le nombre de couleurs, ouvrir **Gérer les analyses** et reconfigurer l’analyse.
 
 ## Architecture
 
@@ -81,9 +86,11 @@ data:
 response_variable: analysis
 ```
 
-La réponse contient un `status` commun et un objet `data` propre au module. La comparaison renvoie `data.state`, `data.scores`, `data.ref_counts`, la meilleure distance, l’écart et l’identifiant de la référence la plus proche. Une distance trop élevée ou un écart insuffisant donnent `status: unknown` et `data.state: unknown`. Une source indisponible donne `status: error`. Le champ `reason` précise la cause. Le module de palette renvoie encore les métadonnées de source en mode `source_check`.
+La réponse contient un `status` commun et un objet `data` propre au module. La comparaison renvoie `data.state`, `data.scores`, `data.ref_counts`, la meilleure distance, l’écart et l’identifiant de la référence la plus proche. Une distance trop élevée ou un écart insuffisant donnent `status: unknown` et `data.state: unknown`. Une source indisponible donne `status: error`. Le champ `reason` précise la cause. Un lecteur sans pochette renvoie `reason: source_no_image`.
 
-La migration des Pyscripts se teste d’abord sur les mêmes images et les mêmes automatisations. Pour la comparaison, l’import doit reprendre les références déjà rangées par état. Pour la palette, le format RGB et les cinq entrées utilisées dans les automatismes d’éclairage servent de test de compatibilité.
+La palette renvoie `data.dominant_rgb`, `data.dominant_hex`, `data.palette_rgb` et `data.palette_hex`. Les champs Pyscript `color1_rgb`, `color1` et les suivants restent disponibles dans `data`, jusqu’à la taille choisie. `data.extracted_count` compte les couleurs extraites avant répétition et `data.repeated_count` indique le nombre d’entrées ajoutées. Une image noire ou totalement transparente donne un gris clair de secours.
+
+Dans une automatisation à cinq couleurs qui appelait le Pyscript, conserver la taille par défaut, remplacer l’appel par `image_lab.analyze` et lire `analysis.data.palette_rgb` après avoir vérifié `analysis.status == 'ok'`.
 
 ## Plan de réalisation
 

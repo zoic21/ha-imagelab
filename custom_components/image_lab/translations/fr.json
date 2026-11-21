@@ -12,7 +12,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "La comparaison reconnaît des états à partir des références. La palette permet pour l’instant de prévisualiser sa source."
+          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes."
         }
       },
       "reconfigure": {
@@ -25,7 +25,11 @@
       "source": {
         "title": "Source de l’image",
         "data": {
-          "source_type": "Source"
+          "source_type": "Source",
+          "palette_size": "Nombre de couleurs"
+        },
+        "data_description": {
+          "palette_size": "De 1 à 10. Si nécessaire, les couleurs disponibles sont répétées pour compléter la palette."
         }
       },
       "select_entity": {
@@ -52,6 +56,7 @@
     "error": {
       "name_required": "Saisissez un nom pour cette analyse.",
       "invalid_entity": "Choisissez une entité correspondant à la source.",
+      "invalid_palette_size": "Saisissez un nombre entier de couleurs de 1 à 10.",
       "invalid_image": "Choisissez une image fixe JPEG, PNG ou WebP valide.",
       "image_too_large": "L’image dépasse 10 Mio ou 24 mégapixels.",
       "profile_not_found": "Cette analyse a été supprimée.",

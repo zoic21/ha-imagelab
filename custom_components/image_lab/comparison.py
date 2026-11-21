@@ -154,5 +154,6 @@ def compare(
         return ModuleResult(data, "distance_too_high")
     if margin is not None and (margin == 0 or margin < settings["min_margin"]):
         return ModuleResult(data, "ambiguous")
+    data["state_id"] = closest[best][1]["state_id"]
     data["state"] = best
     return ModuleResult(data)

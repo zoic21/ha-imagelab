@@ -15,6 +15,8 @@ interface Profile {
   modified_at: string;
   image_revision: string | null;
   entity_id: string | null;
+  output_entity_id: string | null;
+  interval_minutes: number;
   available: boolean;
 }
 
@@ -128,6 +130,10 @@ template.innerHTML = `
         <div id="profile" hidden>
           <h2 id="title" tabindex="-1"></h2>
           <p class="secondary" id="source"></p>
+          <div id="output" class="row" hidden>
+            <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
+            <span id="schedule" class="secondary"></span>
+          </div>
           <div class="id">
             <span id="idLabel" class="secondary"></span>
             <code id="profileId"></code>
@@ -178,6 +184,12 @@ class ImageLabPanel extends HTMLElement {
     this.element("back").addEventListener("click", () => {
       this.select();
       this.element("list").querySelector("button")?.focus();
+    });
+    this.element("outputEntity").addEventListener("click", () => {
+      const entityId = this.selected?.output_entity_id;
+      if (entityId) this.dispatchEvent(new CustomEvent("hass-more-info", {
+        detail: { entityId }, bubbles: true, composed: true,
+      }));
     });
     this.element("test").addEventListener("click", () => void this.test());
     this.element("copy").addEventListener("click", () => void this.copyId());
@@ -329,6 +341,12 @@ class ImageLabPanel extends HTMLElement {
     if (!profile) return;
     this.element("title").textContent = profile.title;
     this.element("profileId").textContent = profile.profile_id;
+    this.element("settings").setAttribute("href",
+      `/config/integrations/integration/image_lab#config_entry=${encodeURIComponent(profile.profile_id)}`);
+    this.element("output").hidden = !profile.output_entity_id;
+    this.element("outputEntity").textContent = profile.output_entity_id;
+    this.element("schedule").textContent = profile.interval_minutes
+      ? labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes)) : labels.manual;
     const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
     this.element("source").textContent = source.filter(Boolean).join(" · ");
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));

@@ -2,7 +2,9 @@ export const panelStrings = {
     en: {
         profiles: "Analyses",
         add: "Add analysis",
-        settings: "Manage analyses",
+        settings: "Configure analysis",
+        everyMinutes: "Every {minutes} min",
+        manual: "Manual updates",
         back: "Back to analyses",
         empty: "Create an analysis to test an image source.",
         select: "Select an analysis to see its image source.",
@@ -45,7 +47,9 @@ export const panelStrings = {
     fr: {
         profiles: "Analyses",
         add: "Ajouter une analyse",
-        settings: "Gérer les analyses",
+        settings: "Configurer l’analyse",
+        everyMinutes: "Toutes les {minutes} min",
+        manual: "Mise à jour manuelle",
         back: "Retour aux analyses",
         empty: "Créez une analyse pour tester une source d’image.",
         select: "Sélectionnez une analyse pour voir sa source d’image.",

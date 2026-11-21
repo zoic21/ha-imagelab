@@ -11,6 +11,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
 )
 from homeassistant.const import CONF_ENTITY_ID, CONF_NAME
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
@@ -37,18 +38,12 @@ from .const import (
 )
 from .images import ImageError, get_image_storage
 from .object_detection import LABELS
-
-
-def _select(options: list[str], translation_key: str) -> selector.SelectSelector:
-    return selector.SelectSelector(
-        selector.SelectSelectorConfig(options=options, translation_key=translation_key)
-    )
-
+from .options_flow import ImageLabOptionsFlow, select_options
 
 PROFILE_SCHEMA = probatio.Schema(
     {
         probatio.Required(CONF_NAME): selector.TextSelector(),
-        probatio.Required(CONF_MODULE): _select(list(MODULES), CONF_MODULE),
+        probatio.Required(CONF_MODULE): select_options(list(MODULES), CONF_MODULE),
     }
 )
 
@@ -61,6 +56,11 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     _entry: ConfigEntry | None = None
     _title: str
     _settings: dict[str, Any]
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> ImageLabOptionsFlow:
+        return ImageLabOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -107,7 +107,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
         if default_source not in sources:
             default_source = sources[0]
         fields: dict[probatio.Required, selector.Selector[Any]] = {
-            probatio.Required(CONF_SOURCE_TYPE, default=default_source): _select(
+            probatio.Required(CONF_SOURCE_TYPE, default=default_source): select_options(
                 list(sources), CONF_SOURCE_TYPE
             )
         }
@@ -209,8 +209,17 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     is None
                 ):
                     return self.async_abort(reason="profile_not_found")
-                return self.async_update_and_abort(
-                    self._entry, title=self._title, data=self._settings
+                options = dict(self._entry.options)
+                if self._entry.data[CONF_MODULE] != self._settings[CONF_MODULE]:
+                    options.clear()
+                elif options and source is not SourceType.CAMERA:
+                    options["interval_minutes"] = 0
+                return self.async_update_reload_and_abort(
+                    self._entry,
+                    title=self._title,
+                    data=self._settings,
+                    options=options,
+                    reload_even_if_entry_is_unchanged=False,
                 )
 
         if source is SourceType.UPLOAD:
@@ -254,7 +263,9 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_import(self, upload_id: str | None) -> dict[str, str]:
         if upload_id is None:
             if self._entry and CONF_IMAGE_REVISION in self._entry.data:
-                self._settings[CONF_IMAGE_REVISION] = self._entry.data[CONF_IMAGE_REVISION]
+                self._settings[CONF_IMAGE_REVISION] = self._entry.data[
+                    CONF_IMAGE_REVISION
+                ]
             return {}
         try:
             await get_image_storage(self.hass).async_import(

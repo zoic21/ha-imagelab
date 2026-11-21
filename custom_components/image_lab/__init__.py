@@ -28,6 +28,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
@@ -48,6 +49,7 @@ from .const import (
     SERVICE_ANALYZE,
 )
 from .images import get_image_storage
+from .output import OUTPUTS, OutputCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -56,7 +58,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the panel, its API and the action once per Home Assistant instance."""
 
     async def async_handle_analyze(call: ServiceCall) -> ServiceResponse:
-        return (await async_analyze(hass, call.data[CONF_PROFILE_ID])).response
+        profile_id = call.data[CONF_PROFILE_ID]
+        entry = hass.config_entries.async_get_entry(profile_id)
+        if entry and entry.domain == DOMAIN and entry.state is ConfigEntryState.LOADED:
+            coordinator = entry.runtime_data
+            if coordinator is not None:
+                await coordinator.async_refresh()
+                if coordinator.last_update_success and coordinator.data is not None:
+                    return coordinator.data
+                return {
+                    CONF_PROFILE_ID: profile_id,
+                    "status": "error",
+                    "data": {},
+                    "reason": "analysis_failed",
+                }
+        return (await async_analyze(hass, profile_id)).response
 
     async_register_admin_service(
         hass,
@@ -89,12 +105,33 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Make the profile available through Home Assistant's config entry registry."""
+    """Load the optional output and remove registry entries for retired output types."""
+    kind = entry.options.get("output")
+    coordinator = (
+        OutputCoordinator(hass, entry, kind)
+        if kind in OUTPUTS[entry.data[CONF_MODULE]]
+        else None
+    )
+    entry.runtime_data = coordinator
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.platform == DOMAIN and (
+            coordinator is None or entity.unique_id != coordinator.unique_id
+        ):
+            registry.async_remove(entity.entity_id)
+    if coordinator:
+        await hass.config_entries.async_forward_entry_setups(
+            entry, [coordinator.platform]
+        )
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the profile without removing its configuration or original."""
+    """Stop the profile's entity and polling."""
+    if coordinator := entry.runtime_data:
+        return await hass.config_entries.async_unload_platforms(
+            entry, [coordinator.platform]
+        )
     return True
 
 
@@ -123,6 +160,16 @@ def async_subscribe_profiles(
                 CONF_IMAGE_REVISION: entry.data.get(CONF_IMAGE_REVISION),
                 "modified_at": entry.modified_at.isoformat(),
                 "title": entry.title,
+                "output_entity_id": (
+                    er.async_get(hass).async_get_entity_id(
+                        entry.runtime_data.platform,
+                        DOMAIN,
+                        entry.runtime_data.unique_id,
+                    )
+                    if entry.state is ConfigEntryState.LOADED and entry.runtime_data
+                    else None
+                ),
+                "interval_minutes": entry.options.get("interval_minutes", 0),
                 CONF_MODULE: entry.data[CONF_MODULE],
                 CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
                 CONF_PALETTE_SIZE: (

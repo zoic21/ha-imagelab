@@ -169,6 +169,29 @@
         "hair_drier": "Sèche-cheveux",
         "toothbrush": "Brosse à dents"
       }
+    },
+    "output": {
+      "options": {
+        "none": "Aucune",
+        "enum": "État reconnu",
+        "binary": "Capteur binaire",
+        "occupancy": "Occupation (objets détectés)",
+        "count": "Nombre d’objets détectés",
+        "color": "Couleur dominante"
+      }
+    },
+    "binary_class": {
+      "options": {
+        "opening": "Ouverture",
+        "door": "Porte",
+        "garage_door": "Porte de garage",
+        "window": "Fenêtre",
+        "occupancy": "Occupation",
+        "motion": "Mouvement",
+        "problem": "Problème",
+        "running": "En fonctionnement",
+        "generic": "Générique"
+      }
     }
   },
   "services": {
@@ -181,6 +204,39 @@
           "description": "Copiez l’identifiant depuis le panneau Image Lab."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Entité de résultat et planification",
+        "data": {
+          "output": "Entité de résultat",
+          "interval_minutes": "Intervalle entre les captures"
+        },
+        "data_description": {
+          "interval_minutes": "Indiquez 0 pour une mise à jour manuelle. Un intervalle positif lance l’analyse avec les réglages enregistrés, même lorsque le panneau est fermé."
+        }
+      },
+      "mapping": {
+        "title": "Associer les états reconnus",
+        "description": "Les autres états et les images ambiguës donnent un résultat inconnu.",
+        "data": {
+          "binary_class": "Classe du capteur binaire",
+          "on_state": "État correspondant à « activé »",
+          "off_state": "État correspondant à « désactivé »"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Saisissez un nombre entier de minutes supérieur ou égal à zéro.",
+      "select_output": "Choisissez une entité de résultat ou réglez l’intervalle sur zéro.",
+      "different_states": "Choisissez deux états différents.",
+      "state_removed": "Un état a été supprimé. Vérifiez les associations."
+    },
+    "abort": {
+      "need_two_states": "Créez au moins deux états dans Image Lab → Références, puis configurez à nouveau l’entité.",
+      "gallery_unavailable": "Impossible de lire la galerie de comparaison."
     }
   }
 }

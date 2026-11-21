@@ -169,6 +169,29 @@
         "hair_drier": "Hair drier",
         "toothbrush": "Toothbrush"
       }
+    },
+    "output": {
+      "options": {
+        "none": "None",
+        "enum": "Recognised state",
+        "binary": "Binary sensor",
+        "occupancy": "Occupancy (detected objects)",
+        "count": "Detected object count",
+        "color": "Dominant color"
+      }
+    },
+    "binary_class": {
+      "options": {
+        "opening": "Opening",
+        "door": "Door",
+        "garage_door": "Garage door",
+        "window": "Window",
+        "occupancy": "Occupancy",
+        "motion": "Motion",
+        "problem": "Problem",
+        "running": "Running",
+        "generic": "Generic"
+      }
     }
   },
   "services": {
@@ -181,6 +204,39 @@
           "description": "Copy the analysis ID from the Image Lab panel."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Result entity and schedule",
+        "data": {
+          "output": "Result entity",
+          "interval_minutes": "Camera interval"
+        },
+        "data_description": {
+          "interval_minutes": "Use 0 for manual updates only. A positive interval runs the analysis with the saved settings, even when the panel is closed."
+        }
+      },
+      "mapping": {
+        "title": "Map recognised states",
+        "description": "Other states and ambiguous images give an unknown result.",
+        "data": {
+          "binary_class": "Binary sensor class",
+          "on_state": "State for on",
+          "off_state": "State for off"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Enter a whole number of minutes, zero or greater.",
+      "select_output": "Select a result entity or set the interval to zero.",
+      "different_states": "Choose two different states.",
+      "state_removed": "A state was removed. Select the mapping again."
+    },
+    "abort": {
+      "need_two_states": "Create at least two states in Image Lab → References, then configure the entity again.",
+      "gallery_unavailable": "The comparison gallery could not be read."
     }
   }
 }

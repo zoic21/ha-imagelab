@@ -38,6 +38,20 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le détail côte à côte. Sur mobile, le détail s’ouvre sur toute la largeur. La création et la reconfiguration des analyses utilisent les formulaires et sélecteurs natifs de Home Assistant.
 
+### Publier le résultat dans une entité
+
+Dans Image Lab, ouvrir le profil puis **Configurer l’analyse**. Dans la fiche de l’intégration, cliquer sur **Configurer** (roue dentée) sur la ligne surlignée, puis choisir l’entité de résultat. Par défaut, les profils fonctionnent à la demande sans créer d’entité.
+
+| Module | Entité disponible |
+| --- | --- |
+| Comparaison | Capteur à états nommés, ou capteur binaire avec classe et correspondances « activé » / « désactivé » |
+| Détection d’objets | Occupation ou nombre d’objets parmi les catégories sélectionnées, au seuil de confiance du profil |
+| Palette | Couleur dominante au format hexadécimal |
+
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+
+Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. La première capture automatique a lieu à la fin de cet intervalle. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
+
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Importer plusieurs images à la fois dans **Images de référence**. Garder d’autres captures dans **Images de validation**, avec leur état attendu. Le bouton **Évaluer** rejoue ces captures sans les utiliser comme références.
@@ -54,13 +68,13 @@ Pour migrer les références Pyscript, choisir **Importer les dossiers par état
 
 1. Créer une analyse **Palette de couleurs** et choisir un lecteur multimédia, une caméra ou une image importée. Régler le nombre de couleurs de 1 à 10. Les analyses existantes utilisent cinq couleurs par défaut.
 2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
-3. Pour modifier le nombre de couleurs, ouvrir **Gérer les analyses** et reconfigurer l’analyse.
+3. Pour modifier le nombre de couleurs, ouvrir **Configurer l’analyse** et reconfigurer l’analyse.
 
 ### Détecter des objets
 
 1. Créer une analyse **Détection d’objets** et choisir une caméra ou importer une image.
 2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
-3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Gérer les analyses** et reconfigurer l’analyse.
+3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Configurer l’analyse** et reconfigurer l’analyse.
 
 NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
 
@@ -138,7 +152,7 @@ La plateforme de validation de la première version est **Home Assistant OS x86�
 | **Lecture de compteurs mécaniques** | Évaluer `tarsius` pour lire les rouleaux et aiguilles. L’éditeur définit les zones et la rotation. Le module conserve la dernière lecture acceptée et contrôle la cohérence des nouvelles valeurs avant de publier un capteur Énergie. Un test de réglage ne valide pas une nouvelle valeur. |
 | **Reconnaissance d’un objet précis** | Recadrer l’objet détecté, puis comparer ce recadrage à plusieurs exemples annotés sous des angles différents. Évaluer les faux positifs sur des objets similaires et prévoir une identité inconnue. |
 | **Comparaison plus robuste** | Utiliser le comparatif Pillow/Tarsius avec des captures de jour, de nuit et des scènes ambiguës pour mesurer les erreurs et la latence avant de choisir un moteur par défaut. |
-| **Capteurs et nouveaux outils** | Ajouter la publication facultative du dernier résultat et envisager des outils comme la présence d’une couleur dans une zone ou l’OCR d’un affichage. Chaque outil réutilise la capture, les réglages communs et l’action. |
+| **Nouveaux outils** | Envisager des outils comme la présence d’une couleur dans une zone ou l’OCR d’un affichage. Chaque outil réutilise la capture, les réglages communs et l’action. |
 
 ### Validation déjà réalisée pour la détection
 

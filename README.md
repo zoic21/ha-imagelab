@@ -1,18 +1,22 @@
 # Image Lab pour Home Assistant
 
-Image Lab est un projet d’intégration Home Assistant pour analyser localement des images. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans un panneau Home Assistant et peut être lancée à la demande dans une automatisation.
+Image Lab est une intégration Home Assistant pour comparer des images à des références et en extraire une palette de couleurs. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans le panneau Image Lab et peut être lancée à la demande dans une automatisation. Les images sont traitées localement par Home Assistant.
 
-La version de développement permet de comparer des images à des références et d’extraire une palette de couleurs.
+## Installation via HACS
 
-## Installation de développement
+Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur** et [HACS installé](https://www.hacs.dev/docs/use/download/download/).
 
-1. Avec Home Assistant **2026.10.4 ou ultérieur**, ouvrir **HACS → Dépôts personnalisés** et ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Télécharger la branche de développement et redémarrer Home Assistant.
+1. Dans **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Ouvrir **Image Lab**, sélectionner **Télécharger**, puis redémarrer Home Assistant.
 2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
 3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. Le panneau permet également d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
 
 Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque analyse. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
-Les validations HACS et hassfest tournent sur GitHub Actions à chaque modification de `main` et sur les pull requests.
+### Mise à jour et restauration
+
+- Pour mettre à jour Image Lab, installer la version proposée par HACS et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
+- Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
+- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages**, vérifier le rectangle et sélectionner **Enregistrer**.
 
 ## Première version
 
@@ -101,7 +105,7 @@ Dans une automatisation à cinq couleurs qui appelait le Pyscript, conserver la 
 | **3. Palette** | Porter l’extraction couleur. Afficher l’aperçu des couleurs et exposer le résultat RGB aux automatisations. | Récupérer les palettes de deux lecteurs, vérifier le comportement en l’absence de pochette et rejouer une automatisation existante à cinq couleurs. |
 | **4. Première version installable** | Vérifier l’installation via HACS sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
 
-La version de développement requiert **Home Assistant Core 2026.10.4** ou ultérieur. La première installation sur **Home Assistant OS x86‑64** est prévue à l’étape 4. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
+La plateforme de validation de la première version est **Home Assistant OS x86‑64**. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
 
 ## Évolutions possibles
 
@@ -126,3 +130,7 @@ Le navigateur charge le module compilé livré avec l’intégration. Après avo
 ```sh
 npx --yes --package typescript@6.0.3 tsc -p frontend
 ```
+
+## Publier une version
+
+Mettre à jour `version` dans `custom_components/image_lab/manifest.json`. Après fusion sur `main`, ouvrir **Actions → Validate integration → Run workflow**, choisir `main` et activer **Publish the version declared in manifest.json**. Après les deux validations, GitHub crée la release et le tag au numéro du manifeste. HACS récupère le répertoire de l’intégration depuis ce tag.

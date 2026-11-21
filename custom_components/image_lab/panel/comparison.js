@@ -276,6 +276,8 @@ export class ImageLabComparison extends HTMLElement {
         this.onClick("test", () => this.evaluate());
         this.onClick("draw", () => {
             this.drawing = !this.drawing;
+            this.start = undefined;
+            this.renderRegion();
             this.refresh();
         });
         this.onClick("whole", () => this.setRegion(null));
@@ -364,10 +366,14 @@ export class ImageLabComparison extends HTMLElement {
         });
         box.addEventListener("pointermove", (event) => this.drawRegion(event, false));
         box.addEventListener("pointerup", (event) => this.drawRegion(event, true));
-        box.addEventListener("pointercancel", () => {
+        const cancelDrawing = (event) => {
+            if (this.start?.pointer !== event.pointerId)
+                return;
             this.start = undefined;
             this.renderRegion();
-        });
+        };
+        box.addEventListener("pointercancel", cancelDrawing);
+        box.addEventListener("lostpointercapture", cancelDrawing);
         const frame = this.get("frame");
         frame.addEventListener("load", () => box.style.setProperty("--ratio", String(frame.naturalWidth / frame.naturalHeight)));
         this.localize();
@@ -589,6 +595,7 @@ export class ImageLabComparison extends HTMLElement {
             this.captured = false;
             this.result = undefined;
             this.drawing = false;
+            this.start = undefined;
             this.renderResult();
             this.show("preview");
             const result = await this.request("/test", signal, {

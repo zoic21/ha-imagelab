@@ -6,7 +6,7 @@ import { editZone } from "./zone.js";
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
-    :host { display: block; height: 100%; overflow: auto; color: var(--primary-text-color); }
+    :host { display: block; height: 100%; max-height: 100dvh; overflow: auto; color: var(--primary-text-color); }
     [hidden] { display: none !important; }
     header {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -15,7 +15,7 @@ template.innerHTML = `
     }
     .heading { display: flex; align-items: center; gap: 12px; }
     .heading img { width: 26px; height: 26px; background: none; }
-    header h1 { margin: 0; font-size: 20px; font-weight: 500; }
+    header h1 { margin: 0; font-size: 20px; font-weight: 500; white-space: nowrap; }
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     main {
       display: grid; grid-template-columns: minmax(0, 1fr);
@@ -25,7 +25,31 @@ template.innerHTML = `
     .content { padding: 16px; }
     h2 { margin: 0 0 12px; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
     ul { list-style: none; margin: 0; padding: 0; }
-    #analysisPicker { display: block; width: min(100%, 320px); }
+    #analysisList { container-type: inline-size; }
+    #analysisTable { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    #analysisTable :is(th, td) {
+      padding: 8px 12px; text-align: start; overflow-wrap: anywhere;
+      border-bottom: 1px solid var(--divider-color);
+    }
+    #analysisTable th { font-weight: 500; color: var(--secondary-text-color); }
+    #analysisTable th:first-child { width: 32%; }
+    #analysisTable tbody tr { cursor: pointer; }
+    #analysisTable tbody tr:hover { background: var(--secondary-background-color); }
+    #analysisTable tbody tr:last-child td { border-bottom: 0; }
+    .analysis-link {
+      display: block; width: fit-content; max-width: 100%; margin-inline-start: -8px;
+      --ha-button-label-overflow: visible; white-space: normal; text-align: start;
+    }
+    .compact-details, .source-warning { font-size: 12px; }
+    .compact-details { display: none; }
+    .source-warning { display: flex; align-items: center; gap: 4px; }
+    .source-warning ha-icon { flex: none; --mdc-icon-size: 16px; color: var(--warning-color); }
+    @container (max-width: 600px) {
+      #analysisTable th:first-child { width: 58%; }
+      #analysisTable :is(th, td):nth-child(n+3) { display: none; }
+      .compact-details { display: block; }
+    }
+    #back { justify-self: start; }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-bottom: 18px; }
     .secondary { color: var(--secondary-text-color); }
@@ -84,7 +108,12 @@ template.innerHTML = `
     .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .zoneFields ha-input { min-width:0; }
     :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
-    @media (max-width: 400px) { header { padding-inline-end: 8px; } .heading { gap: 4px; } }
+    @media (max-width: 400px) {
+      header { padding-inline-end: 8px; }
+      .heading { gap: 4px; }
+      header h1 { font-size: 18px; }
+      #add { min-width: 0; }
+    }
   </style>
 
   <header>
@@ -92,15 +121,28 @@ template.innerHTML = `
     <ha-button id="add" variant="brand"></ha-button>
   </header>
   <main>
-    <section aria-label="Image Lab">
-      <ha-select id="analysisPicker" hidden></ha-select>
+    <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
+      <ha-card id="listCard" hidden>
+        <table id="analysisTable">
+          <thead>
+            <tr>
+              <th scope="col" id="nameColumn"></th>
+              <th scope="col" id="typeColumn"></th>
+              <th scope="col" id="sourceColumn"></th>
+              <th scope="col" id="triggerColumn"></th>
+            </tr>
+          </thead>
+          <tbody id="analysisRows"></tbody>
+        </table>
+      </ha-card>
     </section>
+    <ha-button id="back" appearance="plain" variant="neutral" hidden></ha-button>
     <ha-card id="detailCard" hidden>
       <section class="content">
         <div id="profile">
-          <h2 id="title"></h2>
+          <h2 id="title" tabindex="-1"></h2>
           <p class="secondary" id="source"></p>
           <ha-tab-group id="profileNav" active="result">
             <ha-tab-group-tab slot="nav" panel="result" id="resultTab" aria-controls="resultPane"></ha-tab-group-tab>
@@ -165,6 +207,7 @@ class ImageLabPanel extends HTMLElement {
     _hass;
     profiles;
     selectedId;
+    listScrollTop = 0;
     subscription;
     failed = false;
     activeTest;
@@ -188,12 +231,7 @@ class ImageLabPanel extends HTMLElement {
         });
         this.element("settings").addEventListener("click", () => this.openFlow("options"));
         this.element("retry").addEventListener("click", () => this.subscribe());
-        this.element("analysisPicker").addEventListener("selected", event => {
-            const id = event.detail.value;
-            const profile = this.profiles?.find(item => item.profile_id === id);
-            if (profile && id !== this.selectedId)
-                this.select(profile);
-        });
+        this.element("back").addEventListener("click", () => this.showList());
         this.element("profileNav").addEventListener("wa-tab-show", event => {
             this.showTab(event.detail.name);
         });
@@ -217,14 +255,27 @@ class ImageLabPanel extends HTMLElement {
         this.render();
     }
     set hass(hass) {
-        const connectionChanged = this._hass?.connection !== hass.connection;
+        const previous = this._hass;
+        const connectionChanged = previous?.connection !== hass.connection;
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
+        const languageChanged = this.strings !== language;
         this._hass = hass;
         this.renderOutputName();
-        if (this.strings !== language) {
+        if (languageChanged) {
             this.strings = language;
             this.render();
         }
+        if (languageChanged || Boolean(previous?.entities) !== Boolean(hass.entities) ||
+            this.profiles?.some(({ entity_id: id }) => {
+                if (!id)
+                    return false;
+                const before = previous?.states[id];
+                const now = hass.states[id];
+                return Boolean(before) !== Boolean(now) ||
+                    before?.attributes.friendly_name !== now?.attributes.friendly_name ||
+                    Boolean(previous?.entities?.[id]) !== Boolean(hass.entities?.[id]);
+            }))
+            this.renderAnalysisRows();
         if (connectionChanged) {
             this.unsubscribe();
             this.subscribe();
@@ -256,11 +307,7 @@ class ImageLabPanel extends HTMLElement {
             return;
         this.optionsScope?.abort();
         this.optionsScope = new AbortController();
-        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, id => {
-            this.clearTest();
-            this.selectedId = id;
-            this.render();
-        });
+        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, id => this.select(id));
     }
     subscribe() {
         if (!this.isConnected || !this._hass || this.subscription)
@@ -272,17 +319,15 @@ class ImageLabPanel extends HTMLElement {
             const previous = this.selected;
             this.profiles = profiles;
             const current = this.selected;
-            if (previous && (!current || previous.modified_at !== current.modified_at ||
-                previous.entity_id !== current.entity_id ||
-                previous.available !== current.available)) {
-                this.clearTest();
-            }
+            this.renderAnalysisRows();
             if (previous && !current) {
-                this.optionsScope?.abort();
-                this.selectedId = undefined;
+                this.showList();
+                return;
             }
-            if (!this.selectedId)
-                this.selectedId = profiles[0]?.profile_id;
+            if (previous && current && (previous.modified_at !== current.modified_at ||
+                previous.entity_id !== current.entity_id ||
+                previous.available !== current.available))
+                this.clearTest();
             this.render();
         }, { type: "image_lab/subscribe_profiles" });
         this.subscription = subscription;
@@ -301,12 +346,31 @@ class ImageLabPanel extends HTMLElement {
         void this.subscription.then((unsubscribe) => unsubscribe()).catch(() => { });
         this.subscription = undefined;
     }
-    select(profile) {
+    select(id) {
+        if (id === this.selectedId)
+            return;
+        if (!this.selectedId)
+            this.listScrollTop = this.scrollTop;
         this.optionsScope?.abort();
         this.clearTest();
-        this.selectedId = profile.profile_id;
+        this.selectedId = id;
         this.showTab("result");
+        this.render(true);
+    }
+    showList() {
+        const id = this.selectedId;
+        this.optionsScope?.abort();
+        this.clearTest();
+        this.selectedId = undefined;
         this.render();
+        this.scrollTop = this.listScrollTop;
+        void this.focusListAction(`analysis-${id}`);
+    }
+    async focusListAction(id) {
+        const action = (this.shadowRoot.getElementById(id) ?? this.element("add"));
+        await action.updateComplete;
+        if (!this.selectedId && action.isConnected)
+            action.focus({ preventScroll: true });
     }
     showTab(tab) {
         this.element("profileNav").setAttribute("active", tab);
@@ -333,16 +397,75 @@ class ImageLabPanel extends HTMLElement {
         this.previewUrl = undefined;
         actionLabel(this.element("copy"), this.strings.copy, "content-copy");
     }
-    render() {
+    schedule(profile, compact = false) {
+        const labels = this.strings;
+        if (profile.source_type === "media_player" && profile.output_entity_id)
+            return compact ? labels.artworkTrigger : labels.onArtworkChange;
+        if (profile.source_type === "camera" && profile.interval_minutes)
+            return labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes));
+        return compact ? labels.manualTrigger : labels.manual;
+    }
+    renderAnalysisRows() {
+        const labels = this.strings;
+        const hass = this._hass;
+        const rows = (this.profiles ?? []).map(profile => {
+            const id = profile.entity_id;
+            const state = id ? hass?.states[id] : undefined;
+            const source = state?.attributes.friendly_name || id || labels[profile.source_type];
+            const sourceMissing = profile.source_type !== "upload" &&
+                (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
+            const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable : "";
+            return { profile, source, warning };
+        });
+        rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
+        const body = this.element("analysisRows");
+        const focused = this.shadowRoot.activeElement?.id;
+        body.replaceChildren(...rows.map(({ profile, source, warning }) => {
+            const row = document.createElement("tr");
+            row.onclick = () => this.select(profile.profile_id);
+            const name = row.insertCell();
+            const action = document.createElement("ha-button");
+            action.id = `analysis-${profile.profile_id}`;
+            action.className = "analysis-link";
+            action.setAttribute("appearance", "plain");
+            action.setAttribute("size", "s");
+            action.textContent = profile.title;
+            name.append(action);
+            const trigger = this.schedule(profile, true);
+            const details = document.createElement("span");
+            details.className = "compact-details secondary";
+            details.textContent = `${source} · ${trigger}`;
+            name.append(details);
+            if (warning) {
+                const status = document.createElement("span");
+                status.className = "source-warning";
+                const icon = document.createElement("ha-icon");
+                icon.setAttribute("icon", "mdi:alert-outline");
+                icon.setAttribute("aria-hidden", "true");
+                status.append(icon, warning);
+                name.append(status);
+            }
+            row.insertCell().textContent = labels[profile.module];
+            row.insertCell().textContent = source;
+            row.insertCell().textContent = trigger;
+            return row;
+        }));
+        if (focused?.startsWith("analysis-"))
+            void this.focusListAction(focused);
+    }
+    render(moveFocus = false) {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
             idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab, settingsTab: labels.settingsTab,
             frequencyTitle: labels.frequencyTitle, frequencyHelp: labels.frequencyHelp,
+            nameColumn: labels.nameColumn, typeColumn: labels.typeColumn, sourceColumn: labels.sourceColumn,
+            triggerColumn: labels.triggerColumn,
         })) {
             this.element(id).textContent = message;
         }
         const actions = {
             add: [labels.add, "plus"],
+            back: [labels.back, "arrow-left"],
             retry: [labels.retry, "refresh"],
             copy: [labels.copy, "content-copy"],
             configure: [labels.configure, "tune-variant"],
@@ -354,12 +477,14 @@ class ImageLabPanel extends HTMLElement {
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
         const profile = this.selected;
-        const picker = this.element("analysisPicker");
-        picker.setAttribute("label", labels.analysis);
-        picker.hidden = !this.profiles?.length;
-        picker.options = (this.profiles ?? []).map(item => ({ value: item.profile_id, label: item.title }));
-        picker.value = this.selectedId ?? "";
-        this.element("detailCard").hidden = !profile;
+        const detail = this.element("detailCard");
+        const opened = detail.hidden || moveFocus;
+        detail.hidden = !profile;
+        this.element("analysisList").hidden = Boolean(profile);
+        this.element("add").hidden = Boolean(profile);
+        this.element("back").hidden = !profile;
+        this.element("analysisTable").setAttribute("aria-label", labels.analyses);
+        this.element("listCard").hidden = !this.profiles?.length;
         this.element("retry").hidden = !this.failed;
         const message = this.element("listMessage");
         message.textContent = this.failed ? labels.loadError :
@@ -405,7 +530,7 @@ class ImageLabPanel extends HTMLElement {
                 button.setAttribute("appearance", "plain");
                 button.setAttribute("size", "s");
                 actionLabel(button, p.title, "crop");
-                button.onclick = () => this.select(p);
+                button.onclick = () => this.select(p.profile_id);
                 cameraZones.append(button);
             }
         }
@@ -415,12 +540,14 @@ class ImageLabPanel extends HTMLElement {
         this.renderOutputName();
         const schedule = this.element("schedule");
         schedule.hidden = profile.source_type === "upload";
-        schedule.textContent = profile.source_type === "media_player" && profile.output_entity_id
-            ? labels.onArtworkChange : profile.interval_minutes
-            ? labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes)) : labels.manual;
+        schedule.textContent = this.schedule(profile);
         const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
         this.element("source").textContent = source.filter(Boolean).join(" · ");
         this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
+        if (opened) {
+            this.scrollTop = 0;
+            this.element("title").focus({ preventScroll: true });
+        }
     }
     async saveInterval() {
         const profile = this.selected;

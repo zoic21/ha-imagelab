@@ -36,7 +36,7 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Choisir une analyse dans le sélecteur au-dessus de sa fiche. Les onglets donnent accès au résultat et aux réglages. Pour la comparaison, **États et images** et **Historique** sont également disponibles. La création et la reconfiguration des analyses utilisent les formulaires et sélecteurs natifs de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. Les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. Les onglets donnent accès au résultat et aux réglages. Pour la comparaison, **États et images** et **Historique** sont également disponibles. La création et la reconfiguration des analyses utilisent les formulaires et sélecteurs natifs de Home Assistant.
 
 ### Publier le résultat dans une entité
 

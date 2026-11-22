@@ -21,31 +21,12 @@ type Reference = {
   id: string;
   state_id: string;
   name: string;
-  validation: boolean;
 };
 type HistoryItem = { id: string; time: string; state_id: string | null; state: string; reason: string | null; engine: Engine };
 type Gallery = { history: HistoryItem[]; history_settings: { mode: string; limit: number }; settings: Settings; states: State[]; references: Reference[] };
 
 const engines = ["pillow", "tarsius"] as const;
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
-const outcomes = ["correct", "wrong", "unknown", "error"] as const;
-type Outcome = (typeof outcomes)[number];
-type Measurement = {
-  outcome: Outcome;
-  state: string | null;
-  duration_ms: number | null;
-};
-type Benchmark = Record<
-  (typeof engines)[number],
-  Record<Outcome, number> & { median_ms: number | null }
-> & {
-  images: (Record<(typeof engines)[number], Measurement> & {
-    name: string;
-    expected: string;
-  })[];
-  tarsius_references_skipped: number;
-};
-
 type Result = {
   status: "ok" | "unknown" | "error";
   reason?: string;
@@ -60,7 +41,6 @@ type Result = {
     distance?: number | null;
     margin?: number | null;
     reference_id?: string | null;
-    expected_state?: string;
   };
 };
 
@@ -76,11 +56,11 @@ const tabs: Tab[] = ["preview", "references", "history", "settings"];
 const coordinates = ["x", "y", "width", "height"] as const;
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons: Partial<Record<Label, string>> = {
-  add_state: "plus", benchmark: "compare", cancel: "close", classify: "tag-plus-outline",
+  add_state: "plus", cancel: "close", classify: "tag-plus-outline",
   close: "close", correct: "tag-edit-outline", draw: "crop", folder: "folder-upload-outline",
   move: "arrow-right", refreshHistory: "refresh", reload: "refresh", remove: "delete-outline",
   rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
-  test_image: "play-outline", upload: "upload", view_reference: "image-search-outline",
+  upload: "upload", view_reference: "image-search-outline",
   viewCapture: "magnify-plus-outline", whole: "crop-free",
 };
 
@@ -100,7 +80,15 @@ template.innerHTML = `
       grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin-top:8px; }
     #historySettings .row { grid-column:1 / -1; }
     #historyMode, #historyLimit { width:100%; }
-    .imagebox { position:relative; margin:12px auto; width:min(100%, calc(52dvh * var(--ratio, 1))); }
+    .comparisonImages { display:grid; align-items:start; gap:12px; margin:12px 0;
+      grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .comparisonImages:not(.withMatch) { grid-template-columns:minmax(0,1fr); }
+    @media(max-width:480px) { .comparisonImages { grid-template-columns:minmax(0,1fr); } }
+    .comparisonImages figure { margin:0; min-width:0; }
+    .comparisonImages figcaption { margin:0 0 6px; font-weight:500; }
+    .imagebox { position:relative; width:min(100%, calc(52dvh * var(--ratio, 1))); margin:auto; }
+    #matchFrame { display:block; width:100%; max-height:52dvh; object-fit:contain;
+      border-radius:var(--ha-border-radius-md, 8px); }
     #frame { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
     .drawing { touch-action:none; cursor:crosshair; user-select:none; }
     #region { position:absolute; pointer-events:none; border:2px solid #28d7cd; box-sizing:border-box;
@@ -130,9 +118,6 @@ template.innerHTML = `
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
     #stateMessage { margin-bottom:9px; }
-    #benchmarkResult { overflow-x:auto; margin:0 0 12px; }
-    #benchmarkResult caption { text-align:start; font-weight:600; margin:8px 0; }
-    #benchmarkResult details { margin-top:12px; }
   </style>
   <ha-tab-group id="nav" active="preview">
     <ha-tab-group-tab slot="nav" panel="preview" id="tab-preview" aria-controls="preview"></ha-tab-group-tab>
@@ -151,13 +136,23 @@ template.innerHTML = `
       <ha-button id="whole" appearance="plain" hidden></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
-    <div class="imagebox" id="imagebox" hidden>
-      <img id="frame" draggable="false">
-      <div id="region" hidden aria-hidden="true"></div>
-    </div>
     <div id="result" aria-live="polite"></div>
+    <div class="comparisonImages" id="comparisonImages" hidden>
+      <figure id="match" hidden>
+        <figcaption id="matchCaption"></figcaption>
+        <img id="matchFrame" alt="">
+      </figure>
+      <figure>
+        <figcaption id="captureCaption"></figcaption>
+        <div class="imagebox" id="imagebox" hidden>
+          <img id="frame" draggable="false">
+          <div id="region" hidden aria-hidden="true"></div>
+        </div>
+      </figure>
+    </div>
+    <div id="scores"></div>
     <div id="classify" class="row" hidden>
-      <ha-select id="captureState"></ha-select><ha-select id="captureGroup"></ha-select>
+      <ha-select id="captureState"></ha-select>
       <ha-button id="captureAdd" appearance="outlined"></ha-button>
     </div>
   </section>
@@ -166,12 +161,10 @@ template.innerHTML = `
       <input id="stateName" required maxlength="120">
       <ha-button id="addState" variant="brand"></ha-button>
       <ha-button id="folder" appearance="plain"></ha-button>
-      <ha-button id="benchmark" appearance="plain" hidden></ha-button>
       <input id="folderInput" type="file" webkitdirectory multiple hidden>
     </form>
     <p id="folderHint" class="secondary"></p>
     <p id="stateMessage" class="secondary"></p>
-    <div id="benchmarkResult" aria-live="polite" hidden></div>
     <div id="gallery"></div>
   </section>
   <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
@@ -182,6 +175,7 @@ template.innerHTML = `
     <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <slot name="profile-settings"></slot>
     <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
@@ -205,14 +199,13 @@ export class ImageLabComparison extends HTMLElement {
   private scope?: AbortController;
   private gallery?: Gallery;
   private result?: Result;
-  private benchmarkResult?: Benchmark;
-  private benchmarking = false;
   private captured = false;
   private busy = false;
   private drawing = false;
   private cancelDrawing: () => void;
   private draftRegion: Region | null = null;
   private frameUrl?: string;
+  private matchUrl?: string;
   private thumbnailUrls: string[] = [];
   private thumbnailObserver?: IntersectionObserver;
   private matchId?: string;
@@ -248,7 +241,6 @@ export class ImageLabComparison extends HTMLElement {
     }));
     this.onClick("reload", () => this.load());
     this.onClick("test", () => this.evaluate());
-    this.onClick("benchmark", () => this.benchmark());
     this.onClick("draw", () => {
       this.drawing = !this.drawing;
       this.cancelDrawing();
@@ -278,9 +270,6 @@ export class ImageLabComparison extends HTMLElement {
           {
             state_id,
             name: `${this.labels.capture} ${stamp}`,
-            validation:
-              this.get<HaSelect>("captureGroup").value ===
-              "validation",
             capture_id: this.result.image_id,
           },
           signal,
@@ -311,7 +300,7 @@ export class ImageLabComparison extends HTMLElement {
         const input = event.target as HTMLInputElement;
         const files = Array.from(input.files ?? []);
         input.value = "";
-        if (files.length) void this.import(files, false);
+        if (files.length) void this.import(files);
       },
     );
 
@@ -375,7 +364,6 @@ export class ImageLabComparison extends HTMLElement {
       this.localize();
       this.updateSelectors();
       this.renderResult();
-      this.renderBenchmark();
       if (this.tab === "history") this.renderHistory();
       else this.renderGallery();
     }
@@ -416,6 +404,7 @@ export class ImageLabComparison extends HTMLElement {
       folderHint: "folder_help",
       reload: "reload",
       cropLabel: "crop",
+      matchCaption: "closest", captureCaption: "currentCapture",
       regionHint: "region_help",
       save: "save",
     };
@@ -443,7 +432,6 @@ export class ImageLabComparison extends HTMLElement {
       value, label: this.labels[value as "off" | "changes" | "all"],
     }));
     this.get<HaSelect>("captureState").label = this.labels.state;
-    this.get<HaSelect>("captureGroup").label = this.labels.imageUse;
     this.get<HTMLImageElement>("frame").alt = this.labels.preview;
     this.get("nav").setAttribute("aria-label", "Image Lab");
   }
@@ -455,8 +443,6 @@ export class ImageLabComparison extends HTMLElement {
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
-    this.benchmarkResult = undefined;
-    this.benchmarking = false;
     this.captured = false;
     this.busy = false;
     this.drawing = false;
@@ -464,13 +450,13 @@ export class ImageLabComparison extends HTMLElement {
     this.draftRegion = null;
     this.matchId = undefined;
     this.setFrame();
+    this.setMatch();
     this.clearThumbnails();
     this.get("gallery").replaceChildren();
     this.get("historyGrid").replaceChildren();
     this.get<HTMLInputElement>("stateName").value = "";
     this.feedback();
     this.renderResult();
-    this.renderBenchmark();
   }
 
   private refresh() {
@@ -484,11 +470,6 @@ export class ImageLabComparison extends HTMLElement {
       !this.gallery || this.busy,
     );
     this.get("folder").toggleAttribute("disabled", !this.gallery || this.busy);
-    const benchmark = this.get("benchmark");
-    benchmark.hidden = !this.gallery?.references.some((ref) => ref.validation);
-    benchmark.toggleAttribute("disabled", this.busy);
-    benchmark.toggleAttribute("loading", this.benchmarking);
-    actionLabel(benchmark, this.labels.benchmark, actionIcons.benchmark!);
     this.get("references").setAttribute("aria-busy", String(this.busy));
     this.get("gallery").inert = this.busy;
     this.get("history").inert = this.busy || !this.gallery;
@@ -528,8 +509,6 @@ export class ImageLabComparison extends HTMLElement {
     await this.task(async (signal) => {
       this.gallery = await this.request<Gallery>("", signal);
       if (signal.aborted) return;
-      this.benchmarkResult = undefined;
-      this.renderBenchmark();
       this.fillSettings();
       this.updateSelectors();
       if (this.tab === "references") this.renderGallery();
@@ -615,15 +594,12 @@ export class ImageLabComparison extends HTMLElement {
 
   private async update(operation: string, data: object, signal: AbortSignal) {
     this.gallery = await this.request<Gallery>("/" + operation, signal, data);
-    this.benchmarkResult = undefined;
-    this.renderBenchmark();
     this.updateSelectors();
   }
 
   private updateSelectors() {
     const captureState = this.get<HaSelect>("captureState");
     this.stateOptions(captureState, captureState.value, false);
-    this.groupOptions(this.get("captureGroup"));
   }
 
   private stateOptions(select: HaSelect, state = select.value, first = true) {
@@ -634,18 +610,11 @@ export class ImageLabComparison extends HTMLElement {
       ? state : (first ? select.options[0]?.value : undefined) ?? "";
   }
 
-  private groupOptions(select: HaSelect, validation = select.value === "validation") {
-    select.options = [
-      { label: this.labels.training, value: "training" },
-      { label: this.labels.validation, value: "validation" },
-    ];
-    select.value = validation ? "validation" : "training";
-  }
-
-  private async evaluate(reference_id?: string) {
+  private async evaluate() {
     await this.task(async (signal) => {
       const settings = this.readSettings();
       this.setFrame();
+      this.setMatch();
       this.captured = false;
       this.result = undefined;
       this.matchId = undefined;
@@ -655,7 +624,6 @@ export class ImageLabComparison extends HTMLElement {
       this.show("preview");
       const result = await this.request<Result>("/test", signal, {
         settings,
-        ...(reference_id && { reference_id }),
       });
       this.result = result;
       this.matchId = result.data.reference_id ?? undefined;
@@ -665,92 +633,14 @@ export class ImageLabComparison extends HTMLElement {
         const blob = await this.fetchImage(result.image_id, signal);
         signal.throwIfAborted();
         this.setFrame(URL.createObjectURL(blob));
-        this.captured = !reference_id;
+        this.captured = true;
+        if (this.matchId) {
+          const reference = await this.fetchImage(this.matchId, signal).catch(() => undefined);
+          signal.throwIfAborted();
+          if (reference) this.setMatch(URL.createObjectURL(reference));
+        }
       }
     });
-  }
-
-  private async benchmark() {
-    await this.task(async (signal) => {
-      const settings = this.readSettings();
-      this.benchmarkResult = undefined;
-      this.renderBenchmark();
-      this.benchmarking = true;
-      this.refresh();
-      try {
-        this.benchmarkResult = await this.request<Benchmark>(
-          "/benchmark", signal, { settings },
-        );
-        this.renderBenchmark();
-      } finally {
-        if (!signal.aborted) this.benchmarking = false;
-      }
-    });
-  }
-
-  private renderBenchmark() {
-    const panel = this.get("benchmarkResult");
-    panel.replaceChildren();
-    const result = this.benchmarkResult;
-    panel.hidden = !result;
-    if (!result) return;
-
-    const outcomeLabels = {
-      correct: this.labels.benchmark_correct,
-      wrong: this.labels.benchmark_wrong,
-      unknown: this.labels.benchmark_unknown,
-      error: this.labels.benchmark_error,
-    };
-    const number = new Intl.NumberFormat(this.client?.locale.language, {
-      maximumFractionDigits: 1,
-    });
-    const summary = this.resultTable(
-      [
-        this.labels.benchmark_engine,
-        ...outcomes.map((key) => outcomeLabels[key]),
-        this.labels.benchmark_latency,
-      ],
-      engines.map((engine) => {
-        const data = result[engine];
-        return [
-          engineNames[engine],
-          ...outcomes.map((key) => number.format(data[key])),
-          data.median_ms === null ? "–" : number.format(data.median_ms),
-        ];
-      }),
-    );
-    summary.createCaption().textContent = this.labels.benchmark_summary;
-    panel.append(summary);
-
-    if (result.tarsius_references_skipped > 0) {
-      const skipped = document.createElement("p");
-      skipped.className = "secondary";
-      skipped.textContent = `${this.labels.benchmark_skipped} · ${number.format(result.tarsius_references_skipped)}`;
-      panel.append(skipped);
-    }
-    const details = document.createElement("details");
-    const heading = document.createElement("summary");
-    heading.textContent = this.labels.benchmark_details;
-    const measurements = this.resultTable(
-      [
-        this.labels.benchmark_image,
-        this.labels.expected,
-        ...engines.map((key) => engineNames[key]),
-      ],
-      result.images.map((image) => [
-        image.name,
-        image.expected,
-        ...engines.map((engine) => {
-          const { outcome, state, duration_ms } = image[engine];
-          const parts = [outcomeLabels[outcome]];
-          if (state) parts.unshift(state);
-          if (duration_ms !== null) parts.push(`${number.format(duration_ms)} ms`);
-          return parts.join(" · ");
-        }),
-      ]),
-    );
-    details.append(heading, measurements);
-    panel.append(details);
   }
 
   private resultTable(columns: string[], rows: string[][]) {
@@ -791,12 +681,24 @@ export class ImageLabComparison extends HTMLElement {
     if (url) frame.src = url;
     else frame.removeAttribute("src");
     this.get("imagebox").hidden = !url;
+    this.get("comparisonImages").hidden = !url;
     this.renderRegion();
+  }
+
+  private setMatch(url?: string) {
+    if (this.matchUrl) URL.revokeObjectURL(this.matchUrl);
+    this.matchUrl = url;
+    const image = this.get<HTMLImageElement>("matchFrame");
+    if (url) image.src = url;
+    else image.removeAttribute("src");
+    this.get("match").hidden = !url;
+    this.get("comparisonImages").classList.toggle("withMatch", Boolean(url));
   }
 
   private renderResult() {
     const panel = this.get("result");
     panel.replaceChildren();
+    this.get("scores").replaceChildren();
     const result = this.result;
     if (!result) return;
     const title = document.createElement("strong");
@@ -817,12 +719,6 @@ export class ImageLabComparison extends HTMLElement {
       engine.textContent = engineNames[result.data.engine];
       panel.append(engine);
     }
-    if (result.data.expected_state) {
-      const expected = document.createElement("p");
-      expected.textContent = `${this.labels.expected} · ${result.data.expected_state}`;
-      panel.append(expected);
-    }
-
     const reference = this.gallery?.references.find(
       (item) => item.id === result.data.reference_id,
     );
@@ -853,7 +749,7 @@ export class ImageLabComparison extends HTMLElement {
           Object.hasOwn(scores, state) ? String(scores[state]) : "–",
           String(count),
         ]);
-      panel.append(this.resultTable(
+      this.get("scores").append(this.resultTable(
         [this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows,
       ));
     }
@@ -1066,19 +962,15 @@ export class ImageLabComparison extends HTMLElement {
         const state = document.createElement("ha-select") as HaSelect;
         state.label = this.labels.expected;
         this.stateOptions(state, ref?.state_id ?? item.state_id ?? "");
-        const group = document.createElement("ha-select") as HaSelect;
-        group.label = this.labels.imageUse;
-        this.groupOptions(group, ref?.validation ?? false);
-        card.append(state, group, this.button("correct", () => this.task(async signal => {
-          await this.update("correct", { capture_id: item.id, state_id: state.value,
-            validation: group.value === "validation" }, signal);
+        card.append(state, this.button("correct", () => this.task(async signal => {
+          await this.update("correct", { capture_id: item.id, state_id: state.value }, signal);
           this.renderHistory();
           this.feedback(this.labels.capture_saved);
         })));
       }
       if (ref) {
         const assigned = document.createElement("span");
-        assigned.textContent = [this.labels[ref.validation ? "validation" : "training"],
+        assigned.textContent = [this.labels.training,
           this.gallery.states.find(s => s.id === ref.state_id)?.name].join(" · ");
         card.append(assigned);
       }
@@ -1121,39 +1013,22 @@ export class ImageLabComparison extends HTMLElement {
       );
       controls.append(name, rename, remove);
       section.append(title, controls);
-      for (const validation of [false, true]) {
-        const heading = document.createElement("h4");
-        heading.textContent =
-          this.labels[validation ? "validation" : "training"];
-        const description = document.createElement("p");
-        description.className = "secondary";
-        description.textContent = this.labels[validation ? "validationHelp" : "trainingHelp"];
-        const file = document.createElement("input");
-        file.type = "file";
-        file.multiple = true;
-        file.accept = accept;
-        file.hidden = true;
-        file.addEventListener("change", () => {
-          const files = Array.from(file.files ?? []);
-          file.value = "";
-          if (files.length) void this.import(files, validation, state.id);
-        });
-        const grid = document.createElement("div");
-        grid.className = "grid";
-        for (const ref of this.gallery.references.filter(
-          (item) =>
-            item.state_id === state.id && item.validation === validation,
-        )) {
-          grid.append(this.referenceRow(ref));
-        }
-        section.append(
-          heading,
-          description,
-          file,
-          this.button("upload", () => file.click()),
-          grid,
-        );
+      const file = document.createElement("input");
+      file.type = "file";
+      file.multiple = true;
+      file.accept = accept;
+      file.hidden = true;
+      file.addEventListener("change", () => {
+        const files = Array.from(file.files ?? []);
+        file.value = "";
+        if (files.length) void this.import(files, state.id);
+      });
+      const grid = document.createElement("div");
+      grid.className = "grid";
+      for (const ref of this.gallery.references.filter(item => item.state_id === state.id)) {
+        grid.append(this.referenceRow(ref));
       }
+      section.append(file, this.button("upload", () => file.click()), grid);
       node.append(section);
     }
   }
@@ -1172,26 +1047,20 @@ export class ImageLabComparison extends HTMLElement {
     const state = document.createElement("ha-select") as HaSelect;
     state.label = this.labels.state;
     this.stateOptions(state, ref.state_id);
-    const group = document.createElement("ha-select") as HaSelect;
-    group.label = this.labels.imageUse;
-    this.groupOptions(group, ref.validation);
     const controls = document.createElement("div");
     controls.className = "row";
     const move = this.button("move", () =>
       this.galleryMutation("move", {
         reference_id: ref.id,
         state_id: state.value,
-        validation: group.value === "validation",
       }),
     );
     const remove = this.button("remove", () =>
       this.confirmRemoval("confirm_remove", ref.name, () =>
         this.galleryMutation("delete", { reference_id: ref.id })),
     );
-    if (ref.validation)
-      controls.append(this.button("test_image", () => this.evaluate(ref.id)));
     controls.append(move, remove);
-    card.append(image, title, state, group, controls);
+    card.append(image, title, state, controls);
     return card;
   }
 
@@ -1202,7 +1071,7 @@ export class ImageLabComparison extends HTMLElement {
     });
   }
 
-  private async import(files: File[], validation: boolean, state_id?: string) {
+  private async import(files: File[], state_id?: string) {
     await this.task(async (signal) => {
       let accepted = 0;
       let rejected = 0;
@@ -1241,7 +1110,6 @@ export class ImageLabComparison extends HTMLElement {
               upload_id: file_id,
               state_id: target,
               name: file.name,
-              validation,
             },
             signal,
           );

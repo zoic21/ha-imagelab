@@ -3,9 +3,6 @@ import { ImageLabComparison } from "./comparison.js";
 import { actionLabel } from "./action.js";
 import { runProfileFlow } from "./options.js";
 import { editZone } from "./zone.js";
-const moduleIcons = {
-    comparison: "image-multiple-outline", palette: "palette-outline", object_detection: "image-search-outline",
-};
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
@@ -21,27 +18,16 @@ template.innerHTML = `
     header h1 { margin: 0; font-size: 20px; font-weight: 500; }
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     main {
-      display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-      align-items: start; gap: 16px; max-width: 1280px; padding: 16px; margin: 0 auto;
+      display: grid; grid-template-columns: minmax(0, 1fr);
+      align-items: start; gap: 16px; max-width: 960px; padding: 16px; margin: 0 auto;
     }
     ha-card { min-width: 0; }
     .content { padding: 16px; }
     h2 { margin: 0 0 12px; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
     ul { list-style: none; margin: 0; padding: 0; }
-    li + li { margin-top: 4px; }
-    li button {
-      display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
-      gap: 4px 10px; width: 100%; padding: 12px; border: 0;
-      border-radius: var(--ha-border-radius-md, 8px); background: none;
-      color: inherit; font: inherit; text-align: start; cursor: pointer;
-      overflow-wrap: anywhere;
-    }
-    li button:hover, li button[aria-current="true"] {
-      background: var(--secondary-background-color);
-    }
-    li button[aria-current="true"] { box-shadow: inset 3px 0 var(--primary-color); }
-    li button ha-icon { grid-row: span 2; }
-    li button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+    #analysisPicker { display: block; width: min(100%, 320px); }
+    #profileNav { margin: 14px 0; }
+    #profileSettings { margin-bottom: 18px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
@@ -93,7 +79,6 @@ template.innerHTML = `
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:#28d7cd22; }
     .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .zoneFields ha-input { min-width:0; }
-    #back { margin-bottom: 10px; }
     :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
     @media (max-width: 400px) { header { padding-inline-end: 8px; } .heading { gap: 4px; } }
   </style>
@@ -103,38 +88,27 @@ template.innerHTML = `
     <ha-button id="add" variant="brand"></ha-button>
   </header>
   <main>
-    <ha-card id="listCard">
-      <section class="content" aria-labelledby="listTitle">
-        <h2 id="listTitle"></h2>
-        <p id="listMessage" class="secondary" role="status"></p>
-        <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-        <ul id="list"></ul>
-      </section>
-    </ha-card>
-    <ha-card id="detailCard">
+    <section aria-label="Image Lab">
+      <ha-select id="analysisPicker" hidden></ha-select>
+      <p id="listMessage" class="secondary" role="status" hidden></p>
+      <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
+    </section>
+    <ha-card id="detailCard" hidden>
       <section class="content">
-        <ha-button id="back" appearance="plain" variant="neutral" hidden></ha-button>
-        <p id="selectMessage" class="secondary" role="status"></p>
-        <div id="profile" hidden>
-          <h2 id="title" tabindex="-1"></h2>
+        <div id="profile">
+          <h2 id="title"></h2>
           <p class="secondary" id="source"></p>
-          <div id="output" class="row" hidden>
-            <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
-            <code id="outputId" class="secondary"></code>
-          </div>
-          <div class="toolbar">
+          <ha-tab-group id="profileNav" active="result">
+            <ha-tab-group-tab slot="nav" panel="result" id="resultTab" aria-controls="resultPane"></ha-tab-group-tab>
+            <ha-tab-group-tab slot="nav" panel="settings" id="settingsTab" aria-controls="settingsPane"></ha-tab-group-tab>
+          </ha-tab-group>
+          <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <ha-button id="test" variant="brand"></ha-button>
-            <ha-button id="configure" appearance="outlined"></ha-button>
-            <ha-button id="zone" appearance="outlined" hidden></ha-button>
-            <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
-          </div>
-          <p id="schedule" class="secondary" hidden></p>
-          <p class="secondary" id="cameraZones" hidden></p>
-          <p id="status" class="secondary" role="status"></p>
-          <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
-          <section id="palette" aria-labelledby="paletteTitle" hidden>
-            <h3 id="paletteTitle"></h3>
-            <ul id="swatches"></ul>
+            <p id="status" class="secondary" role="status"></p>
+            <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
+            <section id="palette" aria-labelledby="paletteTitle" hidden>
+              <h3 id="paletteTitle"></h3>
+              <ul id="swatches"></ul>
           </section>
           <figure id="preview" hidden>
             <div id="imageStage">
@@ -144,12 +118,28 @@ template.innerHTML = `
             <figcaption id="dimensions" class="secondary"></figcaption>
           </figure>
           <ul id="objectList" hidden></ul>
+          </section>
           <div id="comparisonSlot"></div>
-          <div class="id">
-            <span id="idLabel" class="secondary"></span>
-            <code id="profileId"></code>
-            <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
-          </div>
+          <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <div id="profileSettings" slot="profile-settings">
+              <div id="output" class="row" hidden>
+                <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
+                <code id="outputId" class="secondary"></code>
+              </div>
+              <div class="toolbar">
+                <ha-button id="configure" appearance="outlined"></ha-button>
+                <ha-button id="zone" appearance="outlined" hidden></ha-button>
+                <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
+              </div>
+              <p id="schedule" class="secondary" hidden></p>
+              <p class="secondary" id="cameraZones" hidden></p>
+              <div class="id">
+                <span id="idLabel" class="secondary"></span>
+                <code id="profileId"></code>
+                <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </ha-card>
@@ -177,9 +167,14 @@ class ImageLabPanel extends HTMLElement {
         this.element("configure").addEventListener("click", () => this.openFlow("configure"));
         this.element("settings").addEventListener("click", () => this.openFlow("options"));
         this.element("retry").addEventListener("click", () => this.subscribe());
-        this.element("back").addEventListener("click", () => {
-            this.select();
-            this.element("list").querySelector("button")?.focus();
+        this.element("analysisPicker").addEventListener("selected", event => {
+            const id = event.detail.value;
+            const profile = this.profiles?.find(item => item.profile_id === id);
+            if (profile && id !== this.selectedId)
+                this.select(profile);
+        });
+        this.element("profileNav").addEventListener("wa-tab-show", event => {
+            this.showTab(event.detail.name);
         });
         this.element("outputEntity").addEventListener("click", () => {
             const entityId = this.selected?.output_entity_id;
@@ -265,6 +260,8 @@ class ImageLabPanel extends HTMLElement {
                 this.optionsScope?.abort();
                 this.selectedId = undefined;
             }
+            if (!this.selectedId)
+                this.selectedId = profiles[0]?.profile_id;
             this.render();
         }, { type: "image_lab/subscribe_profiles" });
         this.subscription = subscription;
@@ -286,10 +283,14 @@ class ImageLabPanel extends HTMLElement {
     select(profile) {
         this.optionsScope?.abort();
         this.clearTest();
-        this.selectedId = profile?.profile_id;
+        this.selectedId = profile.profile_id;
+        this.showTab("result");
         this.render();
-        if (profile && this.hasAttribute("narrow"))
-            this.element("title").focus();
+    }
+    showTab(tab) {
+        this.element("profileNav").setAttribute("active", tab);
+        this.element("resultPane").hidden = tab !== "result";
+        this.element("settingsPane").hidden = tab !== "settings";
     }
     clearTest() {
         this.zoneScope?.abort();
@@ -314,14 +315,13 @@ class ImageLabPanel extends HTMLElement {
     render() {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
-            listTitle: labels.profiles, idLabel: labels.id, selectMessage: labels.select, paletteTitle: labels.palette,
+            idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab, settingsTab: labels.settingsTab,
         })) {
             this.element(id).textContent = message;
         }
         const actions = {
             add: [labels.add, "plus"],
             retry: [labels.retry, "refresh"],
-            back: [labels.back, "arrow-left"],
             copy: [labels.copy, "content-copy"],
             configure: [labels.configure, "tune-variant"],
             settings: [this.selected?.source_type === "upload" ? labels.resultEntity : labels.settings, "clock-outline"],
@@ -331,38 +331,28 @@ class ImageLabPanel extends HTMLElement {
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
         const profile = this.selected;
-        const narrow = this.hasAttribute("narrow");
-        this.element("listCard").hidden = narrow && Boolean(profile);
-        this.element("detailCard").hidden = !profile && (narrow || !this.profiles?.length);
-        this.element("back").hidden = !narrow || !profile;
-        this.element("profile").hidden = !profile;
-        this.element("selectMessage").hidden = Boolean(profile) || !this.profiles?.length;
+        const picker = this.element("analysisPicker");
+        picker.setAttribute("label", labels.analysis);
+        picker.hidden = !this.profiles?.length;
+        picker.options = (this.profiles ?? []).map(item => ({ value: item.profile_id, label: item.title }));
+        picker.value = this.selectedId ?? "";
+        this.element("detailCard").hidden = !profile;
         this.element("retry").hidden = !this.failed;
-        this.element("listMessage").textContent = this.failed ? labels.loadError :
+        const message = this.element("listMessage");
+        message.textContent = this.failed ? labels.loadError :
             !this.profiles ? labels.loading : this.profiles.length === 0 ? labels.empty : "";
-        const rows = (this.profiles ?? []).map((item) => {
-            const row = document.createElement("li");
-            const button = document.createElement("button");
-            const title = document.createElement("strong");
-            const module = document.createElement("span");
-            const icon = document.createElement("ha-icon");
-            icon.setAttribute("icon", `mdi:${moduleIcons[item.module]}`);
-            icon.setAttribute("aria-hidden", "true");
-            button.type = "button";
-            button.setAttribute("aria-current", String(item.profile_id === this.selectedId));
-            button.addEventListener("click", () => this.select(item));
-            title.textContent = item.title;
-            module.className = "secondary";
-            module.textContent = labels[item.module];
-            button.append(icon, title, module);
-            row.append(button);
-            return row;
-        });
-        this.element("list").replaceChildren(...rows);
+        message.hidden = !message.textContent;
         const isComparison = profile?.module === "comparison";
         this.comparison.hidden = !isComparison;
         this.comparison.configure(this._hass, isComparison ? profile.profile_id : undefined, isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}/${profile.image_revision ?? ""}` : undefined, profile?.available);
-        this.element("test").hidden = isComparison;
+        const settings = this.element("profileSettings");
+        const target = isComparison ? this.comparison : this.element("settingsPane");
+        if (settings.parentElement !== target)
+            target.append(settings);
+        this.element("profileNav").hidden = isComparison;
+        const tab = this.element("profileNav").getAttribute("active");
+        this.element("resultPane").hidden = isComparison || tab === "settings";
+        this.element("settingsPane").hidden = isComparison || tab !== "settings";
         if (!profile)
             return;
         this.element("zone").hidden = profile.source_type !== "camera" || isComparison;

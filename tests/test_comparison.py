@@ -33,8 +33,8 @@ def test_thresholds_use_full_precision(tmp_path):
         "settings": {"region": None, "max_distance": 0, "min_margin": 0},
         "states": [{"id": "a", "name": "A"}, {"id": "z", "name": "Z"}],
         "references": [
-            {"id": "different", "state_id": "a", "name": "A", "validation": False},
-            {"id": "exact", "state_id": "z", "name": "Z", "validation": False},
+            {"id": "different", "state_id": "a", "name": "A"},
+            {"id": "exact", "state_id": "z", "name": "Z"},
         ],
     }
     frame = validate_image(exact)
@@ -96,8 +96,8 @@ def test_tarsius_uses_training_images_and_preserves_state_ids(tmp_path):
         },
         "states": [{"id": "a", "name": "Ouvert"}, {"id": "b", "name": "Fermé"}],
         "references": [
-            {"id": "open", "state_id": "a", "validation": False},
-            {"id": "closed", "state_id": "b", "validation": False},
+            {"id": "open", "state_id": "a"},
+            {"id": "closed", "state_id": "b"},
         ],
     }
     frame = validate_image((tmp_path / "open").read_bytes())
@@ -112,7 +112,7 @@ def test_tarsius_uses_training_images_and_preserves_state_ids(tmp_path):
     assert compare_tarsius(frame, gallery, tmp_path).data["state"] == "Ouverte"
     gallery["settings"]["region"] = {"x": 0, "y": 0, "width": 0.8, "height": 0.8}
     assert detector_for(gallery, tmp_path) is not detector
-    gallery["references"][1]["validation"] = True
+    gallery["references"].pop()
     assert (
-        compare_tarsius(frame, gallery, tmp_path).reason == "benchmark_needs_references"
+        compare_tarsius(frame, gallery, tmp_path).reason == "tarsius_needs_references"
     )

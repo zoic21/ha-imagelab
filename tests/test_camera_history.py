@@ -37,13 +37,16 @@ def test_history_filters_rotates_and_preserves_corrected_images(tmp_path):
     for result in (known, known, unknown, unknown):
         store._record(data, frame, result)
     first, second, third = [item["id"] for item in data["history"]]
-    target = {"capture_id": first, "state_id": state, "validation": True}
-    for validation in (True, False):
-        data = store._apply("correct", {**target, "validation": validation}, None)
-        assert (
-            len(data["references"]) == 1
-            and data["references"][0]["validation"] is validation
-        )
+    target = {"capture_id": first, "state_id": state}
+    data = store._apply("correct", target, None)
+    # Existing validation images keep their original bytes and assigned state.
+    data["references"][0]["validation"] = True
+    store._save(data)
+    assert store.load()["references"] == [
+        {"id": first, "name": data["history"][0]["time"], "state_id": state}
+    ]
+    data = store._apply("correct", target, None)
+    assert len(data["references"]) == 1
     data = store._apply("history_settings", {"mode": "changes", "limit": 1}, None)
     assert [item["id"] for item in data["history"]] == [third]
     assert {p.name for p in store.images.iterdir()} == {first, third}

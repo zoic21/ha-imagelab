@@ -1,4 +1,4 @@
-"""Tarsius comparison for both live analyses and held-out validation images."""
+"""Tarsius comparison."""
 
 from __future__ import annotations
 
@@ -45,13 +45,12 @@ def _tarsius_image(content: bytes, max_side: int) -> bytes:
 
 def detector_for(gallery: ComparisonData, images: Path) -> StateDetector:
     states = tuple(state["id"] for state in gallery["states"])
-    training = tuple(
+    references = tuple(
         (ref["id"], ref["state_id"])
         for ref in gallery["references"]
-        if not ref["validation"]
     )
-    if len(states) < 2 or set(states) != {state for _, state in training}:
-        raise ImageError("benchmark_needs_references")
+    if len(states) < 2 or set(states) != {state for _, state in references}:
+        raise ImageError("tarsius_needs_references")
     region = gallery["settings"]["region"]
     bounds = (
         (
@@ -63,25 +62,25 @@ def detector_for(gallery: ComparisonData, images: Path) -> StateDetector:
         if region
         else None
     )
-    return _prepare_detector(images, states, training, bounds)
+    return _prepare_detector(images, states, references, bounds)
 
 
 @lru_cache(maxsize=4)
 def _prepare_detector(
     images: Path,
     states: tuple[str, ...],
-    training: tuple[tuple[str, str], ...],
+    references: tuple[tuple[str, str], ...],
     bounds: Bounds | None,
 ) -> StateDetector:
-    """Reuse the prepared index while the crop and immutable training images match."""
+    """Reuse the prepared index while the crop and immutable reference images match."""
     try:
         import tarsius
     except (ImportError, OSError) as err:
         raise ImageError("tarsius_unavailable") from err
     try:
         roi = tarsius.Roi(*bounds) if bounds else tarsius.Roi()
-        detector = tarsius.StateDetector(roi, states, max_per_state=len(training))
-        for ref, state in training:
+        detector = tarsius.StateDetector(roi, states, max_per_state=len(references))
+        for ref, state in references:
             try:
                 original = validate_image(read_image_file(images / ref))
                 prepared = detector.prepare(
@@ -95,7 +94,7 @@ def _prepare_detector(
     except tarsius.BackendError as err:
         raise ImageError("tarsius_unavailable") from err
     if not detector.ready:
-        raise ImageError("benchmark_needs_references")
+        raise ImageError("tarsius_needs_references")
     return detector
 
 
@@ -123,7 +122,7 @@ def compare_tarsius(
         counts.update({names[key]: value for key, value in detector.counts().items()})
         prediction = predict(detector, frame)
     except ImageError as err:
-        if err.reason in ("benchmark_needs_references", "blank_region"):
+        if err.reason in ("tarsius_needs_references", "blank_region"):
             return ModuleResult(data, err.reason)
         raise
 

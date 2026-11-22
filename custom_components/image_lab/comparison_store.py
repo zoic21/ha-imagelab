@@ -15,7 +15,6 @@ from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
 from .comparison import ComparisonData, Settings, compare
-from .comparison_benchmark import run_benchmark
 from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, read_image_file, read_upload, validate_image
@@ -83,6 +82,8 @@ class ComparisonStore:
             raise ImageError("storage_error")
         data.setdefault("history_settings", DEFAULT_HISTORY.copy())
         data.setdefault("history", [])
+        for reference in data["references"]:
+            reference.pop("validation", None)
         return data
 
     def _save(self, data: ComparisonData) -> None:
@@ -107,7 +108,7 @@ class ComparisonStore:
             if ref is None:
                 ref = {"id": item["id"], "name": item["time"]}
                 data["references"].append(ref)
-            ref.update(state_id=values["state_id"], validation=values["validation"])
+            ref.update(state_id=values["state_id"])
         elif operation == "settings":
             data["settings"].update(values)
         elif operation == "state":
@@ -144,7 +145,6 @@ class ComparisonStore:
                     "id": reference_id,
                     "state_id": values["state_id"],
                     "name": values["name"],
-                    "validation": values["validation"],
                 }
             )
             try:
@@ -157,9 +157,7 @@ class ComparisonStore:
             reference = self._reference(data, values["reference_id"])
             if operation == "move":
                 self._state(data, values["state_id"])
-                reference.update(
-                    state_id=values["state_id"], validation=values["validation"]
-                )
+                reference["state_id"] = values["state_id"]
             else:
                 data["references"].remove(reference)
                 self._save(data)
@@ -258,27 +256,14 @@ class ComparisonStore:
     def _run(
         self,
         frame: ImageFrame | None,
-        reference_id: str | None,
         gallery: ComparisonData,
         record: bool = False,
     ) -> tuple[ModuleResult, ImageFrame]:
-        expected = None
-        if reference_id is not None:
-            ref = self._reference(gallery, reference_id)
-            if not ref["validation"]:
-                raise ImageError("reference_not_validation")
-            try:
-                frame = validate_image(read_image_file(self.images / ref["id"]))
-            except FileNotFoundError as err:
-                raise ImageError("reference_not_found") from err
-            expected = self._state(gallery, ref["state_id"])["name"]
         assert frame is not None
         engine = gallery["settings"]["engine"]
         process = compare_tarsius if engine == "tarsius" else compare
         result = process(frame, gallery, self.images)
         result.data["engine"] = engine
-        if expected is not None:
-            result.data["expected_state"] = expected
         if record:
             try:
                 self._record(gallery, frame, result)
@@ -289,7 +274,6 @@ class ComparisonStore:
     async def async_run(
         self,
         frame: ImageFrame | None,
-        reference_id: str | None,
         settings: Settings | None,
         *,
         record: bool = False,
@@ -304,30 +288,11 @@ class ComparisonStore:
                 if gallery["settings"]["engine"] == "tarsius":
                     await async_ensure_tarsius(self.hass)
                 return await self.hass.async_add_executor_job(
-                    self._run, frame, reference_id, gallery, record
+                    self._run, frame, gallery, record
                 )
 
         return await asyncio.shield(
             self.hass.async_create_task(run(), "image_lab comparison")
-        )
-
-    async def async_benchmark(self, settings: Settings | None) -> dict:
-        """Evaluate one gallery snapshot without changing the saved settings."""
-
-        await async_ensure_tarsius(self.hass)
-
-        def run() -> dict:
-            gallery = self.load()
-            if settings is not None:
-                gallery["settings"].update(settings)
-            return run_benchmark(gallery, self.images)
-
-        async def locked_run() -> dict:
-            async with self.lock:
-                return await self.hass.async_add_executor_job(run)
-
-        return await asyncio.shield(
-            self.hass.async_create_task(locked_run(), "image_lab comparison benchmark")
         )
 
     def _image(self, ref_id: str, thumbnail: bool) -> GalleryImage:

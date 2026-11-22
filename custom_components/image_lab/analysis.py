@@ -34,7 +34,6 @@ async def _async_palette(
     hass: HomeAssistant,
     entry: ConfigEntry,
     frame: ImageFrame | None,
-    reference_id: str | None,
     settings: Settings | None,
 ) -> tuple[ModuleResult, ImageFrame]:
     assert frame is not None
@@ -48,11 +47,10 @@ async def _async_compare(
     hass: HomeAssistant,
     entry: ConfigEntry,
     frame: ImageFrame | None,
-    reference_id: str | None,
     settings: Settings | None,
 ) -> tuple[ModuleResult, ImageFrame]:
     return await get_comparison_store(hass, entry.entry_id).async_run(
-        frame, reference_id, settings
+        frame, settings
     )
 
 
@@ -60,7 +58,6 @@ async def _async_detect_objects(
     hass: HomeAssistant,
     entry: ConfigEntry,
     frame: ImageFrame | None,
-    reference_id: str | None,
     settings: Settings | None,
 ) -> tuple[ModuleResult, ImageFrame]:
     assert frame is not None
@@ -82,7 +79,7 @@ class AnalysisModule:
 
     sources: tuple[SourceType, ...]
     process: Callable[
-        [HomeAssistant, ConfigEntry, ImageFrame | None, str | None, Settings | None],
+        [HomeAssistant, ConfigEntry, ImageFrame | None, Settings | None],
         Awaitable[tuple[ModuleResult, ImageFrame]],
     ]
 
@@ -115,7 +112,6 @@ async def async_analyze(
     hass: HomeAssistant,
     profile_id: str,
     *,
-    reference_id: str | None = None,
     settings_override: Settings | None = None,
     scheduled_capture: Awaitable[ImageFrame] | None = None,
 ) -> AnalysisResult:
@@ -136,9 +132,7 @@ async def async_analyze(
     if entry.state is not ConfigEntryState.LOADED or entry.disabled_by is not None:
         return AnalysisResult({**response, "reason": "profile_unavailable"})
 
-    if module_id != "comparison" and (
-        reference_id is not None or settings_override is not None
-    ):
+    if module_id != "comparison" and settings_override is not None:
         return AnalysisResult({**response, "reason": "profile_unavailable"})
 
     try:
@@ -151,7 +145,7 @@ async def async_analyze(
                 or hass.config_entries.async_get_entry(profile_id) is not entry
             ):
                 return AnalysisResult({**response, "reason": "profile_unavailable"})
-        elif reference_id is None:
+        else:
             frame = await async_get_frame(
                 hass,
                 source,
@@ -160,7 +154,7 @@ async def async_analyze(
             )
         if module_id == "comparison" and scheduled_capture is not None:
             result, frame = await get_comparison_store(hass, profile_id).async_run(
-                frame, None, None, record=True
+                frame, None, record=True
             )
         else:
             if (
@@ -170,7 +164,7 @@ async def async_analyze(
             ):
                 frame = await hass.async_add_executor_job(crop_frame, frame, region)
             result, frame = await MODULES[module_id].process(
-                hass, entry, frame, reference_id, settings_override
+                hass, entry, frame, settings_override
             )
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})

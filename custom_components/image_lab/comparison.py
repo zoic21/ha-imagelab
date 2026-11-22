@@ -39,12 +39,11 @@ class State(TypedDict):
 
 
 class Reference(TypedDict):
-    """Metadata for one reference or validation image."""
+    """Metadata for one reference image."""
 
     id: str
     state_id: str
     name: str
-    validation: bool
 
 
 class ComparisonData(TypedDict):
@@ -97,8 +96,6 @@ def compare(frame: ImageFrame, gallery: ComparisonData, images: Path) -> ModuleR
     closest: dict[str, tuple[float, Reference]] = {}
 
     for reference in gallery["references"]:
-        if reference["validation"]:
-            continue
         label = names[reference["state_id"]]
         try:
             ref = _reference_features(images / reference["id"], bounds, size)

@@ -83,11 +83,10 @@ SETTINGS = probatio.Schema(
     }
 )
 TEST = probatio.Schema(
-    {probatio.Optional("reference_id"): ID, probatio.Optional("settings"): SETTINGS}
+    {probatio.Optional("settings"): SETTINGS}
 )
 TARGET = {
     probatio.Required("state_id"): ID,
-    probatio.Required("validation"): bool,
 }
 
 
@@ -105,7 +104,6 @@ SCHEMAS = {
             probatio.Required("limit"): _history_limit,
         }
     ),
-    "benchmark": probatio.Schema({probatio.Optional("settings"): SETTINGS}),
     "settings": SETTINGS,
     "state": probatio.Schema(
         {probatio.Optional("state_id"): ID, probatio.Required("name"): TITLE}
@@ -179,7 +177,7 @@ def _store(request: web.Request, profile_id: str) -> ComparisonStore:
 
 
 class ComparisonView(HomeAssistantView):
-    """List and edit a comparison gallery and test a capture or validation image."""
+    """List and edit a comparison gallery and test a capture."""
 
     url = f"/api/{DOMAIN}/comparison/{{profile_id}}"
     extra_urls: ClassVar[list[str]] = [f"/api/{DOMAIN}/comparison/{{profile_id}}/{{operation}}"]
@@ -213,9 +211,6 @@ class ComparisonView(HomeAssistantView):
             values = schema(await request.json())
             if operation == "test":
                 return await self._test(request, profile_id, values)
-            if operation == "benchmark":
-                data = await store.async_benchmark(values.get("settings"))
-                return self.json(data, headers=RESPONSE_HEADERS)
             frame = None
             if operation == "add":
                 capture_id = values.get("capture_id")
@@ -244,15 +239,13 @@ class ComparisonView(HomeAssistantView):
         self, request: web.Request, profile_id: str, values: dict
     ) -> web.Response:
         hass = request.app[KEY_HASS]
-        reference_id = values.get("reference_id")
         result = await async_analyze(
             hass,
             profile_id,
-            reference_id=reference_id,
             settings_override=values.get("settings"),
         )
-        image_id = reference_id if result.frame is not None else None
-        if result.frame is not None and reference_id is None:
+        image_id = None
+        if result.frame is not None:
             image_id = uuid4().hex
             captures = _captures(hass)
             while len(captures) >= _CAPTURE_SLOTS:

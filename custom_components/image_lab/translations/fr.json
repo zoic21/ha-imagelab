@@ -73,9 +73,7 @@
       "profile_not_found": "Cette analyse a été supprimée."
     },
     "create_entry": {
-      "default": {
-        "description": "Ouvrez [Image Lab](/image-lab) pour créer et configurer vos analyses."
-      }
+      "default": "Ouvrez [Image Lab](/image-lab) pour créer et configurer vos analyses."
     }
   },
   "selector": {

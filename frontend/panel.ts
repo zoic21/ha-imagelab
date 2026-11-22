@@ -42,6 +42,33 @@ interface HomeAssistant {
 }
 
 type Message = keyof typeof strings.en;
+interface AnalysisRow {
+  id: string;
+  name: string;
+  type: string;
+  source: string;
+  trigger: string;
+  warning: string;
+}
+
+interface AnalysisColumn {
+  title: string;
+  flex?: number;
+  minWidth: string;
+  showNarrow?: boolean;
+  template?: (row: AnalysisRow) => Node;
+}
+
+interface AnalysisTable extends HTMLElement {
+  columns: Record<string, AnalysisColumn>;
+  data: AnalysisRow[];
+  narrow: boolean;
+  updateComplete?: Promise<unknown>;
+}
+
+interface HomeAssistantButton extends HTMLElement {
+  updateComplete?: Promise<unknown>;
+}
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -65,30 +92,7 @@ template.innerHTML = `
     .content { padding: 16px; }
     h2 { margin: 0 0 12px; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
     ul { list-style: none; margin: 0; padding: 0; }
-    #analysisList { container-type: inline-size; }
-    #analysisTable { width: 100%; table-layout: fixed; border-collapse: collapse; }
-    #analysisTable :is(th, td) {
-      padding: 8px 12px; text-align: start; overflow-wrap: anywhere;
-      border-bottom: 1px solid var(--divider-color);
-    }
-    #analysisTable th { font-weight: 500; color: var(--secondary-text-color); }
-    #analysisTable th:first-child { width: 32%; }
-    #analysisTable tbody tr { cursor: pointer; }
-    #analysisTable tbody tr:hover { background: var(--secondary-background-color); }
-    #analysisTable tbody tr:last-child td { border-bottom: 0; }
-    .analysis-link {
-      display: block; width: fit-content; max-width: 100%; margin-inline-start: -8px;
-      --ha-button-label-overflow: visible; white-space: normal; text-align: start;
-    }
-    .compact-details, .source-warning { font-size: 12px; }
-    .compact-details { display: none; }
-    .source-warning { display: flex; align-items: center; gap: 4px; }
-    .source-warning ha-icon { flex: none; --mdc-icon-size: 16px; color: var(--warning-color); }
-    @container (max-width: 600px) {
-      #analysisTable th:first-child { width: 58%; }
-      #analysisTable :is(th, td):nth-child(n+3) { display: none; }
-      .compact-details { display: block; }
-    }
+    ha-data-table { display: block; width: 100%; }
     #back { justify-self: start; }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-bottom: 18px; }
@@ -164,19 +168,7 @@ template.innerHTML = `
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-      <ha-card id="listCard" hidden>
-        <table id="analysisTable">
-          <thead>
-            <tr>
-              <th scope="col" id="nameColumn"></th>
-              <th scope="col" id="typeColumn"></th>
-              <th scope="col" id="sourceColumn"></th>
-              <th scope="col" id="triggerColumn"></th>
-            </tr>
-          </thead>
-          <tbody id="analysisRows"></tbody>
-        </table>
-      </ha-card>
+      <ha-data-table clickable auto-height hidden></ha-data-table>
     </section>
     <ha-button id="back" appearance="plain" variant="neutral" hidden></ha-button>
     <ha-card id="detailCard" hidden>
@@ -274,6 +266,11 @@ class ImageLabPanel extends HTMLElement {
     this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element("back").addEventListener("click", () => this.showList());
+    this.analysisTable.addEventListener("row-click", event => {
+      const { id } = (event as CustomEvent<{ id: string }>).detail;
+      this.select(id);
+    });
+    this.renderAnalysisColumns();
     this.element("profileNav").addEventListener("wa-tab-show", event => {
       this.showTab((event as CustomEvent<{name: string}>).detail.name);
     });
@@ -306,6 +303,7 @@ class ImageLabPanel extends HTMLElement {
     this.renderOutputName();
     if (languageChanged) {
       this.strings = language;
+      this.renderAnalysisColumns();
       this.render();
     }
     if (languageChanged || Boolean(previous?.entities) !== Boolean(hass.entities) ||
@@ -326,6 +324,7 @@ class ImageLabPanel extends HTMLElement {
   set narrow(value: boolean) {
     if (this.hasAttribute("narrow") === value) return;
     this.toggleAttribute("narrow", value);
+    this.analysisTable.narrow = value;
     this.render();
   }
 
@@ -341,6 +340,10 @@ class ImageLabPanel extends HTMLElement {
 
   private element<T extends HTMLElement = HTMLElement>(id: string): T {
     return this.shadowRoot!.getElementById(id) as T;
+  }
+
+  private get analysisTable() {
+    return this.shadowRoot!.querySelector<AnalysisTable>("ha-data-table")!;
   }
 
   private get selected(): Profile | undefined {
@@ -407,12 +410,20 @@ class ImageLabPanel extends HTMLElement {
     this.selectedId = undefined;
     this.render();
     this.scrollTop = this.listScrollTop;
-    void this.focusListAction(`analysis-${id}`);
+    void this.focusListAction(id);
   }
 
-  private async focusListAction(id: string) {
-    const action = (this.shadowRoot!.getElementById(id) ?? this.element("add")) as
-      HTMLElement & { updateComplete?: Promise<unknown> };
+  private async focusListAction(id?: string) {
+    const table = this.analysisTable;
+    await table.updateComplete;
+    const findAction = () => table.shadowRoot?.getElementById(`analysis-${id}`);
+    if (!findAction() && table.data.some(row => row.id === id)) {
+      const list = table.shadowRoot?.querySelector<HTMLElement & { layoutComplete?: Promise<unknown> }>(
+        "lit-virtualizer",
+      );
+      await list?.layoutComplete?.catch(() => {});
+    }
+    const action = (findAction() ?? this.element("add")) as HomeAssistantButton;
     await action.updateComplete;
     if (!this.selectedId && action.isConnected) action.focus({ preventScroll: true });
   }
@@ -462,43 +473,68 @@ class ImageLabPanel extends HTMLElement {
       const sourceMissing = profile.source_type !== "upload" &&
         (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
       const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable : "";
-      return { profile, source, warning };
+      return {
+        id: profile.profile_id, name: profile.title, type: labels[profile.module], source, warning,
+        trigger: this.schedule(profile, true),
+      };
     });
     rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
+    this.analysisTable.data = rows;
+  }
 
-    const body = this.element("analysisRows");
-    const focused = this.shadowRoot!.activeElement?.id;
-    body.replaceChildren(...rows.map(({ profile, source, warning }) => {
-      const row = document.createElement("tr");
-      row.onclick = () => this.select(profile.profile_id);
-      const name = row.insertCell();
-      const action = document.createElement("ha-button");
-      action.id = `analysis-${profile.profile_id}`;
-      action.className = "analysis-link";
-      action.setAttribute("appearance", "plain");
-      action.setAttribute("size", "s");
-      action.textContent = profile.title;
-      name.append(action);
-      const trigger = this.schedule(profile, true);
+  private renderAnalysisColumns() {
+    const labels = this.strings;
+    this.element("analysisList").setAttribute("aria-label", labels.analyses);
+    this.analysisTable.columns = {
+      name: {
+        title: labels.nameColumn, minWidth: "0", flex: 1.6, showNarrow: true,
+        template: row => this.analysisNameCell(row),
+      },
+      type: {
+        title: labels.typeColumn, minWidth: "0", showNarrow: true,
+        template: row => {
+          const type = document.createElement("span");
+          type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
+          type.textContent = row.type;
+          return type;
+        },
+      },
+      source: { title: labels.sourceColumn, minWidth: "0" },
+      trigger: { title: labels.triggerColumn, minWidth: "0" },
+    };
+  }
+
+  private analysisNameCell(row: AnalysisRow) {
+    // Keep a native keyboard target on Home Assistant versions that only handle row clicks.
+    const narrow = this.hasAttribute("narrow");
+    const name = document.createElement("div");
+    name.style.cssText = "min-width:0;max-width:100%;line-height:1.2";
+    const action = document.createElement("ha-button");
+    action.id = `analysis-${row.id}`;
+    action.style.cssText = "display:block;width:fit-content;max-width:100%;text-align:start";
+    action.setAttribute("appearance", "plain");
+    action.setAttribute("size", narrow ? "xs" : "s");
+    action.textContent = row.name;
+    action.title = row.name;
+    action.onclick = () => this.select(row.id);
+    name.append(action);
+    const metadata = row.warning ? [row.warning] : narrow ? [row.source, row.trigger] : [];
+    for (const label of metadata) {
       const details = document.createElement("span");
-      details.className = "compact-details secondary";
-      details.textContent = `${source} · ${trigger}`;
-      name.append(details);
-      if (warning) {
-        const status = document.createElement("span");
-        status.className = "source-warning";
+      details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+        + "font-size:12px;line-height:13px;color:var(--secondary-text-color)";
+      details.textContent = label;
+      details.title = label;
+      if (row.warning) {
         const icon = document.createElement("ha-icon");
         icon.setAttribute("icon", "mdi:alert-outline");
         icon.setAttribute("aria-hidden", "true");
-        status.append(icon, warning);
-        name.append(status);
+        icon.style.cssText = "--mdc-icon-size:14px;color:var(--warning-color);margin-inline-end:4px";
+        details.prepend(icon);
       }
-      row.insertCell().textContent = labels[profile.module];
-      row.insertCell().textContent = source;
-      row.insertCell().textContent = trigger;
-      return row;
-    }));
-    if (focused?.startsWith("analysis-")) void this.focusListAction(focused);
+      name.append(details);
+    }
+    return name;
   }
 
   private render(moveFocus = false) {
@@ -506,8 +542,6 @@ class ImageLabPanel extends HTMLElement {
     for (const [id, message] of Object.entries({
       idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab, settingsTab: labels.settingsTab,
       frequencyTitle: labels.frequencyTitle, frequencyHelp: labels.frequencyHelp,
-      nameColumn: labels.nameColumn, typeColumn: labels.typeColumn, sourceColumn: labels.sourceColumn,
-      triggerColumn: labels.triggerColumn,
     })) {
       this.element(id).textContent = message;
     }
@@ -532,8 +566,7 @@ class ImageLabPanel extends HTMLElement {
     this.element("analysisList").hidden = Boolean(profile);
     this.element("add").hidden = Boolean(profile);
     this.element("back").hidden = !profile;
-    this.element("analysisTable").setAttribute("aria-label", labels.analyses);
-    this.element("listCard").hidden = !this.profiles?.length;
+    this.analysisTable.hidden = !this.profiles?.length;
     this.element("retry").hidden = !this.failed;
     const message = this.element("listMessage");
     message.textContent = this.failed ? labels.loadError :

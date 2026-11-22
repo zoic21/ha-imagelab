@@ -242,7 +242,7 @@ class ComparisonStore:
         async def apply() -> ComparisonData:
             async with self.lock:
                 entry = self.hass.config_entries.async_get_entry(self.profile_id)
-                if entry is None or entry.data[CONF_MODULE] != "comparison":
+                if entry is None or entry.data.get(CONF_MODULE) != "comparison":
                     raise ImageError("profile_not_found")
                 return await self.hass.async_add_executor_job(
                     self._apply, operation, values, capture

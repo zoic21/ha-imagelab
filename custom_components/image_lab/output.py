@@ -85,12 +85,12 @@ def scheduled_frame(
 class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     """Serialize manual and scheduled analyses, retaining only their response."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str | None) -> None:
         self.kind = kind
         self.platform = (
             Platform.BINARY_SENSOR
             if kind in ("binary", "occupancy")
-            else Platform.SENSOR
+            else Platform.SENSOR if kind else None
         )
         self.unique_id = f"{entry.entry_id}_{kind}"
         self.analysis_lock = asyncio.Lock()
@@ -306,22 +306,6 @@ class OutputEntity(CoordinatorEntity[OutputCoordinator]):
         super().__init__(entry.runtime_data)
         self._attr_name = entry.title
         self._attr_unique_id = self.coordinator.unique_id
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        entry = self.coordinator.config_entry
-        minutes = entry.options.get("interval_minutes", 0)
-        if (
-            minutes
-            and entry.data[CONF_SOURCE_TYPE] == SourceType.CAMERA
-            and not entry.pref_disable_polling
-        ):
-            key = f"{DOMAIN}.camera_schedule"
-            if key not in self.hass.data:
-                self.hass.data[key] = CameraSchedule(self.hass)
-            self.async_on_remove(
-                self.hass.data[key].subscribe(self.coordinator, minutes)
-            )
 
     @property
     def available(self) -> bool:

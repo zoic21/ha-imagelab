@@ -170,7 +170,7 @@ def _store(request: web.Request, profile_id: str) -> ComparisonStore:
     if (
         entry is None
         or entry.domain != DOMAIN
-        or entry.data[CONF_MODULE] != "comparison"
+        or entry.data.get(CONF_MODULE) != "comparison"
     ):
         raise web.HTTPNotFound
     return get_comparison_store(hass, profile_id)

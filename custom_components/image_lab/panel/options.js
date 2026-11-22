@@ -60,7 +60,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
             }
             if (closed)
                 return;
-            const next = await hass.callApi("POST", flowId ? path + "/" + flowId : path, flowId ? form.data : start);
+            const next = await hass.callApi("POST", flowId ? path + "/" + flowId : mode === "create" ? "image_lab/analysis_flow" : path, flowId ? form.data : start);
             flowId = next.type === "form" ? next.flow_id : undefined;
             if (closed)
                 return;

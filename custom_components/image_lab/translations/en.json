@@ -2,19 +2,9 @@
   "title": "Image Lab",
   "config": {
     "initiate_flow": {
-      "user": "Add analysis"
+      "user": "Set up Image Lab"
     },
     "step": {
-      "user": {
-        "title": "New analysis",
-        "data": {
-          "name": "Name",
-          "module": "Module"
-        },
-        "data_description": {
-          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors. Object detection identifies categories of objects."
-        }
-      },
       "reconfigure": {
         "title": "Reconfigure analysis",
         "data": {
@@ -57,6 +47,16 @@
         "data": {
           "file": "Replacement image"
         }
+      },
+      "analysis": {
+        "title": "New analysis",
+        "data": {
+          "name": "Name",
+          "module": "Module"
+        },
+        "data_description": {
+          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors. Object detection identifies categories of objects."
+        }
       }
     },
     "error": {
@@ -71,6 +71,11 @@
     },
     "abort": {
       "profile_not_found": "This analysis has been removed."
+    },
+    "create_entry": {
+      "default": {
+        "description": "Open [Image Lab](/image-lab) to create and configure your analyses."
+      }
     }
   },
   "selector": {
@@ -211,14 +216,12 @@
   "options": {
     "step": {
       "init": {
-        "title": "Result entity and schedule",
+        "title": "Result entity",
         "data": {
           "output": "Result entity",
-          "interval_minutes": "Camera update interval",
           "confirmation_seconds": "Delay before confirming a change"
         },
         "data_description": {
-          "interval_minutes": "Use 0 for manual updates only. A positive interval runs the analysis with the saved settings, even when the panel is closed.",
           "confirmation_seconds": "Wait 1–60 seconds before taking a second snapshot. Publish the change when both results agree. Set to 0 to disable."
         }
       },
@@ -233,15 +236,14 @@
       }
     },
     "error": {
-      "invalid_interval": "Enter a whole number of minutes, zero or greater.",
-      "select_output": "Select a result entity or set the interval to zero.",
       "different_states": "Choose two different states.",
       "state_removed": "A state was removed. Select the mapping again.",
       "invalid_delay": "Enter a whole number of seconds from 0 to 60."
     },
     "abort": {
       "need_two_states": "Create at least two states in Image Lab → References, then configure the entity again.",
-      "gallery_unavailable": "The comparison gallery could not be read."
+      "gallery_unavailable": "The comparison gallery could not be read.",
+      "open_panel": "Open [Image Lab](/image-lab) to configure your analyses."
     }
   }
 }

@@ -76,7 +76,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
         resources = Object.assign({}, ...translations.map(result => result.resources));
       }
       if (closed) return;
-      const next = await hass.callApi<Step>("POST", flowId ? path + "/" + flowId : path,
+      const next = await hass.callApi<Step>("POST", flowId ? path + "/" + flowId : mode === "create" ? "image_lab/analysis_flow" : path,
         flowId ? form.data : start);
       flowId = next.type === "form" ? next.flow_id : undefined;
       if (closed) return;

@@ -7,6 +7,7 @@ from typing import Any
 import probatio
 from aiohttp import web
 from homeassistant.components import panel_custom, websocket_api
+from homeassistant.components.config.config_entries import ConfigManagerFlowIndexView
 from homeassistant.components.http import (
     KEY_HASS,
     KEY_HASS_USER,
@@ -46,12 +47,14 @@ from .const import (
     CONF_SOURCE_TYPE,
     DEFAULT_PALETTE_SIZE,
     DOMAIN,
+    MAX_INTERVAL_MINUTES,
     PANEL_PATH,
     SERVICE_ANALYZE,
+    SOURCE_ANALYSIS,
     SourceType,
 )
 from .images import ImageError, async_get_frame, get_image_storage
-from .output import OUTPUTS, OutputCoordinator
+from .output import OUTPUTS, CameraSchedule, OutputCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -85,6 +88,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
+    websocket_api.async_register_command(hass, async_set_schedule)
+    hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
     hass.http.register_view(CameraZoneView)
     hass.http.register_view(ComparisonView)
@@ -116,28 +121,41 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Load the optional output and remove registry entries for retired output types."""
+    if CONF_MODULE not in entry.data:
+        entry.runtime_data = None
+        return True
     kind = entry.options.get("output")
-    coordinator = (
-        OutputCoordinator(hass, entry, kind)
-        if kind in OUTPUTS[entry.data[CONF_MODULE]]
-        else None
+    if kind not in OUTPUTS[entry.data[CONF_MODULE]]:
+        kind = None
+    camera = entry.data[CONF_SOURCE_TYPE] == SourceType.CAMERA
+    minutes = (
+        entry.options.get("interval_minutes", 0)
+        if camera and not entry.pref_disable_polling
+        else 0
     )
+    coordinator = OutputCoordinator(hass, entry, kind) if kind or minutes else None
     entry.runtime_data = coordinator
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.platform == DOMAIN and (
-            coordinator is None or entity.unique_id != coordinator.unique_id
+            not kind or coordinator is None or entity.unique_id != coordinator.unique_id
         ):
             registry.async_remove(entity.entity_id)
     if coordinator:
-        await hass.config_entries.async_forward_entry_setups(
-            entry, [coordinator.platform]
-        )
+        if coordinator.platform:
+            await hass.config_entries.async_forward_entry_setups(
+                entry, [coordinator.platform]
+            )
 
         @callback
         def start(hass: HomeAssistant) -> None:
             if entry.state is not ConfigEntryState.LOADED:
                 return
+            if minutes:
+                key = f"{DOMAIN}.camera_schedule"
+                if key not in hass.data:
+                    hass.data[key] = CameraSchedule(hass)
+                entry.async_on_unload(hass.data[key].subscribe(coordinator, minutes))
             if entry.data[CONF_SOURCE_TYPE] == SourceType.MEDIA_PLAYER:
                 coordinator.async_watch_artwork()
             entry.async_create_background_task(
@@ -156,7 +174,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Stop the profile's entity and polling."""
-    if coordinator := entry.runtime_data:
+    if (coordinator := entry.runtime_data) and coordinator.platform:
         return await hass.config_entries.async_unload_platforms(
             entry, [coordinator.platform]
         )
@@ -165,6 +183,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove only the original owned by the deleted analysis."""
+    if CONF_MODULE not in entry.data:
+        return
     await get_image_storage(hass).async_remove(entry.data[CONF_IMAGE_KEY])
     drop_captures(hass, entry.entry_id)
     await async_remove_comparison(hass, entry.entry_id)
@@ -195,7 +215,8 @@ def async_subscribe_profiles(
                         DOMAIN,
                         entry.runtime_data.unique_id,
                     )
-                    if entry.state is ConfigEntryState.LOADED and entry.runtime_data
+                    if entry.state is ConfigEntryState.LOADED
+                    and entry.runtime_data and entry.runtime_data.platform
                     else None
                 ),
                 "interval_minutes": (
@@ -216,6 +237,7 @@ def async_subscribe_profiles(
                 hass.config_entries.async_entries(DOMAIN),
                 key=lambda item: item.title.casefold(),
             )
+            if CONF_MODULE in entry.data
         ]
         connection.send_message(websocket_api.event_message(msg["id"], profiles))
 
@@ -229,6 +251,52 @@ def async_subscribe_profiles(
     )
     connection.send_result(msg["id"])
     async_send_profiles()
+
+
+class AnalysisFlowView(ConfigManagerFlowIndexView):
+    """Start an analysis wizard only from Image Lab."""
+
+    url = f"/api/{DOMAIN}/analysis_flow"
+    name = f"api:{DOMAIN}:analysis_flow"
+
+    def get_context(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data["handler"] != DOMAIN or "entry_id" in data:
+            raise web.HTTPBadRequest
+        return {**super().get_context(data), "source": SOURCE_ANALYSIS}
+
+
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): f"{DOMAIN}/set_schedule",
+        probatio.Required(CONF_PROFILE_ID): cv.string,
+        probatio.Required("interval_minutes"): probatio.All(
+            int, probatio.Range(min=0, max=MAX_INTERVAL_MINUTES)
+        ),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def async_set_schedule(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Save the camera interval independently of result publication."""
+    entry = hass.config_entries.async_get_entry(msg[CONF_PROFILE_ID])
+    if (
+        not entry
+        or entry.domain != DOMAIN
+        or entry.data.get(CONF_SOURCE_TYPE) != SourceType.CAMERA
+    ):
+        connection.send_error(msg["id"], "profile_not_found", "Camera analysis not found")
+        return
+    minutes = msg["interval_minutes"]
+    changed = hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "interval_minutes": minutes},
+        pref_disable_polling=False if minutes else entry.pref_disable_polling,
+    )
+    if changed and not await hass.config_entries.async_reload(entry.entry_id):
+        connection.send_error(msg["id"], "profile_unavailable", "Could not reload analysis")
+        return
+    connection.send_result(msg["id"])
 
 
 class ImageLabPreviewView(HomeAssistantView):
@@ -295,7 +363,7 @@ class CameraZoneView(HomeAssistantView):
         if (
             entry is None
             or entry.domain != DOMAIN
-            or entry.data[CONF_SOURCE_TYPE] != "camera"
+            or entry.data.get(CONF_SOURCE_TYPE) != "camera"
             or entry.data[CONF_MODULE] == "comparison"
         ):
             raise web.HTTPNotFound

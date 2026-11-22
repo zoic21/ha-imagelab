@@ -1,5 +1,6 @@
 """Constants for Image Lab."""
 
+from datetime import timedelta
 from enum import StrEnum
 
 DOMAIN = "image_lab"
@@ -34,3 +35,7 @@ class SourceType(StrEnum):
     CAMERA = "camera"
     MEDIA_PLAYER = "media_player"
     UPLOAD = "upload"
+
+SOURCE_ANALYSIS = "analysis"
+INSTALLATION_ID = "image_lab_installation"
+MAX_INTERVAL_MINUTES = timedelta.max.days * 1440 - 1

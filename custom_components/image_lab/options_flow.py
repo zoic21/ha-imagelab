@@ -1,6 +1,4 @@
-"""Configure the entity and its automatic camera updates in native HA forms."""
-
-from datetime import timedelta
+"""Configure optional publication of analysis results in Home Assistant."""
 
 import probatio
 from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
@@ -29,6 +27,8 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
 
     async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
         entry = self.config_entry
+        if CONF_MODULE not in entry.data:
+            return self.async_abort(reason="open_panel")
         kinds = ("none", *OUTPUTS[entry.data[CONF_MODULE]])
         current = entry.options.get("output", "none")
         fields = {
@@ -38,18 +38,6 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
         }
         camera = entry.data[CONF_SOURCE_TYPE] == SourceType.CAMERA
         if camera:
-            fields[
-                probatio.Required(
-                    "interval_minutes", default=entry.options.get("interval_minutes", 0)
-                )
-            ] = selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    step=1,
-                    mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="min",
-                )
-            )
             fields[
                 probatio.Required(
                     "confirmation_seconds",
@@ -67,25 +55,17 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
         errors = {}
         if user_input is not None:
             kind = user_input["output"]
-            minutes = user_input.get("interval_minutes", 0) if camera else 0
             delay = user_input.get("confirmation_seconds", 0) if camera else 0
             if not float(delay).is_integer() or not 0 <= delay <= 60:
                 errors["confirmation_seconds"] = "invalid_delay"
-            elif (
-                minutes < 0
-                or not float(minutes).is_integer()
-                or minutes >= timedelta.max.days * 1440
-            ):
-                errors["interval_minutes"] = "invalid_interval"
-            elif kind == "none":
-                if minutes:
-                    errors["interval_minutes"] = "select_output"
-                else:
-                    return self.async_create_entry(data={})
             else:
-                self._output = {"output": kind, "interval_minutes": int(minutes)}
+                self._output = {}
                 if camera:
-                    self._output["confirmation_seconds"] = int(delay)
+                    minutes = entry.options.get("interval_minutes", 0)
+                    self._output["interval_minutes"] = minutes
+                    self._output["confirmation_seconds"] = int(delay) if kind != "none" else 0
+                if kind != "none":
+                    self._output["output"] = kind
                 if kind != "binary":
                     return self.async_create_entry(data=self._output)
                 return await self.async_step_mapping()

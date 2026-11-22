@@ -122,7 +122,7 @@ async def async_analyze(
         "data": {},
     }
     entry = hass.config_entries.async_get_entry(profile_id)
-    if entry is None or entry.domain != DOMAIN:
+    if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
         return AnalysisResult({**response, "reason": "profile_not_found"})
 
     settings = entry.data

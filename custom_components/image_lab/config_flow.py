@@ -31,10 +31,12 @@ from .const import (
     DEFAULT_PALETTE_SIZE,
     DOMAIN,
     IMAGE_TYPES,
+    INSTALLATION_ID,
     MAX_OBJECT_CONFIDENCE,
     MAX_PALETTE_SIZE,
     MIN_OBJECT_CONFIDENCE,
     MIN_PALETTE_SIZE,
+    SOURCE_ANALYSIS,
     SourceType,
 )
 from .images import ImageError, get_image_storage
@@ -66,7 +68,15 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the name and module."""
+        """Install Image Lab with an empty workspace."""
+        await self.async_set_unique_id(INSTALLATION_ID)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title="Image Lab", data={})
+
+    async def async_step_analysis(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the name and module from the Image Lab panel."""
         settings = self._entry.data if self._entry else {}
         suggested = {**settings, CONF_NAME: self._entry.title} if self._entry else {}
         errors = {}
@@ -83,7 +93,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_source()
 
         return self.async_show_form(
-            step_id=self.source if self.source == SOURCE_RECONFIGURE else "user",
+            step_id=self.source if self.source == SOURCE_RECONFIGURE else SOURCE_ANALYSIS,
             data_schema=self.add_suggested_values_to_schema(
                 PROFILE_SCHEMA, user_input or suggested
             ),
@@ -95,7 +105,9 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Edit an existing analysis without changing its ID."""
         self._entry = self._get_reconfigure_entry()
-        return await self.async_step_user(user_input)
+        if CONF_MODULE not in self._entry.data:
+            return self.async_abort(reason="profile_not_found")
+        return await self.async_step_analysis(user_input)
 
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
@@ -209,10 +221,9 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 module = self._settings[CONF_MODULE]
-                defaults = {"output": "color"} if module == "palette" else {}
                 if self._entry is None:
                     return self.async_create_entry(
-                        title=self._title, data=self._settings, options=defaults
+                        title=self._title, data=self._settings
                     )
                 if (
                     self.hass.config_entries.async_get_entry(self._entry.entry_id)
@@ -229,8 +240,8 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._settings["region"] = self._entry.data["region"]
                 options = dict(self._entry.options)
                 if self._entry.data[CONF_MODULE] != module:
-                    options = defaults
-                elif options and source is not SourceType.CAMERA:
+                    options = {"interval_minutes": options.get("interval_minutes", 0)}
+                if options and source is not SourceType.CAMERA:
                     options["interval_minutes"] = 0
                     options.pop("confirmation_seconds", None)
                 return self.async_update_reload_and_abort(

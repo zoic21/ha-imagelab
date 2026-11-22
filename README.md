@@ -7,8 +7,8 @@ Image Lab est une intégration Home Assistant pour comparer des images à des r�
 Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur** et [HACS installé](https://www.hacs.dev/docs/use/download/download/).
 
 1. Dans **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Ouvrir **Image Lab**, sélectionner **Télécharger**, puis redémarrer Home Assistant.
-2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
-3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. **Ajouter une analyse** et **Source et analyse** ouvrent les formulaires Home Assistant directement dans le panneau.
+2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, ajouter **Image Lab**. Cette étape ouvre l’accès au panneau dans la barre latérale.
+3. Ouvrir **Image Lab**, puis **Ajouter une analyse**. Choisir un nom, le type d’analyse et sa source. Pour une image importée, utiliser un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
 
 Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque analyse. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
@@ -40,7 +40,7 @@ Choisir une analyse dans le sélecteur au-dessus de sa fiche. Les onglets donnen
 
 ### Publier le résultat dans une entité
 
-Dans Image Lab, ouvrir le profil puis **Entité et fréquence** pour choisir son entité de résultat et, avec une caméra, sa fréquence. Sur une image importée, le bouton s’appelle **Entité de résultat**. Une nouvelle analyse de palette crée ce capteur par défaut. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement.
+La publication dans Home Assistant se configure dans **Image Lab → Réglages → Entité de résultat**. Elle est facultative et s’active pour chaque analyse. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement.
 
 | Module | Entité disponible |
 | --- | --- |
@@ -48,13 +48,13 @@ Dans Image Lab, ouvrir le profil puis **Entité et fréquence** pour choisir son
 | Détection d’objets | Occupation ou nombre d’objets parmi les catégories sélectionnées, au seuil de confiance du profil |
 | Palette | Couleur dominante au format hexadécimal |
 
-Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **États et images**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
 Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex` et `palette_rgb`. Les deux entités de détection d’objets exposent `objects` (catégorie, confiance et cadre normalisé pour chaque objet), `counts` (nombre par catégorie), `count` et `truncated`.
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus et les essais de cadrage servent au réglage. Le panneau affiche le lien vers l’entité créée.
+Avec une caméra, ouvrir **Image Lab → Réglages → Analyse automatique** et indiquer par exemple **5 minutes**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus et les essais de cadrage servent au réglage. Le panneau affiche le lien vers l’entité créée.
 
 Dans les options d’un profil caméra, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible. Les aperçus restent des essais indépendants.
 

@@ -349,8 +349,9 @@ export class ImageLabComparison extends HTMLElement {
     sourceKey?: string,
     available = false,
   ) {
+    const sameProfile = profile === this.profile;
     const changed =
-      profile !== this.profile ||
+      !sameProfile ||
       sourceKey !== this.sourceKey ||
       available !== this.available ||
       (profile !== undefined && !this.scope && this.isConnected);
@@ -369,7 +370,7 @@ export class ImageLabComparison extends HTMLElement {
     }
     if (changed) {
       this.reset();
-      this.show("preview");
+      this.show(sameProfile ? this.tab : "preview");
       if (profile && client && this.isConnected) void this.load();
     } else {
       this.refresh();

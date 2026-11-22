@@ -2,19 +2,9 @@
   "title": "Image Lab",
   "config": {
     "initiate_flow": {
-      "user": "Ajouter une analyse"
+      "user": "Configurer Image Lab"
     },
     "step": {
-      "user": {
-        "title": "Nouvelle analyse",
-        "data": {
-          "name": "Nom",
-          "module": "Module"
-        },
-        "data_description": {
-          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes. La détection identifie des catégories d’objets."
-        }
-      },
       "reconfigure": {
         "title": "Reconfigurer l’analyse",
         "data": {
@@ -57,6 +47,16 @@
         "data": {
           "file": "Nouvelle image"
         }
+      },
+      "analysis": {
+        "title": "Nouvelle analyse",
+        "data": {
+          "name": "Nom",
+          "module": "Module"
+        },
+        "data_description": {
+          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes. La détection identifie des catégories d’objets."
+        }
       }
     },
     "error": {
@@ -71,6 +71,11 @@
     },
     "abort": {
       "profile_not_found": "Cette analyse a été supprimée."
+    },
+    "create_entry": {
+      "default": {
+        "description": "Ouvrez [Image Lab](/image-lab) pour créer et configurer vos analyses."
+      }
     }
   },
   "selector": {
@@ -211,14 +216,12 @@
   "options": {
     "step": {
       "init": {
-        "title": "Entité de résultat et planification",
+        "title": "Entité de résultat",
         "data": {
           "output": "Entité de résultat",
-          "interval_minutes": "Fréquence de mise à jour caméra",
           "confirmation_seconds": "Délai de confirmation d’un changement"
         },
         "data_description": {
-          "interval_minutes": "Indiquez 0 pour une mise à jour manuelle. Un intervalle positif lance l’analyse avec les réglages enregistrés, même lorsque le panneau est fermé.",
           "confirmation_seconds": "De 1 à 60 secondes avant une seconde capture. Le changement est publié si les deux résultats concordent. 0 désactive la confirmation."
         }
       },
@@ -233,15 +236,14 @@
       }
     },
     "error": {
-      "invalid_interval": "Saisissez un nombre entier de minutes supérieur ou égal à zéro.",
-      "select_output": "Choisissez une entité de résultat ou réglez l’intervalle sur zéro.",
       "different_states": "Choisissez deux états différents.",
       "state_removed": "Un état a été supprimé. Vérifiez les associations.",
       "invalid_delay": "Saisissez un nombre entier de secondes entre 0 et 60."
     },
     "abort": {
       "need_two_states": "Créez au moins deux états dans Image Lab → Références, puis configurez à nouveau l’entité.",
-      "gallery_unavailable": "Impossible de lire la galerie de comparaison."
+      "gallery_unavailable": "Impossible de lire la galerie de comparaison.",
+      "open_panel": "Ouvrez [Image Lab](/image-lab) pour configurer vos analyses."
     }
   }
 }

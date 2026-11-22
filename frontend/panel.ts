@@ -79,6 +79,10 @@ template.innerHTML = `
     #outputEntity { --ha-button-label-overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: start; }
     #outputId { display: block; margin: 4px 0; }
     #schedule { margin: 8px 0; }
+    #cameraSchedule { margin: 16px 0; }
+    #cameraSchedule h3 { font-size: 1rem; margin: 0 0 8px; }
+    #interval { width: min(100%, 230px); }
+
     figure { margin: 16px 0 0; }
     #imageStage { position: relative; --preview-height: min(55dvh, 520px); }
     #imageStage.with-objects {
@@ -165,13 +169,24 @@ template.innerHTML = `
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
             <div id="profileSettings" slot="profile-settings">
+              <div class="toolbar">
+                <ha-button id="configure" appearance="outlined"></ha-button>
+                <ha-button id="zone" appearance="outlined" hidden></ha-button>
+              </div>
+              <section id="cameraSchedule" aria-labelledby="frequencyTitle" hidden>
+                <h3 id="frequencyTitle"></h3>
+                <div class="toolbar">
+                  <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
+                  <ha-button id="saveInterval" variant="brand"></ha-button>
+                </div>
+                <p id="frequencyHelp" class="secondary"></p>
+                <p id="frequencyStatus" role="status"></p>
+              </section>
               <div id="output" class="row" hidden>
                 <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
                 <code id="outputId" class="secondary"></code>
               </div>
               <div class="toolbar">
-                <ha-button id="configure" appearance="outlined"></ha-button>
-                <ha-button id="zone" appearance="outlined" hidden></ha-button>
                 <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
               </div>
               <p id="schedule" class="secondary" hidden></p>
@@ -199,6 +214,8 @@ class ImageLabPanel extends HTMLElement {
   private activeTest?: AbortController;
   private previewUrl?: string;
   private optionsScope?: AbortController;
+  private intervalKey?: string;
+  private savingInterval = false;
   private zoneScope?: AbortController;
   private strings = strings.en;
   private readonly comparison: ImageLabComparison;
@@ -210,6 +227,10 @@ class ImageLabPanel extends HTMLElement {
     this.element("comparisonSlot").append(this.comparison);
     this.element("add").addEventListener("click", () => this.openFlow("create"));
     this.element("configure").addEventListener("click", () => this.openFlow("configure"));
+    this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
+    this.element("interval").addEventListener("input", () => {
+      this.element("frequencyStatus").textContent = "";
+    });
     this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element<ProfilePicker>("analysisPicker").addEventListener("selected", event => {
@@ -366,6 +387,7 @@ class ImageLabPanel extends HTMLElement {
     const labels = this.strings;
     for (const [id, message] of Object.entries({
       idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab, settingsTab: labels.settingsTab,
+      frequencyTitle: labels.frequencyTitle, frequencyHelp: labels.frequencyHelp,
     })) {
       this.element(id).textContent = message;
     }
@@ -374,7 +396,8 @@ class ImageLabPanel extends HTMLElement {
       retry: [labels.retry, "refresh"],
       copy: [labels.copy, "content-copy"],
       configure: [labels.configure, "tune-variant"],
-      settings: [this.selected?.source_type === "upload" ? labels.resultEntity : labels.settings, "clock-outline"],
+      settings: [labels.settings, "chart-box-outline"],
+      saveInterval: [labels.save, "content-save-outline"],
       test: [labels.test, "play-outline"],
       zone: [labels.zone, "crop"],
     };
@@ -410,7 +433,21 @@ class ImageLabPanel extends HTMLElement {
     this.element("resultPane").hidden = isComparison || tab === "settings";
     this.element("settingsPane").hidden = isComparison || tab !== "settings";
     if (!profile) return;
-    this.element("zone").hidden = profile.source_type !== "camera" || isComparison;
+    const camera = profile.source_type === "camera";
+    const interval = this.element<HTMLElement & {value: string}>("interval");
+    this.element("cameraSchedule").hidden = !camera;
+    if (camera) {
+      interval.setAttribute("label", labels.intervalLabel);
+      const key = `${profile.profile_id}/${profile.interval_minutes}`;
+      if (key !== this.intervalKey) {
+        this.intervalKey = key;
+        interval.value = String(profile.interval_minutes);
+        this.element("frequencyStatus").textContent = "";
+      }
+    } else {
+      this.intervalKey = undefined;
+    }
+    this.element("zone").hidden = !camera || isComparison;
     const cameraZones = this.element("cameraZones");
     cameraZones.hidden = profile.source_type !== "camera";
     if (!cameraZones.hidden) {
@@ -438,6 +475,35 @@ class ImageLabPanel extends HTMLElement {
     const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
     this.element("source").textContent = source.filter(Boolean).join(" · ");
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
+  }
+
+  private async saveInterval() {
+    const profile = this.selected;
+    const hass = this._hass;
+    if (!hass || profile?.source_type !== "camera" || this.savingInterval) return;
+    const field = this.element<HTMLElement & {value: string; reportValidity(): boolean}>("interval");
+    const minutes = Number(field.value);
+    const status = this.element("frequencyStatus");
+    if (!field.reportValidity() || !Number.isSafeInteger(minutes) || minutes < 0) {
+      status.textContent = this.strings.invalidFrequency;
+      return;
+    }
+    const button = this.element("saveInterval");
+    this.savingInterval = true;
+    button.setAttribute("loading", "");
+    field.setAttribute("disabled", "");
+    try {
+      await hass.connection.sendMessagePromise({
+        type: "image_lab/set_schedule", profile_id: profile.profile_id, interval_minutes: minutes,
+      });
+      if (this.selectedId === profile.profile_id) status.textContent = this.strings.frequencySaved;
+    } catch {
+      if (this.selectedId === profile.profile_id) status.textContent = this.strings.optionsError;
+    } finally {
+      this.savingInterval = false;
+      button.removeAttribute("loading");
+      field.removeAttribute("disabled");
+    }
   }
 
   private renderOutputName() {

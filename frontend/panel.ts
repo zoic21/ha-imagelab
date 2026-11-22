@@ -55,6 +55,7 @@ interface AnalysisColumn {
   title: string;
   flex?: number;
   minWidth: string;
+  hidden?: boolean;
   showNarrow?: boolean;
   template?: (row: AnalysisRow) => Node;
 }
@@ -325,6 +326,7 @@ class ImageLabPanel extends HTMLElement {
     if (this.hasAttribute("narrow") === value) return;
     this.toggleAttribute("narrow", value);
     this.analysisTable.narrow = value;
+    this.renderAnalysisColumns();
     this.render();
   }
 
@@ -484,6 +486,7 @@ class ImageLabPanel extends HTMLElement {
 
   private renderAnalysisColumns() {
     const labels = this.strings;
+    const narrow = this.hasAttribute("narrow");
     this.element("analysisList").setAttribute("aria-label", labels.analyses);
     this.analysisTable.columns = {
       name: {
@@ -499,8 +502,8 @@ class ImageLabPanel extends HTMLElement {
           return type;
         },
       },
-      source: { title: labels.sourceColumn, minWidth: "0" },
-      trigger: { title: labels.triggerColumn, minWidth: "0" },
+      source: { title: labels.sourceColumn, minWidth: "0", hidden: narrow },
+      trigger: { title: labels.triggerColumn, minWidth: "0", hidden: narrow },
     };
   }
 

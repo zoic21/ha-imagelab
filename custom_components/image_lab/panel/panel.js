@@ -257,6 +257,7 @@ class ImageLabPanel extends HTMLElement {
             return;
         this.toggleAttribute("narrow", value);
         this.analysisTable.narrow = value;
+        this.renderAnalysisColumns();
         this.render();
     }
     connectedCallback() {
@@ -407,6 +408,7 @@ class ImageLabPanel extends HTMLElement {
     }
     renderAnalysisColumns() {
         const labels = this.strings;
+        const narrow = this.hasAttribute("narrow");
         this.element("analysisList").setAttribute("aria-label", labels.analyses);
         this.analysisTable.columns = {
             name: {
@@ -422,8 +424,8 @@ class ImageLabPanel extends HTMLElement {
                     return type;
                 },
             },
-            source: { title: labels.sourceColumn, minWidth: "0" },
-            trigger: { title: labels.triggerColumn, minWidth: "0" },
+            source: { title: labels.sourceColumn, minWidth: "0", hidden: narrow },
+            trigger: { title: labels.triggerColumn, minWidth: "0", hidden: narrow },
         };
     }
     analysisNameCell(row) {

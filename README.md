@@ -8,7 +8,7 @@ Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur** et [HACS installé
 
 1. Dans **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Ouvrir **Image Lab**, sélectionner **Télécharger**, puis redémarrer Home Assistant.
 2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, chercher **Image Lab**. Saisir le nom et choisir le module puis la source. Pour une image importée, sélectionner un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
-3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. Le panneau permet également d’ajouter d’autres analyses et de les reconfigurer dans les réglages natifs de l’intégration.
+3. Ouvrir **Image Lab** dans la barre latérale et sélectionner l’analyse. **Ajouter une analyse** et **Source et analyse** ouvrent les formulaires Home Assistant directement dans le panneau.
 
 Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque analyse. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
@@ -40,7 +40,7 @@ Sur tablette en paysage et sur ordinateur, le panneau affiche la liste et le dé
 
 ### Publier le résultat dans une entité
 
-Dans Image Lab, ouvrir le profil puis **Entité et automatisation** pour choisir son entité de résultat et, sur une caméra, son intervalle de capture. Par défaut, les profils fonctionnent à la demande sans créer d’entité.
+Dans Image Lab, ouvrir le profil puis **Entité et fréquence** pour choisir son entité de résultat et, avec une caméra, sa fréquence. Sur une image importée, le bouton s’appelle **Entité de résultat**. Une nouvelle analyse de palette crée ce capteur par défaut. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement.
 
 | Module | Entité disponible |
 | --- | --- |
@@ -49,6 +49,10 @@ Dans Image Lab, ouvrir le profil puis **Entité et automatisation** pour choisir
 | Palette | Couleur dominante au format hexadécimal |
 
 Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages de comparaison**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+
+Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex` et `palette_rgb`. Les deux entités de détection d’objets exposent `objects` (catégorie, confiance et cadre normalisé pour chaque objet), `counts` (nombre par catégorie), `count` et `truncated`.
+
+Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
 Avec une caméra, indiquer par exemple **5 minutes** pour une actualisation périodique côté Home Assistant. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus, essais de cadrage et images de validation servent uniquement au réglage. Le panneau affiche le lien vers l’entité créée.
 

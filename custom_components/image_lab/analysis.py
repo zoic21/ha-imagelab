@@ -14,6 +14,7 @@ from .const import (
     CONF_IMAGE_KEY,
     CONF_MODULE,
     CONF_OBJECT_CONFIDENCE,
+    CONF_OBJECT_DETAILED,
     CONF_OBJECT_LABELS,
     CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
@@ -71,6 +72,7 @@ async def _async_detect_objects(
         frame,
         entry.data.get(CONF_OBJECT_LABELS, []),
         entry.data.get(CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE),
+        entry.data.get(CONF_OBJECT_DETAILED, False),
     )
 
 

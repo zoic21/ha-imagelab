@@ -28,11 +28,13 @@
           "source_type": "Source",
           "palette_size": "Number of colors",
           "object_confidence": "Confidence threshold",
+          "object_detailed": "Detailed detection",
           "object_labels": "Object categories"
         },
         "data_description": {
           "palette_size": "From 1 to 10. Available colors are repeated to fill the palette if needed.",
           "object_confidence": "From 5 to 100%. Defaults to 40%.",
+          "object_detailed": "Also examines overlapping areas of large images to find smaller objects. Takes longer.",
           "object_labels": "Leave empty to detect all categories."
         }
       },
@@ -212,7 +214,7 @@
         "title": "Result entity and schedule",
         "data": {
           "output": "Result entity",
-          "interval_minutes": "Camera interval",
+          "interval_minutes": "Camera update interval",
           "confirmation_seconds": "Delay before confirming a change"
         },
         "data_description": {

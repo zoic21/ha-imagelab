@@ -5,11 +5,16 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ENTITY_ID, Platform
-from homeassistant.core import HomeAssistant, ServiceResponse, callback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.const import ATTR_ENTITY_PICTURE, CONF_ENTITY_ID, STATE_UNAVAILABLE, Platform
+from homeassistant.core import HomeAssistant, ServiceResponse, State, callback
+from homeassistant.helpers.event import (
+    async_track_entity_registry_updated_event,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -37,6 +42,24 @@ BINARY_CLASSES = (
     "running",
     "generic",
 )
+
+
+def artwork_signature(state: State | None) -> tuple[str | None, ...]:
+    """Compare picture attributes, ignoring rotating proxy access tokens."""
+    if state is None or state.state == STATE_UNAVAILABLE:
+        return (None, None)
+
+    def identity(url: str | None) -> str | None:
+        if url and url.startswith("/api/media_player_proxy/"):
+            path, _, query = url.partition("?")
+            cache = parse_qs(query).get("cache", [""])[0]
+            return f"{path}?cache={cache}"
+        return url
+
+    return tuple(
+        identity(state.attributes.get(key))
+        for key in (ATTR_ENTITY_PICTURE, "entity_picture_local")
+    )
 
 
 def scheduled_frame(
@@ -86,6 +109,50 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     def entity_response(self) -> ServiceResponse | None:
         """Keep a rejected transition out of the entity while returning the observation."""
         return self._retained if self._retained is not None else self.data
+
+    async def async_initialize(self) -> None:
+        """Publish a first observation without delaying setup or replacing a newer one."""
+        async with self.analysis_lock:
+            if self._unloaded.is_set() or self.data is not None:
+                return
+            response = await self._measure()
+            if not self._unloaded.is_set():
+                self.async_set_updated_data(response)
+
+    @callback
+    def async_watch_artwork(self) -> None:
+        """Refresh this output when the chosen media player's picture changes."""
+        entry = self.config_entry
+        subscriptions: list[Callable[[], None]] = []
+
+        @callback
+        def unsubscribe() -> None:
+            while subscriptions:
+                subscriptions.pop()()
+
+        @callback
+        def artwork_changed(event) -> None:
+            if artwork_signature(event.data["old_state"]) != artwork_signature(event.data["new_state"]):
+                entry.async_create_background_task(
+                    self.hass, self.async_request_refresh(), f"{self.name} artwork",
+                    eager_start=False,
+                )
+
+        @callback
+        def entity_renamed(event) -> None:
+            if "old_entity_id" in event.data:
+                unsubscribe()
+                subscribe(event.data["entity_id"])
+
+        def subscribe(entity_id: str) -> None:
+            subscriptions.extend((
+                async_track_state_change_event(self.hass, entity_id, artwork_changed),
+                async_track_entity_registry_updated_event(self.hass, entity_id, entity_renamed),
+            ))
+
+        if entity_id := resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID]):
+            subscribe(entity_id)
+            entry.async_on_unload(unsubscribe)
 
     def _state_key(self, response: ServiceResponse | None) -> str | int | bool | None:
         if not response or response["status"] != "ok":
@@ -265,3 +332,16 @@ class OutputEntity(CoordinatorEntity[OutputCoordinator]):
     def result(self) -> dict:
         response = self.coordinator.entity_response
         return response["data"] if response and response["status"] == "ok" else {}
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        result = self.result
+        if not result:
+            return None
+        if self.coordinator.kind in ("occupancy", "count"):
+            keys = ("objects", "counts", "count", "truncated")
+        elif self.coordinator.kind == "color":
+            keys = ("palette_hex", "palette_rgb", "dominant_rgb", "extracted_count", "repeated_count")
+        else:
+            return None
+        return {key: result[key] for key in keys if key in result}

@@ -31,6 +31,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 
 from .analysis import async_analyze, resolve_entity_id
@@ -92,7 +93,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     static_url = f"/{DOMAIN}_assets"
     assets = Path(__file__).parent / "panel"
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(static_url, str(assets), cache_headers=False)]
+        [
+            StaticPathConfig(static_url, str(assets), cache_headers=False),
+            StaticPathConfig(
+                f"/{DOMAIN}_icon.png",
+                str(assets.parent / "brand" / "icon.png"),
+                cache_headers=False,
+            ),
+        ]
     )
     await panel_custom.async_register_panel(
         hass,
@@ -125,6 +133,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.config_entries.async_forward_entry_setups(
             entry, [coordinator.platform]
         )
+
+        @callback
+        def start(hass: HomeAssistant) -> None:
+            if entry.state is not ConfigEntryState.LOADED:
+                return
+            if entry.data[CONF_SOURCE_TYPE] == SourceType.MEDIA_PLAYER:
+                coordinator.async_watch_artwork()
+            entry.async_create_background_task(
+                hass, coordinator.async_initialize(), f"{coordinator.name} initial analysis",
+                eager_start=False,
+            )
+
+        @callback
+        def entry_loaded() -> None:
+            if entry.state is ConfigEntryState.LOADED:
+                entry.async_on_unload(async_at_started(hass, start))
+
+        entry.async_on_unload(entry.async_on_state_change(entry_loaded))
     return True
 
 
@@ -172,7 +198,9 @@ def async_subscribe_profiles(
                     if entry.state is ConfigEntryState.LOADED and entry.runtime_data
                     else None
                 ),
-                "interval_minutes": entry.options.get("interval_minutes", 0),
+                "interval_minutes": (
+                    0 if entry.pref_disable_polling else entry.options.get("interval_minutes", 0)
+                ),
                 CONF_MODULE: entry.data[CONF_MODULE],
                 CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
                 CONF_PALETTE_SIZE: (

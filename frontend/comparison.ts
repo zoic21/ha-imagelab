@@ -1,5 +1,6 @@
 import { comparisonStrings as text } from "./translations.js";
 
+import { actionLabel } from "./action.js";
 import { numberField, type NumberField } from "./number-field.js";
 import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
 type Engine = "pillow" | "tarsius";
@@ -52,6 +53,7 @@ type Result = {
   data: {
     engine?: Engine;
     state?: string;
+    state_id?: string | null;
     best_state?: string;
     scores?: Record<string, number>;
     ref_counts?: Record<string, number>;
@@ -73,6 +75,14 @@ type Tab = "preview" | "references" | "history" | "settings";
 const tabs: Tab[] = ["preview", "references", "history", "settings"];
 const coordinates = ["x", "y", "width", "height"] as const;
 const accept = "image/jpeg,image/png,image/webp";
+const actionIcons: Partial<Record<Label, string>> = {
+  add_state: "plus", benchmark: "compare", cancel: "close", classify: "tag-plus-outline",
+  close: "close", correct: "tag-edit-outline", draw: "crop", folder: "folder-upload-outline",
+  move: "arrow-right", refreshHistory: "refresh", reload: "refresh", remove: "delete-outline",
+  rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
+  test_image: "play-outline", upload: "upload", view_reference: "image-search-outline",
+  viewCapture: "magnify-plus-outline", whole: "crop-free",
+};
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -85,6 +95,11 @@ template.innerHTML = `
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
+    #progress { accent-color:var(--primary-color); width:100%; }
+    #historySettings { display:grid; align-items:end; gap:8px;
+      grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin-top:8px; }
+    #historySettings .row { grid-column:1 / -1; }
+    #historyMode, #historyLimit { width:100%; }
     .imagebox { position:relative; margin:12px auto; width:min(100%, calc(52dvh * var(--ratio, 1))); }
     #frame { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
     .drawing { touch-action:none; cursor:crosshair; user-select:none; }
@@ -125,6 +140,8 @@ template.innerHTML = `
     <ha-tab-group-tab slot="nav" panel="history" id="tab-history" aria-controls="history"></ha-tab-group-tab>
     <ha-tab-group-tab slot="nav" panel="settings" id="tab-settings" aria-controls="settings"></ha-tab-group-tab>
   </ha-tab-group>
+  <progress id="progress" aria-labelledby="progressText" hidden></progress>
+  <p class="secondary" id="progressText" role="status" hidden></p>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
@@ -158,9 +175,10 @@ template.innerHTML = `
     <div id="gallery"></div>
   </section>
   <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
-    <div class="row"><ha-select id="historyMode"></ha-select>
+    <div id="historySettings"><ha-select id="historyMode"></ha-select>
       <ha-input type="number" id="historyLimit" min="1" max="100" required step="1"></ha-input>
-      <ha-button id="saveHistory"></ha-button><ha-button appearance="plain" id="refreshHistory"></ha-button></div>
+      <div class="row"><ha-button id="saveHistory"></ha-button><ha-button appearance="plain" id="refreshHistory"></ha-button></div>
+    </div>
     <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -405,8 +423,11 @@ export class ImageLabComparison extends HTMLElement {
     for (const key of ["max_distance", "min_margin", ...coordinates] as const)
       this.get(key).setAttribute("label", this.labels[key]);
     this.get("historyLimit").setAttribute("label", this.labels.historyLimit);
-    for (const [id, label] of Object.entries(names))
-      this.get(id).textContent = this.labels[label];
+    for (const [id, label] of Object.entries(names)) {
+      const icon = actionIcons[label];
+      if (icon) actionLabel(this.get(id), this.labels[label], icon);
+      else this.get(id).textContent = this.labels[label];
+    }
     this.get<HTMLInputElement>("stateName").setAttribute(
       "aria-label",
       this.labels.new_state,
@@ -422,13 +443,14 @@ export class ImageLabComparison extends HTMLElement {
       value, label: this.labels[value as "off" | "changes" | "all"],
     }));
     this.get<HaSelect>("captureState").label = this.labels.state;
-    this.get<HaSelect>("captureGroup").label = this.labels.references;
+    this.get<HaSelect>("captureGroup").label = this.labels.imageUse;
     this.get<HTMLImageElement>("frame").alt = this.labels.preview;
     this.get("nav").setAttribute("aria-label", "Image Lab");
   }
 
   private reset() {
     this.scope?.abort();
+    this.progress();
     this.get("dialogSlot").replaceChildren();
     this.scope = undefined;
     this.gallery = undefined;
@@ -465,20 +487,18 @@ export class ImageLabComparison extends HTMLElement {
     const benchmark = this.get("benchmark");
     benchmark.hidden = !this.gallery?.references.some((ref) => ref.validation);
     benchmark.toggleAttribute("disabled", this.busy);
-    benchmark.textContent =
-      this.labels[this.benchmarking ? "benchmark_running" : "benchmark"];
+    benchmark.toggleAttribute("loading", this.benchmarking);
+    actionLabel(benchmark, this.labels.benchmark, actionIcons.benchmark!);
     this.get("references").setAttribute("aria-busy", String(this.busy));
     this.get("gallery").inert = this.busy;
     this.get("history").inert = this.busy || !this.gallery;
     this.get("reload").hidden = Boolean(this.gallery) || this.busy;
     this.get("draw").hidden = !this.frameUrl;
-    this.get("draw").textContent =
-      this.labels[this.drawing ? "stop_draw" : "draw"];
+    const draw = this.drawing ? "stop_draw" : "draw";
+    actionLabel(this.get("draw"), this.labels[draw], actionIcons[draw]!);
     this.get("whole").hidden = !this.draftRegion;
     this.get("imagebox").classList.toggle("drawing", this.drawing);
-    this.get("previewHint").textContent = this.busy
-      ? this.labels.working
-      : this.drawing
+    this.get("previewHint").textContent = this.busy ? "" : this.drawing
         ? this.labels.drawing
         : !this.available
           ? this.labels.unavailable
@@ -528,6 +548,7 @@ export class ImageLabComparison extends HTMLElement {
     const signal = this.scope?.signal;
     if (this.busy || !signal || signal.aborted) return;
     this.busy = true;
+    this.progress(this.labels.working);
     this.feedback();
     this.refresh();
     try {
@@ -545,9 +566,20 @@ export class ImageLabComparison extends HTMLElement {
     } finally {
       if (!signal.aborted) {
         this.busy = false;
+        this.progress();
         this.refresh();
       }
     }
+  }
+
+  private progress(label = "", done?: number, total = 1) {
+    const bar = this.get<HTMLProgressElement>("progress");
+    const status = this.get("progressText");
+    bar.max = total;
+    if (done === undefined) bar.removeAttribute("value");
+    else bar.value = done;
+    bar.hidden = status.hidden = !label;
+    status.textContent = label;
   }
 
   private async request<T>(
@@ -589,16 +621,17 @@ export class ImageLabComparison extends HTMLElement {
   }
 
   private updateSelectors() {
-    this.stateOptions(this.get("captureState"));
+    const captureState = this.get<HaSelect>("captureState");
+    this.stateOptions(captureState, captureState.value, false);
     this.groupOptions(this.get("captureGroup"));
   }
 
-  private stateOptions(select: HaSelect, state = select.value) {
+  private stateOptions(select: HaSelect, state = select.value, first = true) {
     select.options = (this.gallery?.states ?? []).map(({ id, name }) => ({
       value: id, label: name,
     }));
     select.value = select.options.some((option) => option.value === state)
-      ? state : select.options[0]?.value ?? "";
+      ? state : (first ? select.options[0]?.value : undefined) ?? "";
   }
 
   private groupOptions(select: HaSelect, validation = select.value === "validation") {
@@ -626,6 +659,7 @@ export class ImageLabComparison extends HTMLElement {
       });
       this.result = result;
       this.matchId = result.data.reference_id ?? undefined;
+      this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
       this.renderResult();
       if (result.image_id) {
         const blob = await this.fetchImage(result.image_id, signal);
@@ -916,7 +950,7 @@ export class ImageLabComparison extends HTMLElement {
     const button = document.createElement("ha-button");
     button.setAttribute("appearance", "plain");
     button.setAttribute("size", "s");
-    button.textContent = this.labels[label];
+    actionLabel(button, this.labels[label], actionIcons[label]!);
     button.addEventListener("click", () => void action());
     return button;
   }
@@ -1033,7 +1067,7 @@ export class ImageLabComparison extends HTMLElement {
         state.label = this.labels.expected;
         this.stateOptions(state, ref?.state_id ?? item.state_id ?? "");
         const group = document.createElement("ha-select") as HaSelect;
-        group.label = this.labels.references;
+        group.label = this.labels.imageUse;
         this.groupOptions(group, ref?.validation ?? false);
         card.append(state, group, this.button("correct", () => this.task(async signal => {
           await this.update("correct", { capture_id: item.id, state_id: state.value,
@@ -1091,6 +1125,9 @@ export class ImageLabComparison extends HTMLElement {
         const heading = document.createElement("h4");
         heading.textContent =
           this.labels[validation ? "validation" : "training"];
+        const description = document.createElement("p");
+        description.className = "secondary";
+        description.textContent = this.labels[validation ? "validationHelp" : "trainingHelp"];
         const file = document.createElement("input");
         file.type = "file";
         file.multiple = true;
@@ -1111,6 +1148,7 @@ export class ImageLabComparison extends HTMLElement {
         }
         section.append(
           heading,
+          description,
           file,
           this.button("upload", () => file.click()),
           grid,
@@ -1135,7 +1173,7 @@ export class ImageLabComparison extends HTMLElement {
     state.label = this.labels.state;
     this.stateOptions(state, ref.state_id);
     const group = document.createElement("ha-select") as HaSelect;
-    group.label = this.labels.references;
+    group.label = this.labels.imageUse;
     this.groupOptions(group, ref.validation);
     const controls = document.createElement("div");
     controls.className = "row";
@@ -1168,14 +1206,15 @@ export class ImageLabComparison extends HTMLElement {
     await this.task(async (signal) => {
       let accepted = 0;
       let rejected = 0;
-      for (const file of files) {
+      const images = state_id ? files : files.filter(file =>
+        file.webkitRelativePath.split("/").length === 3 && /\.(jpe?g|png|webp)$/i.test(file.name));
+      for (const [index, file] of images.entries()) {
         signal.throwIfAborted();
+        this.progress(`${this.labels.importing} ${index + 1}/${images.length} · ${file.name}`, index, images.length);
         try {
           let target = state_id;
           if (!target) {
             const parts = file.webkitRelativePath.split("/");
-            if (parts.length !== 3 || !/\.(jpe?g|png|webp)$/i.test(file.name))
-              continue;
             const name = parts[1].trim();
             const find = () =>
               this.gallery!.states.find(

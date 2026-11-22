@@ -1,7 +1,8 @@
 import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 
-import { editOutputOptions } from "./options.js";
+import { actionLabel } from "./action.js";
+import { runProfileFlow } from "./options.js";
 import { editZone } from "./zone.js";
 import type { Region } from "./region.js";
 
@@ -40,6 +41,9 @@ interface HomeAssistant {
 }
 
 type Message = keyof typeof strings.en;
+const moduleIcons: Record<Module, string> = {
+  comparison: "image-multiple-outline", palette: "palette-outline", object_detection: "image-search-outline",
+};
 
 const template = document.createElement("template");
 template.innerHTML = `
@@ -52,6 +56,7 @@ template.innerHTML = `
       background: var(--app-header-background-color); color: var(--app-header-text-color);
     }
     .heading { display: flex; align-items: center; gap: 12px; }
+    .heading img { width: 26px; height: 26px; background: none; }
     header h1 { margin: 0; font-size: 20px; font-weight: 500; }
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     main {
@@ -64,7 +69,8 @@ template.innerHTML = `
     ul { list-style: none; margin: 0; padding: 0; }
     li + li { margin-top: 4px; }
     li button {
-      display: grid; gap: 4px; width: 100%; padding: 12px; border: 0;
+      display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
+      gap: 4px 10px; width: 100%; padding: 12px; border: 0;
       border-radius: var(--ha-border-radius-md, 8px); background: none;
       color: inherit; font: inherit; text-align: start; cursor: pointer;
       overflow-wrap: anywhere;
@@ -73,14 +79,16 @@ template.innerHTML = `
       background: var(--secondary-background-color);
     }
     li button[aria-current="true"] { box-shadow: inset 3px 0 var(--primary-color); }
+    li button ha-icon { grid-row: span 2; }
     li button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
     code { overflow-wrap: anywhere; }
     #outputEntity { max-width: 100%; }
-    #outputName { white-space: normal; overflow-wrap: anywhere; text-align: start; }
+    #outputEntity { --ha-button-label-overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: start; }
     #outputId { display: block; margin: 4px 0; }
+    #schedule { margin: 8px 0; }
     figure { margin: 16px 0 0; }
     #imageStage { position: relative; --preview-height: min(55dvh, 520px); }
     #imageStage.with-objects {
@@ -130,8 +138,8 @@ template.innerHTML = `
   </style>
 
   <header>
-    <div class="heading"><ha-menu-button></ha-menu-button><h1>Image Lab</h1></div>
-    <ha-button id="add" href="/config/integrations/dashboard/add?domain=image_lab" variant="brand"></ha-button>
+    <div class="heading"><ha-menu-button></ha-menu-button><img src="/image_lab_icon.png" alt=""><h1>Image Lab</h1></div>
+    <ha-button id="add" variant="brand"></ha-button>
   </header>
   <main>
     <ha-card id="listCard">
@@ -150,15 +158,16 @@ template.innerHTML = `
           <h2 id="title" tabindex="-1"></h2>
           <p class="secondary" id="source"></p>
           <div id="output" class="row" hidden>
-            <ha-button id="outputEntity" appearance="plain" size="s"><span id="outputName"></span></ha-button>
+            <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
             <code id="outputId" class="secondary"></code>
-            <span id="schedule" class="secondary"></span>
           </div>
           <div class="toolbar">
             <ha-button id="test" variant="brand"></ha-button>
+            <ha-button id="configure" appearance="outlined"></ha-button>
             <ha-button id="zone" appearance="outlined" hidden></ha-button>
             <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
           </div>
+          <p id="schedule" class="secondary" hidden></p>
           <p class="secondary" id="cameraZones" hidden></p>
           <p id="status" class="secondary" role="status"></p>
           <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
@@ -175,7 +184,6 @@ template.innerHTML = `
           </figure>
           <ul id="objectList" hidden></ul>
           <div id="comparisonSlot"></div>
-          <ha-button id="integration" appearance="plain" size="s"></ha-button>
           <div class="id">
             <span id="idLabel" class="secondary"></span>
             <code id="profileId"></code>
@@ -185,6 +193,7 @@ template.innerHTML = `
       </section>
     </ha-card>
   </main>
+  <div id="dialogs"></div>
 `;
 
 class ImageLabPanel extends HTMLElement {
@@ -205,6 +214,9 @@ class ImageLabPanel extends HTMLElement {
     this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
     this.comparison = new ImageLabComparison();
     this.element("comparisonSlot").append(this.comparison);
+    this.element("add").addEventListener("click", () => this.openFlow("create"));
+    this.element("configure").addEventListener("click", () => this.openFlow("configure"));
+    this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element("back").addEventListener("click", () => {
       this.select();
@@ -215,13 +227,6 @@ class ImageLabPanel extends HTMLElement {
       if (entityId) this.dispatchEvent(new CustomEvent("hass-more-info", {
         detail: { entityId }, bubbles: true, composed: true,
       }));
-    });
-    this.element("settings").addEventListener("click", () => {
-      if (!this.selected || !this._hass) return;
-      this.optionsScope?.abort();
-      this.optionsScope = new AbortController();
-      void editOutputOptions(this.element("profile"), this._hass, this.selected.profile_id,
-        this.strings, this.optionsScope.signal);
     });
     this.element("test").addEventListener("click", () => void this.test());
     this.element("zone").addEventListener("click", () => {
@@ -276,6 +281,19 @@ class ImageLabPanel extends HTMLElement {
     return this.profiles?.find((profile) => profile.profile_id === this.selectedId);
   }
 
+  private openFlow(mode: "create" | "configure" | "options") {
+    const entry = mode === "create" ? undefined : this.selected?.profile_id;
+    if (!this._hass || (mode !== "create" && !entry)) return;
+    this.optionsScope?.abort();
+    this.optionsScope = new AbortController();
+    void runProfileFlow(this.element("dialogs"), this._hass, mode, entry,
+      this.strings, this.optionsScope.signal, id => {
+        this.clearTest();
+        this.selectedId = id;
+        this.render();
+      });
+  }
+
   private subscribe() {
     if (!this.isConnected || !this._hass || this.subscription) return;
     this.failed = false;
@@ -289,7 +307,7 @@ class ImageLabPanel extends HTMLElement {
         previous.available !== current.available)) {
         this.clearTest();
       }
-      if (!current) {
+      if (previous && !current) {
         this.optionsScope?.abort();
         this.selectedId = undefined;
       }
@@ -323,6 +341,7 @@ class ImageLabPanel extends HTMLElement {
     this.zoneScope?.abort();
     this.activeTest?.abort();
     this.activeTest = undefined;
+    this.element("test").removeAttribute("loading");
     this.element("status").textContent = "";
     this.element("error").hidden = true;
     this.element("palette").hidden = true;
@@ -335,19 +354,28 @@ class ImageLabPanel extends HTMLElement {
     this.element("objectList").hidden = true;
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
     this.previewUrl = undefined;
-    this.element("copy").textContent = this.strings.copy;
+    actionLabel(this.element("copy"), this.strings.copy, "content-copy");
   }
 
   private render() {
     const labels = this.strings;
     for (const [id, message] of Object.entries({
-      add: labels.add, listTitle: labels.profiles, retry: labels.retry,
-      back: labels.back, idLabel: labels.id, copy: labels.copy,
-      settings: labels.settings, integration: labels.integration, test: labels.test, selectMessage: labels.select,
-      paletteTitle: labels.palette,
+      listTitle: labels.profiles, idLabel: labels.id, selectMessage: labels.select, paletteTitle: labels.palette,
     })) {
       this.element(id).textContent = message;
     }
+    const actions = {
+      add: [labels.add, "plus"],
+      retry: [labels.retry, "refresh"],
+      back: [labels.back, "arrow-left"],
+      copy: [labels.copy, "content-copy"],
+      configure: [labels.configure, "tune-variant"],
+      settings: [this.selected?.source_type === "upload" ? labels.resultEntity : labels.settings, "clock-outline"],
+      test: [labels.test, "play-outline"],
+      zone: [labels.zone, "crop"],
+    };
+    for (const [id, [label, icon]] of Object.entries(actions))
+      actionLabel(this.element(id), label, icon);
 
     const profile = this.selected;
     const narrow = this.hasAttribute("narrow");
@@ -365,13 +393,16 @@ class ImageLabPanel extends HTMLElement {
       const button = document.createElement("button");
       const title = document.createElement("strong");
       const module = document.createElement("span");
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", `mdi:${moduleIcons[item.module]}`);
+      icon.setAttribute("aria-hidden", "true");
       button.type = "button";
       button.setAttribute("aria-current", String(item.profile_id === this.selectedId));
       button.addEventListener("click", () => this.select(item));
       title.textContent = item.title;
       module.className = "secondary";
       module.textContent = labels[item.module];
-      button.append(title, module);
+      button.append(icon, title, module);
       row.append(button);
       return row;
     });
@@ -388,29 +419,30 @@ class ImageLabPanel extends HTMLElement {
     this.element("test").hidden = isComparison;
     if (!profile) return;
     this.element("zone").hidden = profile.source_type !== "camera" || isComparison;
-    this.element("zone").textContent = labels.zone;
     const cameraZones = this.element("cameraZones");
     cameraZones.hidden = profile.source_type !== "camera";
     if (!cameraZones.hidden) {
       const others = this.profiles?.filter(p => p.source_type === "camera" && p.entity_id === profile.entity_id && p !== profile) ?? [];
+      cameraZones.hidden = !others.length;
       cameraZones.textContent = labels.cameraZones;
       for (const p of others) {
         const button = document.createElement("ha-button");
         button.setAttribute("appearance", "plain");
         button.setAttribute("size", "s");
-        button.textContent = p.title;
+        actionLabel(button, p.title, "crop");
         button.onclick = () => this.select(p);
         cameraZones.append(button);
       }
     }
     this.element("title").textContent = profile.title;
     this.element("profileId").textContent = profile.profile_id;
-    this.element("integration").setAttribute("href",
-      `/config/integrations/integration/image_lab#config_entry=${encodeURIComponent(profile.profile_id)}`);
     this.element("output").hidden = !profile.output_entity_id;
     this.renderOutputName();
-    this.element("schedule").textContent = profile.interval_minutes
-      ? labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes)) : labels.manual;
+    const schedule = this.element("schedule");
+    schedule.hidden = profile.source_type === "upload";
+    schedule.textContent = profile.source_type === "media_player" && profile.output_entity_id
+      ? labels.onArtworkChange : profile.interval_minutes
+        ? labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes)) : labels.manual;
     const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
     this.element("source").textContent = source.filter(Boolean).join(" · ");
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
@@ -420,8 +452,7 @@ class ImageLabPanel extends HTMLElement {
     const id = this.selected?.output_entity_id;
     if (!id) return;
     const name = this._hass?.states[id]?.attributes.friendly_name;
-    const label = this.element("outputName");
-    if (label.textContent !== (name || id)) label.textContent = name || id;
+    actionLabel(this.element("outputEntity"), name || id, "information-outline");
     const identifier = this.element("outputId");
     identifier.hidden = !name || name === id;
     if (identifier.textContent !== id) identifier.textContent = id;
@@ -453,7 +484,8 @@ class ImageLabPanel extends HTMLElement {
           this.element("copy").focus();
         }
       }
-      if (profile.profile_id === this.selectedId) this.element("copy").textContent = this.strings.copied;
+      if (profile.profile_id === this.selectedId)
+        actionLabel(this.element("copy"), this.strings.copied, "check");
     } catch {
       if (profile.profile_id === this.selectedId) this.showError("copyError");
     }
@@ -521,7 +553,7 @@ class ImageLabPanel extends HTMLElement {
     this.clearTest();
     const controller = new AbortController();
     this.activeTest = controller;
-    this.element("test").setAttribute("disabled", "");
+    this.element("test").setAttribute("loading", "");
     const status = this.element("status");
     const isDetection = profile.module === "object_detection";
     status.textContent = isDetection ? this.strings.detecting : this.strings.testing;
@@ -584,7 +616,8 @@ class ImageLabPanel extends HTMLElement {
     } finally {
       if (this.activeTest === controller) {
         this.activeTest = undefined;
-        this.element("test").removeAttribute("disabled");
+        this.element("test").removeAttribute("loading");
+        this.element("test").toggleAttribute("disabled", !this.selected?.available);
         status.textContent = this.previewUrl ? summary : "";
       }
     }

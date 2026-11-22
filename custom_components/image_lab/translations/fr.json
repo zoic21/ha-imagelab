@@ -28,11 +28,13 @@
           "source_type": "Source",
           "palette_size": "Nombre de couleurs",
           "object_confidence": "Seuil de confiance",
+          "object_detailed": "Analyse détaillée",
           "object_labels": "Catégories d’objets"
         },
         "data_description": {
           "palette_size": "De 1 à 10. Si nécessaire, les couleurs disponibles sont répétées pour compléter la palette.",
           "object_confidence": "De 5 à 100 %. La valeur par défaut est 40 %.",
+          "object_detailed": "Analyse aussi des zones qui se chevauchent dans les grandes images pour repérer les petits objets. Plus lente.",
           "object_labels": "Laissez ce champ vide pour détecter toutes les catégories."
         }
       },
@@ -212,7 +214,7 @@
         "title": "Entité de résultat et planification",
         "data": {
           "output": "Entité de résultat",
-          "interval_minutes": "Intervalle entre les captures",
+          "interval_minutes": "Fréquence de mise à jour caméra",
           "confirmation_seconds": "Délai de confirmation d’un changement"
         },
         "data_description": {

@@ -1,11 +1,12 @@
 import type { panelStrings } from "./translations.js";
+import { actionLabel } from "./action.js";
 
 type Values = Record<string, unknown>;
 type Field = { name: string; default?: unknown; required?: boolean; description?: { suggested_value?: unknown } };
 type Step =
-  | { type: "form"; flow_id: string; step_id: string; data_schema: Field[]; errors: Record<string, string> }
+  | { type: "form"; flow_id: string; step_id: string; data_schema: Field[]; errors: Record<string, string>; last_step?: boolean }
   | { type: "abort"; reason: string }
-  | { type: "create_entry" };
+  | { type: "create_entry"; result?: { entry_id: string } };
 
 interface Client {
   locale: { language: string };
@@ -13,13 +14,16 @@ interface Client {
   connection: { sendMessagePromise<T>(message: Values): Promise<T> };
 }
 
-// Run the integration's existing options flow with HA's schema-driven form.
-// Both entry points therefore use the same selectors, translations and validation.
-export async function editOutputOptions(host: HTMLElement, hass: Client, entry: string,
-  labels: typeof panelStrings.en, signal: AbortSignal) {
-  const path = "config/config_entries/options/flow";
+// Reuse Home Assistant's flow schemas and native selectors without leaving the panel.
+export async function runProfileFlow(host: HTMLElement, hass: Client,
+  mode: "create" | "configure" | "options", entry: string | undefined,
+  labels: typeof panelStrings.en, signal: AbortSignal, created: (entry: string) => void) {
+  const isOptions = mode === "options";
+  const category = isOptions ? "options" : "config";
+  const path = `config/config_entries/${isOptions ? "options/" : ""}flow`;
+  const start = isOptions ? { handler: entry } : { handler: "image_lab", ...(entry && { entry_id: entry }) };
   const dialog = document.createElement("ha-dialog");
-  dialog.setAttribute("header-title", labels.settings);
+  dialog.setAttribute("header-title", labels[mode === "create" ? "add" : mode === "configure" ? "configure" : "settings"]);
   dialog.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
     <ha-form hidden></ha-form>
     <ha-dialog-footer slot="footer"><ha-button slot="secondaryAction" appearance="plain"></ha-button>
@@ -42,9 +46,9 @@ export async function editOutputOptions(host: HTMLElement, hass: Client, entry: 
     signal.removeEventListener("abort", close);
     if (flowId && !busy) discard(flowId);
   };
-  cancel.textContent = labels.cancel;
+  actionLabel(cancel, labels.cancel, "close");
   cancel.onclick = close;
-  submit.textContent = labels.save;
+  actionLabel(submit, labels.save, "content-save-outline");
   dialog.addEventListener("closed", close, { once: true });
   signal.addEventListener("abort", close, { once: true });
   form.addEventListener("value-changed", event => {
@@ -58,34 +62,37 @@ export async function editOutputOptions(host: HTMLElement, hass: Client, entry: 
     if (closed || busy) return;
     busy = true;
     error.hidden = true;
-    submit.setAttribute("disabled", "");
+    submit.setAttribute("loading", "");
     form.inert = true;
     try {
       if (!resources) {
-        const translations = await Promise.all(["options", "selector"].map(category =>
+        const translations = await Promise.all([category, "selector"].map(section =>
           hass.connection.sendMessagePromise<{resources: Record<string, string>}>({
             type: "frontend/get_translations", language: hass.locale.language,
-            integration: ["image_lab"], category,
+            integration: ["image_lab"], category: section,
           })));
         resources = Object.assign({}, ...translations.map(result => result.resources));
       }
       if (closed) return;
       const next = await hass.callApi<Step>("POST", flowId ? path + "/" + flowId : path,
-        flowId ? form.data : { handler: entry });
+        flowId ? form.data : start);
       flowId = next.type === "form" ? next.flow_id : undefined;
       if (closed) return;
       const translate = (key: string) => resources?.["component.image_lab." + key] ?? "";
-      if (next.type === "create_entry") {
+      if (next.type === "create_entry" || (mode === "configure" && next.type === "abort" &&
+        next.reason === "reconfigure_successful")) {
         close();
+        if (mode === "create" && next.type === "create_entry" && next.result?.entry_id)
+          created(next.result.entry_id);
         return;
       }
       if (next.type === "abort") {
-        error.textContent = translate("options.abort." + next.reason) || next.reason;
+        error.textContent = translate(category + ".abort." + next.reason) || next.reason;
         error.hidden = false;
         form.hidden = description.hidden = submit.hidden = true;
         return;
       }
-      const prefix = "options.step." + next.step_id;
+      const prefix = category + ".step." + next.step_id;
       const data: Values = step?.step_id === next.step_id ? { ...form.data } : {};
       for (const field of next.data_schema) {
         const value = field.description?.suggested_value ?? field.default;
@@ -97,26 +104,28 @@ export async function editOutputOptions(host: HTMLElement, hass: Client, entry: 
       description.hidden = !description.textContent;
       Object.assign(form, {
         hass, data, schema: next.data_schema, error: next.errors, hidden: false,
-        context: { domain: "image_lab", handler: entry },
+        context: { domain: "image_lab", handler: "image_lab" },
         computeLabel: (field: Field) => translate(prefix + ".data." + field.name) || field.name,
         computeHelper: (field: Field) => translate(prefix + ".data_description." + field.name),
-        computeError: (key: string) => translate("options.error." + key) || key,
+        computeError: (key: string) => translate(category + ".error." + key) || key,
         localizeValue: (key: string) => translate("selector." + key),
       });
       if (next.errors?.base) {
-        error.textContent = translate("options.error." + next.errors.base) || next.errors.base;
+        error.textContent = translate(category + ".error." + next.errors.base) || next.errors.base;
         error.hidden = false;
       }
-      submit.textContent = labels.save;
+      const last = next.last_step || isOptions;
+      actionLabel(submit, last ? labels.save : labels.next, last ? "content-save-outline" : "arrow-right");
     } catch {
       if (!closed) {
         error.textContent = labels.optionsError;
         error.hidden = false;
-        submit.textContent = labels.retry;
+        actionLabel(submit, labels.retry, "refresh");
       }
     } finally {
       busy = false;
       form.inert = false;
+      submit.removeAttribute("loading");
       submit.removeAttribute("disabled");
       if (closed && flowId) discard(flowId);
     }

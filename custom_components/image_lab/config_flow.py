@@ -23,6 +23,7 @@ from .const import (
     CONF_IMAGE_REVISION,
     CONF_MODULE,
     CONF_OBJECT_CONFIDENCE,
+    CONF_OBJECT_DETAILED,
     CONF_OBJECT_LABELS,
     CONF_PALETTE_SIZE,
     CONF_SOURCE_TYPE,
@@ -135,6 +136,10 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE
             )
             default_labels = previous.get(CONF_OBJECT_LABELS, [])
+            detailed = previous.get(CONF_OBJECT_DETAILED, False)
+            fields[probatio.Required(CONF_OBJECT_DETAILED, default=detailed)] = (
+                selector.BooleanSelector()
+            )
             fields[
                 probatio.Required(CONF_OBJECT_CONFIDENCE, default=default_confidence)
             ] = selector.NumberSelector(
@@ -167,6 +172,9 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors[CONF_OBJECT_CONFIDENCE] = "invalid_object_confidence"
                 labels = user_input.get(CONF_OBJECT_LABELS, default_labels)
                 self._settings[CONF_OBJECT_LABELS] = list(dict.fromkeys(labels))
+                self._settings[CONF_OBJECT_DETAILED] = user_input.get(
+                    CONF_OBJECT_DETAILED, detailed
+                )
         if user_input is not None and not errors:
             self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
             return await self.async_step_image()
@@ -200,9 +208,11 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
 
             if not errors:
+                module = self._settings[CONF_MODULE]
+                defaults = {"output": "color"} if module == "palette" else {}
                 if self._entry is None:
                     return self.async_create_entry(
-                        title=self._title, data=self._settings
+                        title=self._title, data=self._settings, options=defaults
                     )
                 if (
                     self.hass.config_entries.async_get_entry(self._entry.entry_id)
@@ -218,8 +228,8 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 ):
                     self._settings["region"] = self._entry.data["region"]
                 options = dict(self._entry.options)
-                if self._entry.data[CONF_MODULE] != self._settings[CONF_MODULE]:
-                    options.clear()
+                if self._entry.data[CONF_MODULE] != module:
+                    options = defaults
                 elif options and source is not SourceType.CAMERA:
                     options["interval_minutes"] = 0
                     options.pop("confirmation_seconds", None)

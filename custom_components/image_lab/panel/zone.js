@@ -1,4 +1,5 @@
 import { bindRegionDrawing, paintRegion } from "./region.js";
+import { actionLabel } from "./action.js";
 import { numberField } from "./number-field.js";
 export async function editZone(host, region, labels, url, request, signal) {
     const dialog = document.createElement("ha-dialog");
@@ -17,9 +18,9 @@ export async function editZone(host, region, labels, url, request, signal) {
     const save = dialog.querySelector('[slot="primaryAction"]');
     const cancel = dialog.querySelector('[slot="secondaryAction"]');
     const full = dialog.querySelector("#fullZone");
-    cancel.textContent = labels.cancel;
-    full.textContent = labels.fullZone;
-    save.textContent = labels.save;
+    actionLabel(cancel, labels.cancel, "close");
+    actionLabel(full, labels.fullZone, "crop-free");
+    actionLabel(save, labels.save, "content-save-outline");
     dialog.querySelector("p").textContent = labels.drawZone;
     const fields = new Map();
     const keys = ["x", "y", "width", "height"];
@@ -64,6 +65,7 @@ export async function editZone(host, region, labels, url, request, signal) {
     signal.addEventListener("abort", close, { once: true });
     save.onclick = async () => {
         dialog.inert = true;
+        save.setAttribute("loading", "");
         try {
             const response = await request(url, { method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ region }), signal: scope.signal });
@@ -79,6 +81,7 @@ export async function editZone(host, region, labels, url, request, signal) {
         }
         finally {
             dialog.inert = false;
+            save.removeAttribute("loading");
         }
     };
     host.append(dialog);

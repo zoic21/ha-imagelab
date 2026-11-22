@@ -1,4 +1,5 @@
 import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
+import { actionLabel } from "./action.js";
 import { numberField, type NumberField } from "./number-field.js";
 import { panelStrings } from "./translations.js";
 
@@ -23,9 +24,9 @@ export async function editZone(
   const save = dialog.querySelector<HTMLElement>('[slot="primaryAction"]')!;
   const cancel = dialog.querySelector<HTMLElement>('[slot="secondaryAction"]')!;
   const full = dialog.querySelector<HTMLElement>("#fullZone")!;
-  cancel.textContent = labels.cancel;
-  full.textContent = labels.fullZone;
-  save.textContent = labels.save;
+  actionLabel(cancel, labels.cancel, "close");
+  actionLabel(full, labels.fullZone, "crop-free");
+  actionLabel(save, labels.save, "content-save-outline");
   dialog.querySelector("p")!.textContent = labels.drawZone;
   const fields = new Map<keyof Region, NumberField>();
   const keys = ["x", "y", "width", "height"] as const;
@@ -65,6 +66,7 @@ export async function editZone(
   signal.addEventListener("abort", close, { once: true });
   save.onclick = async () => {
     dialog.inert = true;
+    save.setAttribute("loading", "");
     try {
       const response = await request(url, { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ region }), signal: scope.signal });
@@ -72,7 +74,10 @@ export async function editZone(
       close();
     } catch {
       if (!scope.signal.aborted) { alert.hidden = false; alert.textContent = labels.saveZoneError; }
-    } finally { dialog.inert = false; }
+    } finally {
+      dialog.inert = false;
+      save.removeAttribute("loading");
+    }
   };
   host.append(dialog);
   dialog.setAttribute("open", "");

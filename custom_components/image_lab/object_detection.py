@@ -173,8 +173,8 @@ def _priors():
 
 def _decode(
     predictions, labels: list[str], confidence: int, area: tuple[int, int, int, int]
-) -> dict:
-    """Map NanoDet predictions to the unpadded image and suppress duplicate boxes."""
+):
+    """Map NanoDet predictions to the unpadded image."""
     import numpy as np
 
     priors = _priors()
@@ -199,6 +199,13 @@ def _decode(
     offset_x, offset_y, width, height = area
     boxes = np.stack((x - left, y - top, x + right, y + bottom), axis=1)
     boxes = ((boxes - (offset_x, offset_y) * 2) / ((width, height) * 2)).clip(0, 1)
+    return boxes, scores, winners
+
+
+def _suppress(boxes, scores, winners, passes) -> dict:
+    """Suppress duplicate boxes across overlapping passes of the same category."""
+    import numpy as np
+
     areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     remaining = np.argsort(-scores, kind="stable")
     remaining = remaining[areas[remaining] > 0]
@@ -222,7 +229,16 @@ def _decode(
         )
         intersection = overlap.clip(0).prod(axis=1)
         iou = intersection / (areas[current] + areas[remaining] - intersection)
-        duplicate = (winners[current] == winners[remaining]) & (iou >= _IOU_THRESHOLD)
+        # A second scale can produce a smaller, nearly contained box for the same object.
+        smaller = np.minimum(areas[current], areas[remaining])
+        nested = (
+            (passes[current] != passes[remaining])
+            & (intersection >= 0.85 * smaller)
+            & (iou >= 0.35)
+        )
+        duplicate = (winners[current] == winners[remaining]) & (
+            (iou >= _IOU_THRESHOLD) | nested
+        )
         remaining = remaining[~duplicate]
 
     return {
@@ -253,19 +269,48 @@ class _NanoDet:
             raise ImageError("object_model_unavailable")
 
     def detect(
-        self, frame: ImageFrame, labels: list[str], confidence: int
+        self, frame: ImageFrame, labels: list[str], confidence: int, detailed: bool = False
     ) -> tuple[ModuleResult, ImageFrame]:
-        """Run one inference and return coordinates relative to the oriented image."""
+        """Run inference and return coordinates relative to the oriented image."""
         try:
             with Image.open(BytesIO(frame.content)) as image:
                 ImageOps.exif_transpose(image, in_place=True)
-                width, height = image.size
-                longest = max(width, height)
-                w, h = (max(1, value * _SIZE // longest) for value in image.size)
-                x, y = (_SIZE - w) // 2, (_SIZE - h) // 2
-                resized = image.convert("RGB").resize((w, h), Image.Resampling.BILINEAR)
+                source = image.convert("RGB")
         except (OSError, SyntaxError, ValueError) as err:
             raise ImageError("invalid_image") from err
+        width, height = source.size
+        passes = [self._infer(source, labels, confidence)]
+        if detailed and min(width, height) > _SIZE:
+            # Overlap tiles so objects near one tile's edge are visible in another.
+            tile_w, tile_h = width * 4 // 5, height * 4 // 5
+            for left in (0, width - tile_w):
+                for top in (0, height - tile_h):
+                    right, bottom = left + tile_w, top + tile_h
+                    tile = source.crop((left, top, right, bottom))
+                    boxes, scores, winners = self._infer(tile, labels, confidence)
+                    keep = (
+                        ((boxes[:, 0] > 0) | (left == 0))
+                        & ((boxes[:, 1] > 0) | (top == 0))
+                        & ((boxes[:, 2] < 1) | (right == width))
+                        & ((boxes[:, 3] < 1) | (bottom == height))
+                    )
+                    mapped = (
+                        (boxes[keep] * ((tile_w, tile_h) * 2) + ((left, top) * 2))
+                        / ((width, height) * 2)
+                    )
+                    passes.append((mapped, scores[keep], winners[keep]))
+        boxes, scores, winners = (self.np.concatenate(parts) for parts in zip(*passes))
+        pass_ids = self.np.repeat(range(len(passes)), [len(part[0]) for part in passes])
+        return (
+            ModuleResult(_suppress(boxes, scores, winners, pass_ids)),
+            replace(frame, width=width, height=height),
+        )
+
+    def _infer(self, image: Image.Image, labels: list[str], confidence: int):
+        longest = max(image.size)
+        w, h = (max(1, value * _SIZE // longest) for value in image.size)
+        x, y = (_SIZE - w) // 2, (_SIZE - h) // 2
+        resized = image.resize((w, h), Image.Resampling.BILINEAR)
         padded = Image.new("RGB", (_SIZE, _SIZE))
         padded.paste(resized, (x, y))
 
@@ -286,10 +331,7 @@ class _NanoDet:
                 raise ImageError("object_detection_failed")
             predictions = self.np.array(output, dtype=self.np.float32)
 
-        return (
-            ModuleResult(_decode(predictions, labels, confidence, (x, y, w, h))),
-            replace(frame, width=width, height=height),
-        )
+        return _decode(predictions, labels, confidence, (x, y, w, h))
 
 
 class ObjectDetector:
@@ -300,14 +342,15 @@ class ObjectDetector:
         self._detector: _NanoDet | None = None
 
     async def async_detect(
-        self, hass: HomeAssistant, frame: ImageFrame, labels: list[str], confidence: int
+        self, hass: HomeAssistant, frame: ImageFrame, labels: list[str], confidence: int,
+        detailed: bool,
     ) -> tuple[ModuleResult, ImageFrame]:
         if self._detector is None:
             async with self._lock:
                 if self._detector is None:
                     self._detector = await self._async_load(hass)
         return await hass.async_add_executor_job(
-            self._detector.detect, frame, labels, confidence
+            self._detector.detect, frame, labels, confidence, detailed
         )
 
     async def _async_load(self, hass: HomeAssistant) -> _NanoDet:

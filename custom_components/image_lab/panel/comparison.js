@@ -12,8 +12,7 @@ const actionIcons = {
     close: "close", correct: "tag-edit-outline", draw: "crop", folder: "folder-upload-outline",
     move: "arrow-right", refreshHistory: "refresh", reload: "refresh", remove: "delete-outline",
     rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
-    upload: "upload", view_reference: "image-search-outline",
-    viewCapture: "magnify-plus-outline", whole: "crop-free",
+    view_reference: "image-search-outline", whole: "crop-free",
 };
 const template = document.createElement("template");
 template.innerHTML = `
@@ -26,7 +25,7 @@ template.innerHTML = `
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
-    #progress { accent-color:var(--primary-color); width:100%; }
+    #progress { display:block; --ha-progress-bar-track-height:4px; }
     #historySettings { display:grid; align-items:end; gap:8px;
       grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin-top:8px; }
     #historySettings .row { grid-column:1 / -1; }
@@ -57,15 +56,16 @@ template.innerHTML = `
     .reference { display:grid; gap:6px; min-width:0; padding:8px; border-radius:var(--ha-border-radius-md, 8px);
       background:var(--secondary-background-color); overflow-wrap:anywhere; }
     .reference[data-matched=true] { outline:2px solid var(--primary-color); }
-    .openImage { padding:0; border:0; cursor:zoom-in; background:none; }
+    .openImage { width:100%; --ha-button-height:auto; }
+    .openImage::part(base) { padding:0; }
+    .openImage::part(label) { width:100%; }
+    .accessibleLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
     .original { display:block; max-width:100%; max-height:65dvh; margin:auto; }
     .reference img { width:100%; height:110px; object-fit:contain; }
     fieldset { margin:12px 0; padding:12px; border:1px solid var(--divider-color);
       border-radius:var(--ha-border-radius-md, 8px); }
     label { display:grid; gap:4px; margin:4px 0; }
-    input:not([type=file]) { color:var(--primary-text-color); font:inherit; min-height:36px;
-      margin:0; box-sizing:border-box; max-width:100%; border:1px solid var(--divider-color);
-      border-radius:var(--ha-border-radius-md, 8px); padding:4px 8px; background:var(--card-background-color); }
+    ha-file-upload { display:block; min-width:0; margin-block:8px; }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
     #stateMessage { margin-bottom:9px; }
@@ -76,7 +76,7 @@ template.innerHTML = `
     <ha-tab-group-tab slot="nav" panel="history" id="tab-history" aria-controls="history"></ha-tab-group-tab>
     <ha-tab-group-tab slot="nav" panel="settings" id="tab-settings" aria-controls="settings"></ha-tab-group-tab>
   </ha-tab-group>
-  <progress id="progress" aria-labelledby="progressText" hidden></progress>
+  <ha-progress-bar id="progress" indeterminate hidden></ha-progress-bar>
   <p class="secondary" id="progressText" role="status" hidden></p>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
@@ -109,7 +109,7 @@ template.innerHTML = `
   </section>
   <section id="references" role="tabpanel" aria-labelledby="tab-references" hidden>
     <form id="stateForm" class="row">
-      <input id="stateName" required maxlength="120">
+      <ha-input id="stateName" required maxlength="120" enterkeyhint="done"></ha-input>
       <ha-button id="addState" variant="brand"></ha-button>
       <ha-button id="folder" appearance="plain"></ha-button>
       <input id="folderInput" type="file" webkitdirectory multiple hidden>
@@ -221,16 +221,20 @@ export class ImageLabComparison extends HTMLElement {
             this.captured = false;
             this.feedback(this.labels.capture_saved);
         }));
-        this.get("stateForm").addEventListener("submit", (event) => {
+        const stateName = this.get("stateName");
+        const createState = () => this.saveState(stateName);
+        this.get("stateForm").addEventListener("submit", event => {
             event.preventDefault();
-            void this.task(async (signal) => {
-                const input = this.get("stateName");
-                await this.update("state", { name: input.value }, signal);
-                input.value = "";
-                this.renderGallery();
-            });
+            void createState();
         });
-        this.onClick("addState", () => this.get("stateForm").requestSubmit());
+        this.onClick("addState", createState);
+        stateName.addEventListener("keydown", event => {
+            if (event.key !== "Enter" || event.isComposing || event.defaultPrevented)
+                return;
+            event.preventDefault();
+            void createState();
+        });
+        // HA's uploader doesn't expose directory selection or relative paths.
         this.onClick("folder", () => this.get("folderInput").click());
         this.get("folderInput").addEventListener("change", (event) => {
             const input = event.target;
@@ -315,6 +319,17 @@ export class ImageLabComparison extends HTMLElement {
     onClick(id, fn) {
         this.get(id).addEventListener("click", () => void fn());
     }
+    loadUploadComponents() {
+        if (customElements.get("ha-file-upload") || this.get("uploadLoader") || !this.client)
+            return;
+        // HA loads its file uploader and progress bar when a file selector is rendered.
+        const loader = document.createElement("ha-selector");
+        loader.id = "uploadLoader";
+        loader.hidden = true;
+        Object.assign(loader, { hass: this.client, selector: { file: { accept } } });
+        this.shadowRoot.append(loader);
+        void customElements.whenDefined("ha-file-upload").then(() => loader.remove());
+    }
     localize() {
         const names = {
             saveHistory: "save", refreshHistory: "refreshHistory",
@@ -343,8 +358,7 @@ export class ImageLabComparison extends HTMLElement {
             else
                 this.get(id).textContent = this.labels[label];
         }
-        this.get("stateName").setAttribute("aria-label", this.labels.new_state);
-        this.get("stateName").placeholder = this.labels.new_state;
+        this.get("stateName").setAttribute("label", this.labels.new_state);
         const engine = this.get("engine");
         engine.label = this.labels.engine;
         engine.options = engines.map((value) => ({ value, label: engineNames[value] }));
@@ -424,6 +438,7 @@ export class ImageLabComparison extends HTMLElement {
     async load() {
         if (!this.profile || !this.client)
             return;
+        this.loadUploadComponents();
         this.scope?.abort();
         this.scope = new AbortController();
         await this.task(async (signal) => {
@@ -474,11 +489,8 @@ export class ImageLabComparison extends HTMLElement {
     progress(label = "", done, total = 1) {
         const bar = this.get("progress");
         const status = this.get("progressText");
-        bar.max = total;
-        if (done === undefined)
-            bar.removeAttribute("value");
-        else
-            bar.value = done;
+        bar.toggleAttribute("indeterminate", done === undefined);
+        bar.setAttribute("value", String(done === undefined ? 0 : 100 * done / total));
         bar.hidden = status.hidden = !label;
         status.textContent = label;
     }
@@ -823,7 +835,7 @@ export class ImageLabComparison extends HTMLElement {
             const card = document.createElement("article");
             card.className = "reference";
             const image = document.createElement("img");
-            image.alt = this.labels.capture;
+            image.alt = "";
             image.dataset.reference = item.id;
             this.thumbnailObserver?.observe(image);
             const title = document.createElement("strong");
@@ -832,12 +844,14 @@ export class ImageLabComparison extends HTMLElement {
             stamp.textContent = new Date(item.time).toLocaleString(this.client?.locale.language, {
                 timeZone: this.client?.config?.time_zone,
             }) + " · " + engineNames[item.engine];
-            const open = document.createElement("button");
-            open.type = "button";
+            const open = document.createElement("ha-button");
             open.className = "openImage";
-            open.setAttribute("aria-label", this.labels.viewCapture);
+            open.setAttribute("appearance", "plain");
             open.onclick = () => void this.inspectImage(item.id, stamp.textContent);
-            open.append(image);
+            const openLabel = document.createElement("span");
+            openLabel.className = "accessibleLabel";
+            openLabel.textContent = this.labels.viewCapture;
+            open.append(image, openLabel);
             card.append(open, title, stamp);
             if (item.reason && Object.hasOwn(this.labels, item.reason)) {
                 const reason = document.createElement("span");
@@ -881,34 +895,31 @@ export class ImageLabComparison extends HTMLElement {
             title.textContent = state.name;
             const controls = document.createElement("div");
             controls.className = "row";
-            const name = document.createElement("input");
+            const name = document.createElement("ha-input");
             name.value = state.name;
-            name.maxLength = 120;
-            name.setAttribute("aria-label", this.labels.rename);
-            const rename = this.button("rename", () => this.task(async (signal) => {
-                await this.update("state", { state_id: state.id, name: name.value }, signal);
-                this.renderGallery();
-            }));
+            name.setAttribute("maxlength", "120");
+            name.setAttribute("required", "");
+            name.setAttribute("label", this.labels.state);
+            const rename = this.button("rename", () => this.saveState(name, state.id));
             const remove = this.button("remove", () => this.confirmRemoval("confirm_state", state.name, () => this.galleryMutation("delete_state", { state_id: state.id })));
             controls.append(name, rename, remove);
             section.append(title, controls);
-            const file = document.createElement("input");
-            file.type = "file";
-            file.multiple = true;
-            file.accept = accept;
-            file.hidden = true;
-            file.addEventListener("change", () => {
-                const files = Array.from(file.files ?? []);
-                file.value = "";
+            const upload = document.createElement("ha-file-upload");
+            upload.setAttribute("multiple", "");
+            upload.setAttribute("accept", accept);
+            upload.setAttribute("label", this.labels.upload);
+            upload.addEventListener("file-picked", event => {
+                const { files } = event.detail;
+                upload.value = undefined;
                 if (files.length)
-                    void this.import(files, state.id);
+                    void this.import(Array.from(files), state.id);
             });
             const grid = document.createElement("div");
             grid.className = "grid";
             for (const ref of this.gallery.references.filter(item => item.state_id === state.id)) {
                 grid.append(this.referenceRow(ref));
             }
-            section.append(file, this.button("upload", () => file.click()), grid);
+            section.append(upload, grid);
             node.append(section);
         }
     }
@@ -940,6 +951,16 @@ export class ImageLabComparison extends HTMLElement {
     async galleryMutation(operation, data) {
         await this.task(async (signal) => {
             await this.update(operation, data, signal);
+            this.renderGallery();
+        });
+    }
+    saveState(input, state_id) {
+        if (!this.gallery || !input.reportValidity())
+            return;
+        return this.task(async (signal) => {
+            await this.update("state", { state_id, name: input.value }, signal);
+            if (!state_id)
+                input.value = "";
             this.renderGallery();
         });
     }

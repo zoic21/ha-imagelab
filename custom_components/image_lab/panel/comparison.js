@@ -21,6 +21,10 @@ template.innerHTML = `
     [hidden] { display:none !important; }
     .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
     ha-tab-group { margin-bottom:16px; }
+    @media (max-width: 480px) {
+      ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
+      ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
+    }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     p { margin:8px 0; overflow-wrap:anywhere; }
@@ -41,8 +45,9 @@ template.innerHTML = `
       border-radius:var(--ha-border-radius-md, 8px); }
     #frame { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
     .drawing { touch-action:none; cursor:crosshair; user-select:none; }
-    #region { position:absolute; pointer-events:none; border:2px solid #28d7cd; box-sizing:border-box;
-      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:#28d7cd22; }
+    #region { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
+      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
+    .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
     #result { margin:12px 0; }
     #result > strong { display:block; font-size:1.1em; }
     table { width:100%; border-collapse:collapse; }
@@ -748,28 +753,47 @@ export class ImageLabComparison extends HTMLElement {
         const button = document.createElement("ha-button");
         button.setAttribute("appearance", "plain");
         button.setAttribute("size", "s");
+        if (label === "remove")
+            button.setAttribute("variant", "danger");
         actionLabel(button, this.labels[label], actionIcons[label]);
         button.addEventListener("click", () => void action());
         return button;
     }
     confirmRemoval(question, name, remove) {
         const dialog = document.createElement("ha-dialog");
+        dialog.setAttribute("type", "alert");
         dialog.setAttribute("header-title", this.labels[question]);
         dialog.setAttribute("width", "small");
+        dialog.setAttribute("prevent-scrim-close", "");
+        dialog.setAttribute("aria-describedby", "removalDescription");
+        const header = document.createElement("ha-dialog-header");
+        header.slot = "header";
+        const title = document.createElement("h2");
+        title.className = "confirmationTitle";
+        title.slot = "title";
+        title.textContent = this.labels[question];
+        header.append(title);
         const item = document.createElement("p");
+        item.id = "removalDescription";
         item.textContent = name;
         const footer = document.createElement("ha-dialog-footer");
         footer.slot = "footer";
-        const cancel = this.button("cancel", () => dialog.removeAttribute("open"));
+        const cancel = document.createElement("ha-button");
         cancel.slot = "secondaryAction";
-        const confirm = this.button("remove", () => {
-            dialog.removeAttribute("open");
-            remove();
-        });
+        cancel.setAttribute("appearance", "plain");
+        cancel.setAttribute("autofocus", "");
+        cancel.textContent = this.labels.cancel;
+        cancel.onclick = () => dialog.removeAttribute("open");
+        const confirm = document.createElement("ha-button");
         confirm.slot = "primaryAction";
         confirm.setAttribute("variant", "danger");
+        confirm.textContent = this.labels.remove;
+        confirm.onclick = () => {
+            dialog.removeAttribute("open");
+            remove();
+        };
         footer.append(cancel, confirm);
-        dialog.append(item, footer);
+        dialog.append(header, item, footer);
         dialog.addEventListener("closed", () => dialog.remove(), { once: true });
         this.get("dialogSlot").replaceChildren(dialog);
         dialog.setAttribute("open", "");

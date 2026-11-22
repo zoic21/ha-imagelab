@@ -22,6 +22,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
     let step;
     let closed = false;
     let busy = false;
+    let dirty = false;
     const discard = (id) => void hass.callApi("DELETE", path + "/" + id).catch(() => { });
     const close = () => {
         if (closed)
@@ -39,6 +40,8 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
     signal.addEventListener("abort", close, { once: true });
     form.addEventListener("value-changed", event => {
         form.data = event.detail.value;
+        dirty = true;
+        dialog.setAttribute("prevent-scrim-close", "");
     });
     host.append(dialog);
     dialog.setAttribute("open", "");
@@ -47,6 +50,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
         if (closed || busy)
             return;
         busy = true;
+        dialog.setAttribute("prevent-scrim-close", "");
         error.hidden = true;
         submit.setAttribute("loading", "");
         form.inert = true;
@@ -114,6 +118,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
         finally {
             busy = false;
             form.inert = false;
+            dialog.toggleAttribute("prevent-scrim-close", dirty);
             submit.removeAttribute("loading");
             submit.removeAttribute("disabled");
             if (closed && flowId)

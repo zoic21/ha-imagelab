@@ -10,6 +10,7 @@ type Module = "comparison" | "palette" | "object_detection";
 type Source = "camera" | "media_player" | "upload";
 type Rgb = [number, number, number];
 type Detection = [label: string, confidence: number, xMin: number, yMin: number, xMax: number, yMax: number];
+const panelPath = "/image-lab";
 
 interface Profile {
   profile_id: string;
@@ -71,30 +72,36 @@ interface HomeAssistantButton extends HTMLElement {
   updateComplete?: Promise<unknown>;
 }
 
+interface HomeAssistantPanel extends HTMLElement {
+  navigate(path: string, options?: { replace?: boolean }): void;
+}
+
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
-    :host { display: block; height: 100%; max-height: 100dvh; overflow: auto; color: var(--primary-text-color); }
+    :host { display: block; position: relative; height: 100dvh; color: var(--primary-text-color); }
     [hidden] { display: none !important; }
-    header {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      min-height: var(--header-height, 56px); padding: 0 16px 0 4px;
-      background: var(--app-header-background-color); color: var(--app-header-text-color);
+    ha-top-app-bar-fixed { height: 100%; }
+    .heading { display: inline-flex; align-items: center; gap: var(--ha-space-3, 12px); max-width: 100%; }
+    .heading img { flex: none; width: 26px; height: 26px; background: none; }
+    h1 { display: inline-block; margin: 0; font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    #add {
+      position: absolute; z-index: 3;
+      inset-inline-end: calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
+      bottom: calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px));
+      --ha-button-box-shadow: var(--ha-box-shadow-l);
     }
-    .heading { display: flex; align-items: center; gap: 12px; }
-    .heading img { width: 26px; height: 26px; background: none; }
-    header h1 { margin: 0; font-size: 20px; font-weight: 500; white-space: nowrap; }
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     main {
-      display: grid; grid-template-columns: minmax(0, 1fr);
-      align-items: start; gap: 16px; max-width: 960px; padding: 16px; margin: 0 auto;
+      max-width: var(--ha-content-width-wide, 1280px);
+      padding: var(--ha-content-gutter, 16px); margin: 0 auto;
     }
+    main.with-detail { max-width: var(--ha-content-width-narrow, 720px); }
+    #analysisList { padding-bottom: var(--ha-space-16, 64px); }
     ha-card { min-width: 0; }
     .content { padding: 16px; }
-    h2 { margin: 0 0 12px; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
     ul { list-style: none; margin: 0; padding: 0; }
     ha-data-table { display: block; width: 100%; }
-    #back { justify-self: start; }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-bottom: 18px; }
     .secondary { color: var(--secondary-text-color); }
@@ -148,34 +155,24 @@ template.innerHTML = `
     .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
       width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
     .zoneFrame img { width:100%; max-height:none; }
-    .selection { position:absolute; pointer-events:none; border:2px solid #28d7cd; box-sizing:border-box;
-      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:#28d7cd22; }
+    .selection { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
+      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .zoneFields ha-input { min-width:0; }
-    :host([narrow]) main { grid-template-columns: minmax(0, 1fr); padding: 12px; }
-    @media (max-width: 400px) {
-      header { padding-inline-end: 8px; }
-      .heading { gap: 4px; }
-      header h1 { font-size: 18px; }
-      #add { min-width: 0; }
-    }
   </style>
 
-  <header>
-    <div class="heading"><ha-menu-button></ha-menu-button><img src="/image_lab_icon.png" alt=""><h1>Image Lab</h1></div>
-    <ha-button id="add" variant="brand"></ha-button>
-  </header>
+  <ha-top-app-bar-fixed id="appBar">
+  <ha-icon-button-arrow-prev id="back" hidden></ha-icon-button-arrow-prev>
+  <div class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
   <main>
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
       <ha-data-table clickable auto-height hidden></ha-data-table>
     </section>
-    <ha-button id="back" appearance="plain" variant="neutral" hidden></ha-button>
     <ha-card id="detailCard" hidden>
       <section class="content">
         <div id="profile">
-          <h2 id="title" tabindex="-1"></h2>
           <p class="secondary" id="source"></p>
           <ha-tab-group id="profileNav" active="result">
             <ha-tab-group-tab slot="nav" panel="result" id="resultTab" aria-controls="resultPane"></ha-tab-group-tab>
@@ -234,6 +231,8 @@ template.innerHTML = `
       </section>
     </ha-card>
   </main>
+  </ha-top-app-bar-fixed>
+  <ha-button id="add" size="l" variant="brand"></ha-button>
   <div id="dialogs"></div>
 `;
 
@@ -266,7 +265,10 @@ class ImageLabPanel extends HTMLElement {
     });
     this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
-    this.element("back").addEventListener("click", () => this.showList());
+    this.element("back").addEventListener("click", () => {
+      if (history.state?.from === panelPath) history.back();
+      else this.navigate(panelPath, true);
+    });
     this.analysisTable.addEventListener("row-click", event => {
       const { id } = (event as CustomEvent<{ id: string }>).detail;
       this.select(id);
@@ -325,9 +327,27 @@ class ImageLabPanel extends HTMLElement {
   set narrow(value: boolean) {
     if (this.hasAttribute("narrow") === value) return;
     this.toggleAttribute("narrow", value);
+    this.element("appBar").toggleAttribute("narrow", value);
     this.analysisTable.narrow = value;
     this.renderAnalysisColumns();
     this.render();
+  }
+
+  set route({ path }: { path: string }) {
+    const id = /^\/([a-z0-9]+)\/?$/i.exec(path)?.[1];
+    if (id === this.selectedId) return;
+    const previous = this.selectedId;
+    const scroller = this.scrollTarget;
+    if (!previous && scroller) this.listScrollTop = scroller.scrollTop;
+    this.optionsScope?.abort();
+    this.clearTest();
+    this.selectedId = id;
+    this.showTab("result");
+    this.render(Boolean(id));
+    if (!id && scroller) {
+      scroller.scrollTop = this.listScrollTop;
+      void this.focusListAction(previous);
+    }
   }
 
   connectedCallback() {
@@ -348,6 +368,11 @@ class ImageLabPanel extends HTMLElement {
     return this.shadowRoot!.querySelector<AnalysisTable>("ha-data-table")!;
   }
 
+  private get scrollTarget() {
+    const { scrollTarget } = this.element<HTMLElement & {scrollTarget?: HTMLElement | Window}>("appBar");
+    return scrollTarget instanceof HTMLElement ? scrollTarget : undefined;
+  }
+
   private get selected(): Profile | undefined {
     return this.profiles?.find((profile) => profile.profile_id === this.selectedId);
   }
@@ -366,12 +391,13 @@ class ImageLabPanel extends HTMLElement {
     this.failed = false;
     const subscription = this._hass.connection.subscribeMessage((profiles) => {
       if (subscription !== this.subscription) return;
+      const initial = !this.profiles;
       const previous = this.selected;
       this.profiles = profiles;
       const current = this.selected;
       this.renderAnalysisRows();
-      if (previous && !current) {
-        this.showList();
+      if (this.selectedId && !current && (initial || previous)) {
+        this.navigate(panelPath, true);
         return;
       }
       if (previous && current && (previous.modified_at !== current.modified_at ||
@@ -396,23 +422,11 @@ class ImageLabPanel extends HTMLElement {
   }
 
   private select(id: string) {
-    if (id === this.selectedId) return;
-    if (!this.selectedId) this.listScrollTop = this.scrollTop;
-    this.optionsScope?.abort();
-    this.clearTest();
-    this.selectedId = id;
-    this.showTab("result");
-    this.render(true);
+    if (id !== this.selectedId) this.navigate(`${panelPath}/${id}`);
   }
 
-  private showList() {
-    const id = this.selectedId;
-    this.optionsScope?.abort();
-    this.clearTest();
-    this.selectedId = undefined;
-    this.render();
-    this.scrollTop = this.listScrollTop;
-    void this.focusListAction(id);
+  private navigate(path: string, replace = false) {
+    this.closest<HomeAssistantPanel>("ha-panel-custom")?.navigate(path, { replace });
   }
 
   private async focusListAction(id?: string) {
@@ -550,7 +564,6 @@ class ImageLabPanel extends HTMLElement {
     }
     const actions = {
       add: [labels.add, "plus"],
-      back: [labels.back, "arrow-left"],
       retry: [labels.retry, "refresh"],
       copy: [labels.copy, "content-copy"],
       configure: [labels.configure, "tune-variant"],
@@ -567,8 +580,16 @@ class ImageLabPanel extends HTMLElement {
     const opened = detail.hidden || moveFocus;
     detail.hidden = !profile;
     this.element("analysisList").hidden = Boolean(profile);
+    this.shadowRoot!.querySelector("main")!.classList.toggle("with-detail", Boolean(profile));
     this.element("add").hidden = Boolean(profile);
-    this.element("back").hidden = !profile;
+    this.element("icon").hidden = Boolean(profile);
+    const back = this.element("back");
+    back.hidden = !profile;
+    back.slot = profile ? "navigationIcon" : "";
+    back.setAttribute("label", labels.back);
+    const title = this.element("title");
+    title.textContent = profile?.title ?? "Image Lab";
+    title.title = title.textContent;
     this.analysisTable.hidden = !this.profiles?.length;
     this.element("retry").hidden = !this.failed;
     const message = this.element("listMessage");
@@ -622,7 +643,6 @@ class ImageLabPanel extends HTMLElement {
         cameraZones.append(button);
       }
     }
-    this.element("title").textContent = profile.title;
     this.element("profileId").textContent = profile.profile_id;
     this.element("output").hidden = !profile.output_entity_id;
     this.renderOutputName();
@@ -633,8 +653,9 @@ class ImageLabPanel extends HTMLElement {
     this.element("source").textContent = source.filter(Boolean).join(" · ");
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
     if (opened) {
-      this.scrollTop = 0;
-      this.element("title").focus({ preventScroll: true });
+      const scroller = this.scrollTarget;
+      if (scroller) scroller.scrollTop = 0;
+      title.focus({ preventScroll: true });
     }
   }
 

@@ -39,6 +39,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
   let step: Extract<Step, {type: "form"}> | undefined;
   let closed = false;
   let busy = false;
+  let dirty = false;
 
   const discard = (id: string) => void hass.callApi("DELETE", path + "/" + id).catch(() => {});
   const close = () => {
@@ -55,6 +56,8 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
   signal.addEventListener("abort", close, { once: true });
   form.addEventListener("value-changed", event => {
     form.data = (event as CustomEvent<{value: Values}>).detail.value;
+    dirty = true;
+    dialog.setAttribute("prevent-scrim-close", "");
   });
   host.append(dialog);
   dialog.setAttribute("open", "");
@@ -63,6 +66,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
   async function advance() {
     if (closed || busy) return;
     busy = true;
+    dialog.setAttribute("prevent-scrim-close", "");
     error.hidden = true;
     submit.setAttribute("loading", "");
     form.inert = true;
@@ -127,6 +131,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
     } finally {
       busy = false;
       form.inert = false;
+      dialog.toggleAttribute("prevent-scrim-close", dirty);
       submit.removeAttribute("loading");
       submit.removeAttribute("disabled");
       if (closed && flowId) discard(flowId);

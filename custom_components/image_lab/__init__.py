@@ -115,6 +115,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         sidebar_icon="mdi:image-search",
         module_url=f"{static_url}/panel.js",
         require_admin=True,
+        handle_safe_area=True,
     )
     return True
 

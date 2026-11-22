@@ -45,14 +45,19 @@ export async function editZone(
       const rect = Object.fromEntries([...fields].map(([k, f]) => [k, Number(f.value) / 100])) as Region;
       const valid = [...fields.values()].every(f => f.value !== "" && f.checkValidity()) && rect.width > 0 && rect.height > 0 &&
         rect.x + rect.width <= 1 + 1e-9 && rect.y + rect.height <= 1 + 1e-9;
+      dialog.setAttribute("prevent-scrim-close", "");
       save.toggleAttribute("disabled", !valid);
       if (valid) { region = rect; paintRegion(overlay, region); }
     });
     dialog.querySelector(".zoneFields")!.append(input);
   }
   fill(region);
-  bindRegionDrawing(box, () => !dialog.inert, r => paintRegion(overlay, r ?? region), fill);
-  full.onclick = () => fill(null);
+  const edit = (value: Region | null) => {
+    dialog.setAttribute("prevent-scrim-close", "");
+    fill(value);
+  };
+  bindRegionDrawing(box, () => !dialog.inert, r => paintRegion(overlay, r ?? region), edit);
+  full.onclick = () => edit(null);
   let objectUrl: string | undefined;
   const scope = new AbortController();
   const close = () => {

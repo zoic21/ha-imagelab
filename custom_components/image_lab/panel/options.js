@@ -12,6 +12,8 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, cr
     <ha-dialog-footer slot="footer"><ha-button slot="secondaryAction" appearance="plain"></ha-button>
     <ha-button slot="primaryAction" variant="brand" disabled></ha-button></ha-dialog-footer>`;
     const form = dialog.querySelector("ha-form");
+    // Hidden HA forms still render while the first schema is being fetched.
+    Object.assign(form, { hass, data: {}, schema: [] });
     const description = dialog.querySelector("p");
     const error = dialog.querySelector("ha-alert");
     const cancel = dialog.querySelector('[slot="secondaryAction"]');

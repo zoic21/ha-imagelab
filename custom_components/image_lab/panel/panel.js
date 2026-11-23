@@ -70,7 +70,7 @@ template.innerHTML = `
       max-width: 100%; --ha-button-label-overflow: visible;
       white-space: normal; overflow-wrap: anywhere; text-align: start;
     }
-    #outputEntity::part(base) { padding-inline: 0; }
+    #outputEntity::part(base) { padding-inline: var(--ha-space-2, 8px); }
     #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
     #outputId { display: block; text-align: start; }
     #analysisId { margin-bottom: 0; }

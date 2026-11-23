@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_PICTURE, CONF_ENTITY_ID, STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant, ServiceResponse, State, callback
 from homeassistant.helpers.event import (
@@ -26,7 +26,9 @@ from .analysis import AnalysisResult, async_analyze, resolve_entity_id
 from .comparison_store import get_comparison_store
 from .const import CONF_MODULE, CONF_PROFILE_ID, CONF_SOURCE_TYPE, DOMAIN, SourceType
 from .images import ImageError, ImageFrame, async_get_frame
-from .meter import METER, METER_OUTPUT, METER_SEED
+from .meter import (
+    METER, METER_OUTPUT, METER_SEED, METER_SETTINGS, meter_entity_values, rebase_meter_state,
+)
 from .result_store import Observation, get_result_store
 
 _LOGGER = logging.getLogger(__name__)
@@ -136,7 +138,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
                     _LOGGER.exception("Could not restore the meter index for %s", self.name)
                     return
                 if state := state or self.config_entry.data.get(METER_SEED):
-                    self._retained = {"status": "ok", "data": {"meter_value": state["value"]}}
+                    self._retained = {"status": "ok", "data": meter_entity_values(state)}
                 response = self._retained
             elif self.data is None:
                 result, _ = await self._observe()
@@ -145,6 +147,35 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
                 return
             if not self._unloaded.is_set() and response is not None:
                 self.async_set_updated_data(response)
+
+    async def async_rebase_meter(self, value: float, revision: str) -> None:
+        """Apply a verified meter reading between analyses."""
+        async def run() -> None:
+            entry = self.config_entry
+            async with self.analysis_lock:
+                if (
+                    self._unloaded.is_set()
+                    or entry.state is not ConfigEntryState.LOADED
+                    or entry.runtime_data is not self
+                    or entry.modified_at.isoformat() != revision
+                ):
+                    raise ImageError("meter_settings_changed")
+                if (seed := entry.data.get(METER_SEED)) is None:
+                    raise ImageError("meter_unconfirmed")
+                settings = entry.data[METER_SETTINGS]
+                if value >= 10 ** (settings["wheels"] - settings["decimal_wheels"]):
+                    raise ImageError("meter_invalid_settings")
+                previous = await self.store.async_meter_state() or seed
+                state = rebase_meter_state(previous, value)
+                await self.store.async_set_meter_state(state)
+                if not self._unloaded.is_set():
+                    self._retained = {
+                        "status": "ok",
+                        "data": {**meter_entity_values(state), "reading_status": "rebased"},
+                    }
+                    self.async_set_updated_data(self._retained)
+
+        await asyncio.shield(self.hass.async_create_task(run(), f"{self.name} rebase"))
 
     @callback
     def async_watch_artwork(self) -> None:
@@ -270,17 +301,18 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         result = await self._measure(frame)
         observation = await self._save_observation(result, manual)
         if self.is_meter:
-            value = (self._retained or {}).get("data", {}).get("meter_value")
+            previous = (self._retained or {}).get("data", {})
+            values = {key: previous[key] for key in ("meter_value", "meter_total") if key in previous}
             if observation is not None and result.meter_state is not None:
-                value = result.meter_state["value"]
-            if value is not None:
+                values = meter_entity_values(result.meter_state)
+            if values:
                 data = {
                     **result.response["data"],
-                    "meter_value": value,
+                    **values,
                     "reading_status": result.response.get("reason", "accepted"),
                 }
                 if result.frame is not None and observation is None:
-                    data = {"meter_value": value, "reading_status": "storage_error"}
+                    data = {**values, "reading_status": "storage_error"}
                 self._retained = {"status": "ok", "data": data}
             if result.frame is not None and observation is None:
                 return AnalysisResult({

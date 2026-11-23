@@ -1,5 +1,6 @@
 """Regression checks for the meter's cumulative index."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from custom_components.image_lab.images import validate_image
-from custom_components.image_lab.meter import _read
+from custom_components.image_lab.meter import _read, meter_entity_values, rebase_meter_state
 from custom_components.image_lab.result_store import ResultStore
 from custom_components.image_lab.sensor import ImageLabSensor
 
@@ -89,3 +90,65 @@ def test_water_index_sensor_has_energy_metadata():
     assert sensor.device_class == "water"
     assert sensor.state_class == "total"
     assert sensor.native_unit_of_measurement == "m³"
+
+
+
+@pytest.mark.parametrize("corrected", (250.0, 2500.0))
+def test_rebase_resumes_consumption_from_the_corrected_index(monkeypatch, corrected):
+    meter = pytest.importorskip("tarsius.meter")
+    monkeypatch.setattr(meter.Calibration, "from_dict", lambda _: None)
+    candidate = corrected + 0.125
+    monkeypatch.setattr(
+        meter.MeterReader, "read",
+        lambda *_: meter.MeterReading(candidate, candidate, None, 0.99, 0, 0.001),
+    )
+    previous = {"value": 520.125, "at": datetime.now(UTC).isoformat()}
+    state = rebase_meter_state(previous, corrected)
+    assert meter_entity_values(state) == {"meter_value": corrected, "meter_total": 520.125}
+    profile = {**settings(), "wheels": 7, "decimal_wheels": 3, "calibration": {}}
+    state["at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+
+    result, updated = _read(frame(), profile, state, False)
+    assert result.reason is None
+    assert meter_entity_values(updated) == {"meter_value": candidate, "meter_total": 520.25}
+
+    second = rebase_meter_state(updated, 100)
+    assert meter_entity_values(second) == {"meter_value": 100, "meter_total": 520.25}
+
+
+def test_rebase_persists_without_pruning_previous_observations(tmp_path):
+    async def executor(fn, *args):
+        return fn(*args)
+
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=tmp_path.joinpath),
+        config_entries=SimpleNamespace(async_get_entry=lambda _: object()),
+        async_add_executor_job=executor,
+    )
+    store = ResultStore(hass, "meter")
+    response = {"status": "unknown", "data": {"candidate": 250}}
+    previous = {"value": 100.0, "at": datetime.now(UTC).isoformat()}
+    observation = store._record(frame(), response, True, previous)
+    rebased = rebase_meter_state(previous, 250)
+    asyncio.run(store.async_set_meter_state(rebased))
+    saved = ResultStore(hass, "meter").load()
+    assert saved["history"] == [observation]
+    assert (store.images / observation["id"]).is_file()
+    assert saved["meter_state"] == rebased
+
+
+def test_rebased_sensor_publishes_the_continuous_total_and_exposes_the_index():
+    coordinator = SimpleNamespace(
+        kind="meter_index",
+        unique_id="meter_sensor",
+        last_update_success=True,
+        entity_response={
+            "status": "ok",
+            "data": {"meter_value": 2500.125, "meter_total": 520.25},
+        },
+    )
+    sensor = ImageLabSensor(SimpleNamespace(
+        title="Water meter", runtime_data=coordinator, data={"meter_settings": settings()}
+    ))
+    assert sensor.native_value == 520.25
+    assert sensor.extra_state_attributes == {"meter_index": 2500.125}

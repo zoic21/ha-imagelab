@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from homeassistant.const import CONF_ENTITY_ID
@@ -16,6 +17,7 @@ METER = "meter"
 METER_OUTPUT = "meter_index"
 METER_SETTINGS = "meter_settings"
 METER_SEED = "meter_seed"
+METER_TOTAL_OFFSET = "total_offset"
 METER_UNITS = {"water": "m³", "gas": "m³", "energy": "kWh"}
 
 
@@ -87,10 +89,10 @@ def _read(
         if previous is not None and updated is not None and updated.value < previous.value:
             reading = reading.rejected(Rejection.DECREASED)
             updated = previous
-        return (
-            _result(reading, settings, updated.value if updated else None),
-            updated.as_dict() if updated else None,
-        )
+        next_state = updated.as_dict() if updated is not None else None
+        if next_state is not None and state is not None and METER_TOTAL_OFFSET in state:
+            next_state[METER_TOTAL_OFFSET] = state[METER_TOTAL_OFFSET]
+        return _result(reading, settings, updated.value if updated else None), next_state
     except tarsius.BackendError as err:
         raise ImageError("tarsius_unavailable") from err
     except tarsius.BlankFrameError:
@@ -138,3 +140,21 @@ def calibrate_meter(frame: ImageFrame, settings: dict) -> tuple[ModuleResult, di
 def seed_state(value: float) -> dict:
     """Build an explicitly confirmed starting point."""
     return {"value": value, "at": datetime.now(UTC).isoformat()}
+
+
+
+def _meter_total(state: Mapping[str, Any]) -> Decimal:
+    return Decimal(str(state["value"])) + Decimal(state.get(METER_TOTAL_OFFSET, "0"))
+
+
+def meter_entity_values(state: Mapping[str, Any]) -> dict[str, float]:
+    """Keep the physical reading available alongside the consumption counter."""
+    return {"meter_value": state["value"], "meter_total": float(_meter_total(state))}
+
+
+def rebase_meter_state(previous: Mapping[str, Any], value: float) -> dict:
+    """Start from a verified reading and keep the published total continuous."""
+    return {
+        **seed_state(value),
+        METER_TOTAL_OFFSET: str(_meter_total(previous) - Decimal(str(value))),
+    }

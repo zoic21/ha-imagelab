@@ -6,6 +6,7 @@ import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, 
 import { ImageCache } from "./image-cache.js";
 import { editMeter, meterStyles, meterText } from "./meter.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
+import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
 const template = document.createElement("template");
@@ -30,6 +31,9 @@ template.innerHTML = `
       padding: var(--ha-content-gutter, 16px); margin: 0 auto;
     }
     main.with-detail { max-width: var(--ha-content-width-narrow, 720px); }
+    :host([narrow]) main.with-detail {
+      padding-block-end: calc(var(--ha-content-gutter, 16px) + var(--image-lab-tab-height) + 1px);
+    }
     #analysisList { padding-bottom: var(--ha-space-16, 64px); }
     ha-card { min-width: 0; }
     .content { padding: 16px; }
@@ -44,13 +48,10 @@ template.innerHTML = `
     }
     :host([narrow]) .analysisControls { border: 0; padding: 0 0 var(--ha-space-3, 12px); }
     ${analysisListStyles}
+    ${profileTabsStyles}
     #analysisSearch { flex: 1; min-width: 0; }
     #analysisSort { flex: none; }
-    #profileNav { margin: 14px 0; }
-    @media (max-width: 480px) {
-      #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
-      #profileNav ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
-    }
+    #profile > [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ${historyStyles}
     ${meterStyles}
     #profileSettings { margin-top: 18px; }
@@ -154,10 +155,10 @@ template.innerHTML = `
       <section class="content">
         <div id="profile">
           <p class="secondary" id="source"></p>
-          <ha-tab-group id="profileNav" active="result">
-            <ha-tab-group-tab slot="nav" panel="result" id="resultTab" aria-controls="resultPane"></ha-tab-group-tab>
-            <ha-tab-group-tab slot="nav" panel="history" id="historyTab" aria-controls="historyPane"></ha-tab-group-tab>
-            <ha-tab-group-tab slot="nav" panel="settings" id="settingsTab" aria-controls="settingsPane"></ha-tab-group-tab>
+          <ha-tab-group id="profileNav" class="profileTabs" active="result">
+            ${profileTab("resultTab", "result", "resultPane", "image-outline")}
+            ${profileTab("historyTab", "history", "historyPane", "history")}
+            ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
           </ha-tab-group>
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <ha-button id="test" variant="brand"></ha-button>
@@ -280,6 +281,7 @@ class ImageLabPanel extends HTMLElement {
         });
         this.comparison = new ImageLabComparison(this.images);
         this.element("comparisonSlot").append(this.comparison);
+        this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
         this.element("add").addEventListener("click", () => this.openFlow("create"));
         this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
         this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
@@ -387,6 +389,7 @@ class ImageLabPanel extends HTMLElement {
             return;
         this.toggleAttribute("narrow", value);
         this.element("appBar").toggleAttribute("narrow", value);
+        this.comparison.toggleAttribute("narrow", value);
         const controls = this.element("analysisControls");
         if (value) {
             this.analysisTable.before(controls);
@@ -545,8 +548,16 @@ class ImageLabPanel extends HTMLElement {
         if (!this.selectedId && action.isConnected)
             action.focus({ preventScroll: true });
     }
+    resetMobileTabScroll() {
+        const scroller = this.scrollTarget;
+        if (this.hasAttribute("narrow") && scroller)
+            scroller.scrollTop = 0;
+    }
     showTab(tab, refresh = true) {
-        const returning = this.element("profileNav").getAttribute("active") !== "result" || this.element("resultPane").hidden;
+        const previous = this.element("profileNav").getAttribute("active");
+        const returning = previous !== "result" || this.element("resultPane").hidden;
+        if (refresh && previous !== tab)
+            this.resetMobileTabScroll();
         this.element("profileNav").setAttribute("active", tab);
         this.element("resultPane").hidden = tab !== "result";
         this.element("historyPane").hidden = tab !== "history";
@@ -717,8 +728,8 @@ class ImageLabPanel extends HTMLElement {
     render(moveFocus = false) {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
-            idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab,
-            historyTab: labels.historyTab, settingsTab: labels.settingsTab,
+            idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
+            "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
             analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
             outputTitle: labels.settings, noOutput: labels.noResultEntity, renameAction: labels.rename,
             frequencyHelp: labels.frequencyHelp,

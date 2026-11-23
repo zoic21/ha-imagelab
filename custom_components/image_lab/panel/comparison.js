@@ -4,6 +4,7 @@ import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, 
 import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
 import { paintRegion } from "./region.js";
+import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
 const engines = ["pillow", "tarsius"];
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
@@ -23,11 +24,8 @@ template.innerHTML = `
     .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
     .fieldRow { align-items:flex-start; }
     .fieldActions { min-height:var(--ha-space-14, 56px); }
-    ha-tab-group { margin-bottom:16px; }
-    @media (max-width: 480px) {
-      ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
-      ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
-    }
+    ${profileTabsStyles}
+    [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }
@@ -84,11 +82,11 @@ template.innerHTML = `
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
     #stateMessage { margin-bottom:9px; }
   </style>
-  <ha-tab-group id="nav" active="preview">
-    <ha-tab-group-tab slot="nav" panel="preview" id="tab-preview" aria-controls="preview"></ha-tab-group-tab>
-    <ha-tab-group-tab slot="nav" panel="references" id="tab-references" aria-controls="references"></ha-tab-group-tab>
-    <ha-tab-group-tab slot="nav" panel="history" id="tab-history" aria-controls="history"></ha-tab-group-tab>
-    <ha-tab-group-tab slot="nav" panel="settings" id="tab-settings" aria-controls="settings"></ha-tab-group-tab>
+  <ha-tab-group id="nav" class="profileTabs" active="preview">
+    ${profileTab("tab-preview", "preview", "preview", "image-outline")}
+    ${profileTab("tab-references", "references", "references", "image-multiple-outline")}
+    ${profileTab("tab-history", "history", "history", "history")}
+    ${profileTab("tab-settings", "settings", "settings", "cog-outline")}
   </ha-tab-group>
   <ha-progress-bar id="progress" indeterminate hidden></ha-progress-bar>
   <p class="secondary" id="progressText" role="status" hidden></p>
@@ -181,8 +179,10 @@ export class ImageLabComparison extends HTMLElement {
         });
         this.get("nav").addEventListener("wa-tab-show", (event) => {
             const tab = event.detail.name;
-            if (tab !== this.tab)
+            if (tab !== this.tab) {
                 this.show(tab);
+                this.dispatchEvent(new Event("analysis-tab-changed"));
+            }
         });
         this.shadowRoot.addEventListener("selected", (event) => {
             const select = event.target;
@@ -318,7 +318,7 @@ export class ImageLabComparison extends HTMLElement {
             save: "save",
         };
         for (const tab of tabs)
-            names["tab-" + tab] = tab;
+            names["tab-" + tab + "-label"] = tab;
         for (const key of ["max_distance", "min_margin"])
             this.get(key).setAttribute("label", this.labels[key]);
         for (const [id, label] of Object.entries(names)) {

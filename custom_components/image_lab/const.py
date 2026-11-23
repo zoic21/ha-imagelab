@@ -37,5 +37,6 @@ class SourceType(StrEnum):
     UPLOAD = "upload"
 
 SOURCE_ANALYSIS = "analysis"
+SOURCE_RENAME = "rename"
 INSTALLATION_ID = "image_lab_installation"
 MAX_INTERVAL_MINUTES = timedelta.max.days * 1440 - 1

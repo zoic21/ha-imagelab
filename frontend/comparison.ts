@@ -82,6 +82,7 @@ template.innerHTML = `
     }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
+    #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -185,6 +186,7 @@ template.innerHTML = `
     <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <h3 id="analysisSettingsTitle"></h3>
     <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
@@ -209,6 +211,7 @@ export class ImageLabComparison extends HTMLElement {
   private scope?: AbortController;
   private gallery?: Gallery;
   private result?: Result;
+  private previewRequested = false;
   private captured = false;
   private busy = false;
   private drawing = false;
@@ -405,6 +408,7 @@ export class ImageLabComparison extends HTMLElement {
 
   private localize() {
     const names: Record<string, Label> = {
+      analysisSettingsTitle: "analysis",
       saveHistory: "save", refreshHistory: "refreshHistory",
       test: "test",
       draw: "draw",
@@ -448,6 +452,7 @@ export class ImageLabComparison extends HTMLElement {
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
+    this.previewRequested = false;
     this.captured = false;
     this.busy = false;
     this.drawing = false;
@@ -487,7 +492,7 @@ export class ImageLabComparison extends HTMLElement {
         ? this.labels.drawing
         : !this.available
           ? this.labels.unavailable
-          : this.frameUrl
+          : this.frameUrl || this.result
             ? ""
             : this.labels.empty;
     this.get("classify").hidden =
@@ -504,6 +509,12 @@ export class ImageLabComparison extends HTMLElement {
     else if (tab === "history") { this.renderHistory(); void this.loadHistory(); }
     else this.clearThumbnails();
     this.refresh();
+    this.startInitialPreview();
+  }
+
+  private startInitialPreview() {
+    if (this.tab === "preview" && !this.previewRequested && this.gallery &&
+      this.available && !this.busy) void this.evaluate();
   }
 
   private async load() {
@@ -552,6 +563,7 @@ export class ImageLabComparison extends HTMLElement {
         this.busy = false;
         this.progress();
         this.refresh();
+        this.startInitialPreview();
       }
     }
   }
@@ -616,6 +628,7 @@ export class ImageLabComparison extends HTMLElement {
 
   private async evaluate() {
     await this.task(async (signal) => {
+      this.previewRequested = true;
       const settings = this.readSettings();
       this.setFrame();
       this.setMatch();
@@ -625,7 +638,6 @@ export class ImageLabComparison extends HTMLElement {
       this.drawing = false;
       this.cancelDrawing();
       this.renderResult();
-      this.show("preview");
       const result = await this.request<Result>("/test", signal, {
         settings,
       });
@@ -1184,4 +1196,5 @@ export class ImageLabComparison extends HTMLElement {
   }
 }
 
-customElements.define("image-lab-comparison", ImageLabComparison);
+if (!customElements.get("image-lab-comparison"))
+  customElements.define("image-lab-comparison", ImageLabComparison);

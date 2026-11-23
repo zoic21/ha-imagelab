@@ -34,6 +34,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .analysis import async_analyze, resolve_entity_id
 from .comparison_api import REGION, ComparisonImageView, ComparisonView, drop_captures
@@ -51,6 +52,7 @@ from .const import (
     PANEL_PATH,
     SERVICE_ANALYZE,
     SOURCE_ANALYSIS,
+    SOURCE_RENAME,
     SourceType,
 )
 from .images import ImageError, async_get_frame, get_image_storage
@@ -97,7 +99,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(ComparisonView)
     hass.http.register_view(ComparisonImageView)
 
-    static_url = f"/{DOMAIN}_assets"
+    # A versioned directory also invalidates the panel's relative module imports.
+    integration = await async_get_integration(hass, DOMAIN)
+    static_url = f"/{DOMAIN}_assets/{integration.version}"
     assets = Path(__file__).parent / "panel"
     await hass.http.async_register_static_paths(
         [
@@ -257,15 +261,17 @@ def async_subscribe_profiles(
 
 
 class AnalysisFlowView(ConfigManagerFlowIndexView):
-    """Start an analysis wizard only from Image Lab."""
+    """Start an analysis creation or rename flow from Image Lab."""
 
     url = f"/api/{DOMAIN}/analysis_flow"
     name = f"api:{DOMAIN}:analysis_flow"
 
     def get_context(self, data: dict[str, Any]) -> dict[str, Any]:
-        if data["handler"] != DOMAIN or "entry_id" in data:
+        if data["handler"] != DOMAIN:
             raise web.HTTPBadRequest
-        return {**super().get_context(data), "source": SOURCE_ANALYSIS}
+        context = super().get_context(data)
+        source = SOURCE_RENAME if "entry_id" in context else SOURCE_ANALYSIS
+        return {**context, "source": source}
 
 
 @websocket_api.websocket_command(

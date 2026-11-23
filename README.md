@@ -36,7 +36,7 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse. Déplier **Nom et source** pour renommer l’analyse ou changer sa source. Le type est fixé à la création. Pour la comparaison, **Références** et **Historique** sont également disponibles. Les formulaires et sélecteurs sont ceux de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source et déclenchement** et **Entité de résultat**. Cliquer sur l’identifiant de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source et déclenchement**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. Pour la comparaison, **Références** et **Historique** sont également disponibles. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
 ### Publier le résultat dans une entité
 
@@ -54,7 +54,7 @@ Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Dans la fiche de l’analyse, ouvrir **Réglages → Fréquence d’analyse**. Avec une caméra, saisir par exemple **5** dans **Intervalle (minutes)** puis sélectionner **Enregistrer la fréquence**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. **0** lance les analyses à la demande. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
+Dans la fiche de l’analyse, ouvrir **Réglages → Source et déclenchement**. Avec une caméra, saisir par exemple **5** dans **Intervalle (minutes)** puis sélectionner **Enregistrer la fréquence**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. **0** lance les analyses à la demande. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
 Dans les options d’un profil caméra, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible. Les aperçus restent des essais indépendants.
 
@@ -77,7 +77,7 @@ Pour ajouter une capture de l’historique aux références, choisir son état p
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
-2. Dans **Résultat**, sélectionner **Tester la source** pour afficher la capture et sa référence la plus proche côte à côte. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture testée à l’état choisi.
+2. À l’ouverture de **Résultat**, Image Lab lance un aperçu et affiche la capture et sa référence la plus proche côte à côte, si une référence est disponible. **Tester la source** relance l’analyse. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture testée à l’état choisi.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
 Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. Un test depuis le panneau utilise le choix en cours d’édition. **Enregistrer** applique le moteur au profil pour l’action, les analyses périodiques et l’entité. Les profils existants utilisent Pillow par défaut.

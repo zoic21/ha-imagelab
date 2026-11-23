@@ -63,6 +63,8 @@ template.innerHTML = `
       white-space: normal; overflow-wrap: anywhere; text-align: start;
     }
     #outputEntity::part(base) { padding-inline: 0; }
+    #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
+    #outputId { display: block; text-align: start; }
     #analysisId { margin-bottom: 0; }
     #analysisId .settingsRow { gap: 0 8px; }
     #profileId { min-width: 0; }

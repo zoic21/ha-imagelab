@@ -103,9 +103,13 @@ template.innerHTML = `
     .comparisonImages figcaption {
       display:flex; align-items:center; min-height:var(--ha-space-8, 32px); margin:0 0 6px; font-weight:500;
     }
-    #matchLink { --ha-button-height:auto; }
-    #matchLink::part(base) { padding:0; }
-    #matchLink::part(label) { text-decoration:underline; text-underline-offset:2px; }
+    #matchLink {
+      margin-inline-start:auto;
+      flex:none;
+      --ha-icon-button-size:var(--ha-space-8, 32px);
+      --ha-icon-button-padding-inline:var(--ha-space-1, 4px);
+      --mdc-icon-size:var(--ha-space-5, 20px);
+    }
     .imagebox { position:relative; width:min(100%, calc(52dvh * var(--ratio, 1))); margin:auto; }
     #matchFrame { display:block; width:100%; max-height:52dvh; object-fit:contain;
       border-radius:var(--ha-border-radius-md, 8px); }
@@ -165,8 +169,10 @@ template.innerHTML = `
     <div class="comparisonImages" id="comparisonImages" hidden>
       <figure id="match" hidden>
         <figcaption>
-          <ha-button id="matchLink" appearance="plain" hidden></ha-button>
           <span id="matchCaption"></span>
+          <ha-icon-button id="matchLink" hidden>
+            <ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon>
+          </ha-icon-button>
         </figcaption>
         <img id="matchFrame" alt="">
       </figure>
@@ -418,7 +424,7 @@ export class ImageLabComparison extends HTMLElement {
       addState: "add_state",
       reload: "reload",
       cropLabel: "crop",
-      matchLink: "closest", matchCaption: "closest", captureCaption: "currentCapture",
+      matchCaption: "closest", captureCaption: "currentCapture",
       regionHint: "region_help",
       save: "save",
     };
@@ -430,6 +436,7 @@ export class ImageLabComparison extends HTMLElement {
       if (icon) actionLabel(this.get(id), this.labels[label], icon);
       else this.get(id).textContent = this.labels[label];
     }
+    this.get("matchLink").setAttribute("label", this.labels.view_reference);
     this.get("stateName").setAttribute("label", this.labels.new_state);
     const engine = this.get<HaSelect>("engine");
     engine.label = this.labels.engine;
@@ -499,7 +506,6 @@ export class ImageLabComparison extends HTMLElement {
     this.get("captureAdd").toggleAttribute("disabled", busy);
     const canOpenMatch = Boolean(this.gallery?.references.some(ref => ref.id === this.matchId));
     this.get("matchLink").hidden = !canOpenMatch;
-    this.get("matchCaption").hidden = canOpenMatch;
     this.renderDirty();
   }
 

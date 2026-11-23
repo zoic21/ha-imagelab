@@ -30,17 +30,21 @@ template.innerHTML = `
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     #analysisSettingsTitle { font-size:1rem; margin:0; }
-    .analysisHeading, .settingsActions {
+    .analysisHeading {
       display:flex; align-items:center; justify-content:space-between;
-      gap:var(--ha-space-2, 8px);
+      gap:var(--ha-space-2, 8px); margin-block-end:var(--ha-space-2, 8px);
     }
-    .analysisHeading { margin-block-end:var(--ha-space-2, 8px); }
     #engine { width:100%; }
     #thresholdFields ha-input { --ha-input-padding-bottom:0; }
     #thresholdsHint, #dirty { font-size:var(--ha-font-size-s, 12px); }
-    .settingsActions { margin-block-start:var(--ha-space-2, 8px); }
-    #save { flex:none; margin-inline-start:auto; }
-    #dirty { margin:0; }
+    #settings:has(#save:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
+    #save {
+      position:fixed; z-index:3;
+      inset-inline-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
+      bottom:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px) + var(--save-tab-offset, 0px));
+      --ha-button-box-shadow:var(--ha-box-shadow-l);
+    }
+    :host([narrow]) #save { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -221,10 +225,8 @@ template.innerHTML = `
       <section id="historySettings">${historySettingsMarkup(false)}</section>
       <slot name="profile-settings"></slot>
     </div>
-    <div class="settingsActions">
-      <p id="dirty" class="secondary" role="status" hidden></p>
-      <ha-button id="save" variant="brand" size="s"></ha-button>
-    </div>
+    <p id="dirty" class="secondary" role="status" hidden></p>
+    <ha-button id="save" variant="brand" size="l" hidden></ha-button>
   </section>
   <ha-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">
@@ -477,9 +479,9 @@ export class ImageLabComparison extends HTMLElement {
         this.get("settingsFields").inert = busy;
         this.get("reload").hidden = Boolean(this.gallery) || busy;
         this.get("editZone").toggleAttribute("disabled", !this.gallery || busy || !this.available);
-        this.get("previewHint").textContent = this.activity
-            ? this.activity === "working" ? "" : this.labels[this.activity]
-            : !this.available ? this.labels.unavailable : hasFrame || this.result ? "" : this.labels.empty;
+        this.get("previewHint").textContent = this.activity === "analyzing" || this.activity === "loadingResult"
+            ? this.labels[this.activity]
+            : busy ? "" : !this.available ? this.labels.unavailable : hasFrame || this.result ? "" : this.labels.empty;
         this.get("classify").hidden =
             !this.captured || !hasFrame || !this.gallery?.states.length;
         this.get("captureAdd").toggleAttribute("disabled", busy || !this.get("captureState").value);
@@ -552,7 +554,7 @@ export class ImageLabComparison extends HTMLElement {
         if (this.activity || !signal || signal.aborted)
             return;
         this.activity = activity;
-        if (activity === "working")
+        if (activity === "working" || activity === "savingSettings")
             this.progress(this.labels.working);
         this.feedback();
         this.refresh();
@@ -890,12 +892,13 @@ export class ImageLabComparison extends HTMLElement {
                 await this.schedule?.save(profile, minutes);
             if (!signal.aborted)
                 this.feedback(this.labels.saved);
-        });
+        }, "savingSettings");
     }
     refreshSettings() {
         const status = this.get("dirty");
         status.textContent = "";
         let changed = false;
+        let valid = true;
         if (this.gallery) {
             try {
                 const { analysis, history, minutes } = this.settingsDraft(this.gallery);
@@ -904,14 +907,18 @@ export class ImageLabComparison extends HTMLElement {
                     status.textContent = this.labels.dirty;
             }
             catch (error) {
+                changed = true;
+                valid = false;
                 const key = error instanceof Error ? error.message : "";
                 status.textContent = Object.hasOwn(this.labels, key) ? this.labels[key] : this.labels.invalid_settings;
             }
         }
         status.hidden = !status.textContent;
         const save = this.get("save");
-        save.toggleAttribute("disabled", Boolean(this.activity) || !changed);
-        save.toggleAttribute("loading", this.activity === "working" && this.tab === "settings");
+        const saving = this.activity === "savingSettings";
+        save.hidden = !changed && !saving;
+        save.toggleAttribute("disabled", Boolean(this.activity) || !changed || !valid);
+        save.toggleAttribute("loading", saving);
         const hint = this.get("testHint");
         hint.hidden = !status.textContent;
         hint.textContent = this.labels.testSavedSettings;

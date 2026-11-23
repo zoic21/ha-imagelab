@@ -206,7 +206,6 @@ template.innerHTML = `
                   <p id="frequencyHelp" class="secondary"></p>
                   <p id="frequencyStatus" role="status"></p>
                 </div>
-                <p class="secondary" id="cameraZones" hidden></p>
               </section>
               <section class="settingsSection" aria-labelledby="outputTitle">
                 <h3 id="outputTitle" class="settingsTitle"></h3>
@@ -820,21 +819,6 @@ class ImageLabPanel extends HTMLElement {
         this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
         this.element("meterSettings").hidden = profile.module !== "meter";
         this.element("meterSettings").toggleAttribute("disabled", !profile.available);
-        const cameraZones = this.element("cameraZones");
-        cameraZones.hidden = profile.source_type !== "camera";
-        if (!cameraZones.hidden) {
-            const others = this.profiles?.filter(p => p.source_type === "camera" && p.entity_id === profile.entity_id && p !== profile) ?? [];
-            cameraZones.hidden = !others.length;
-            cameraZones.textContent = labels.cameraZones;
-            for (const p of others) {
-                const button = document.createElement("ha-button");
-                button.setAttribute("appearance", "plain");
-                button.setAttribute("size", "s");
-                actionLabel(button, p.title, "crop");
-                button.onclick = () => this.select(p.profile_id);
-                cameraZones.append(button);
-            }
-        }
         this.element("profileId").textContent = profile.profile_id;
         this.element("outputEntity").hidden = !profile.output_entity_id;
         this.element("noOutput").hidden = Boolean(profile.output_entity_id);

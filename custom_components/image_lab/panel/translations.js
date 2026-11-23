@@ -21,7 +21,6 @@ export const historyStrings = {
 export const panelStrings = {
     en: {
         zone: "Edit analysis region", drawZone: "Draw a rectangle on the image or enter its bounds as percentages.",
-        cameraZones: "To track another zone, add an analysis using this same camera.",
         cancel: "Cancel", save: "Save", fullZone: "Use full image", saveZoneError: "Could not save this zone.",
         x: "Left (%)", y: "Top (%)", width: "Width (%)", height: "Height (%)",
         analyses: "Analyses", resultTab: "Result", historyTab: "History", settingsTab: "Settings",
@@ -58,7 +57,7 @@ export const panelStrings = {
         notConfirmed: "The result entity kept its previous state because the change was not confirmed.",
         testing: "Retrieving image…",
         preview: "Source image",
-        id: "Analysis ID",
+        id: "ID",
         copy: "Copy analysis ID",
         copied: "Copied",
         paletteReady: "Palette extracted",
@@ -91,7 +90,6 @@ export const panelStrings = {
     },
     fr: {
         zone: "Modifier la zone d’analyse", drawZone: "Tracez un rectangle sur l’image ou saisissez ses coordonnées en pourcentage.",
-        cameraZones: "Pour suivre une autre zone, ajoutez une analyse avec cette même caméra.",
         cancel: "Annuler", save: "Enregistrer", fullZone: "Utiliser toute l’image", saveZoneError: "Impossible d’enregistrer la zone.",
         x: "Gauche (%)", y: "Haut (%)", width: "Largeur (%)", height: "Hauteur (%)",
         analyses: "Analyses", resultTab: "Résultat", historyTab: "Historique", settingsTab: "Réglages",
@@ -128,7 +126,7 @@ export const panelStrings = {
         notConfirmed: "L’entité conserve son état précédent, car le changement n’a pas été confirmé.",
         testing: "Récupération de l’image…",
         preview: "Image source",
-        id: "Identifiant de l’analyse",
+        id: "Identifiant",
         copy: "Copier l’identifiant",
         copied: "Copié",
         paletteReady: "Palette extraite",

@@ -9,3 +9,4 @@ class ModuleResult:
 
     data: dict
     reason: str | None = None
+    meter_state: dict | None = None

@@ -117,7 +117,10 @@ class ResultStore:
 
         await asyncio.shield(self.hass.async_create_task(run(), "image_lab history settings"))
 
-    def _record(self, frame: ImageFrame, response: ServiceResponse, manual: bool) -> Observation:
+    def _record(
+        self, frame: ImageFrame, response: ServiceResponse, manual: bool,
+        meter_state: dict | None = None,
+    ) -> Observation:
         data = self.load()
         previous = data.get("latest")
         observation: Observation = {
@@ -133,15 +136,24 @@ class ResultStore:
         path = self.images / observation["id"]
         write_utf8_file_atomic(str(path), frame.content, private=True, mode="wb")
         data["latest"] = observation
+        if meter_state is not None:
+            data["meter_state"] = meter_state
         self._append_history(data, observation)
         self._save_history(data, path, previous["id"] if previous else None)
         return observation
 
     async def async_record(
-        self, frame: ImageFrame, response: ServiceResponse, manual: bool
+        self, frame: ImageFrame, response: ServiceResponse, manual: bool,
+        meter_state: dict | None = None,
     ) -> Observation:
         async with self.lock:
-            return await self.hass.async_add_executor_job(self._record, frame, response, manual)
+            return await self.hass.async_add_executor_job(
+                self._record, frame, response, manual, meter_state
+            )
+
+    async def async_meter_state(self) -> dict | None:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(lambda: self.load().get("meter_state"))
 
     def _latest(self, data: dict) -> Observation | None:
         return data.get("latest")
@@ -158,6 +170,11 @@ class ResultStore:
                         "id": item["id"], "time": item["time"], "manual": item["manual"],
                         "dominant_hex": item["response"]["data"].get("dominant_hex"),
                         "count": item["response"]["data"].get("count"),
+                        **(
+                            {"meter": item["response"]["data"], "reason": item["response"].get("reason")}
+                            if item["response"].get("module") == "meter"
+                            else {}
+                        ),
                     }
                     for item in reversed(self.load()["history"])
                 ]

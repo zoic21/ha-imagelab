@@ -1,18 +1,19 @@
-import { panelStrings as strings } from "./translations.js";
+import { meterStrings, panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
 import { ImageCache } from "./image-cache.js";
+import { editMeter, meterStyles, meterText, type MeterResult } from "./meter.js";
 import { editModuleSettings, runProfileFlow, type ProfileFlowMode } from "./options.js";
 import { editZone } from "./zone.js";
 import type { Region } from "./region.js";
 
-type Module = "comparison" | "palette" | "object_detection";
+type Module = "comparison" | "palette" | "object_detection" | "meter";
 type Source = "camera" | "media_player" | "upload";
 type Rgb = [number, number, number];
 type Detection = [label: string, confidence: number, xMin: number, yMin: number, xMax: number, yMax: number];
-type HistoryItem = Capture & { dominant_hex: string | null; count: number | null };
+type HistoryItem = Capture & { dominant_hex: string | null; count: number | null; meter?: MeterResult; reason?: string | null };
 const panelPath = "/image-lab";
 
 interface Profile {
@@ -21,6 +22,7 @@ interface Profile {
   module: Module;
   source_type: Source;
   palette_size: number | null;
+  meter_initialized: boolean;
   region: Region | null;
   image_revision: string | null;
   entity_id: string | null;
@@ -139,8 +141,9 @@ template.innerHTML = `
       #profileNav ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
     }
     ${historyStyles}
+    ${meterStyles}
     #profileSettings { margin-top: 18px; }
-    .moduleSettingsSave, #zone { margin-top: 12px; }
+    .moduleSettingsSave, #zone, #meterSettings { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
@@ -272,6 +275,8 @@ template.innerHTML = `
               <h3 id="analysisSettingsTitle" class="settingsTitle"></h3>
               <div id="moduleSettings"></div>
               <ha-button id="zone" appearance="plain" hidden></ha-button>
+              <ha-button id="meterSettings" appearance="plain" hidden></ha-button>
+              <p class="secondary" id="meterSettingsStatus" role="status" hidden></p>
             </section>
             <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
             <div id="profileSettings" slot="profile-settings">
@@ -410,6 +415,21 @@ class ImageLabPanel extends HTMLElement {
         "/api/image_lab/zone/" + encodeURIComponent(profile.profile_id),
         this._hass.fetchWithAuth.bind(this._hass), this.zoneScope.signal);
     });
+    this.element("meterSettings").addEventListener("click", () => {
+      const profile = this.selected;
+      const hass = this._hass;
+      if (profile?.module !== "meter" || !hass) return;
+      this.zoneScope?.abort();
+      this.zoneScope = new AbortController();
+      this.element("meterSettingsStatus").hidden = true;
+      void editMeter(this.element("profile"), hass.locale.language,
+        "/api/image_lab/meter/" + encodeURIComponent(profile.profile_id),
+        hass.fetchWithAuth.bind(hass), this.zoneScope.signal, () => {
+          const status = this.element("meterSettingsStatus");
+          status.textContent = this.meterLabels.saved;
+          status.hidden = false;
+        });
+    });
     this.element("copy").addEventListener("click", () => void this.copyId());
     this.render();
   }
@@ -513,6 +533,10 @@ class ImageLabPanel extends HTMLElement {
       this.strings, this.optionsScope.signal, id => this.select(id));
   }
 
+  private get meterLabels() {
+    return this.strings === strings.fr ? meterStrings.fr : meterStrings.en;
+  }
+
   private closeModuleSettings() {
     this.moduleSettingsScope?.abort();
     this.moduleSettingsScope = undefined;
@@ -523,8 +547,10 @@ class ImageLabPanel extends HTMLElement {
     const hass = this._hass;
     if (this.moduleSettingsScope || !profile || profile.module === "comparison" || !hass) return;
     this.moduleSettingsScope = new AbortController();
-    editModuleSettings(this.element("moduleSettings"), hass, profile.profile_id,
-      this.strings, this.moduleSettingsScope.signal);
+    const moduleSettings = this.element("moduleSettings");
+    moduleSettings.hidden = profile.module === "meter";
+    if (profile.module !== "meter")
+      editModuleSettings(moduleSettings, hass, profile.profile_id, this.strings, this.moduleSettingsScope.signal);
     void this.loadHistorySettings(profile, hass, this.moduleSettingsScope.signal);
   }
 
@@ -605,6 +631,7 @@ class ImageLabPanel extends HTMLElement {
     this.historySettings.setValue();
     this.element("test").removeAttribute("loading");
     this.element("status").textContent = "";
+    this.element("meterSettingsStatus").hidden = true;
     this.element("error").hidden = true;
     this.element("palette").hidden = true;
     this.element("swatches").replaceChildren();
@@ -637,7 +664,8 @@ class ImageLabPanel extends HTMLElement {
       const source = state?.attributes.friendly_name || id || labels[profile.source_type];
       const sourceMissing = profile.source_type !== "upload" &&
         (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
-      const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable : "";
+      const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable :
+        profile.module === "meter" && !profile.meter_initialized ? this.meterLabels.reasons.meter_unconfirmed : "";
       return {
         id: profile.profile_id, name: profile.title, type: labels[profile.module], source, warning,
         trigger: this.analysisTrigger(profile),
@@ -733,6 +761,7 @@ class ImageLabPanel extends HTMLElement {
       saveInterval: [labels.saveFrequency, "content-save-outline"],
       test: [labels.test, "play-outline"],
       zone: [labels.zone, "crop"],
+      meterSettings: [this.meterLabels.configure, "gauge"],
     };
     for (const [id, [label, icon]] of Object.entries(actions))
       actionLabel(this.element(id), label, icon);
@@ -804,7 +833,9 @@ class ImageLabPanel extends HTMLElement {
       ? labels.artworkTrigger : labels.onDemand;
     this.element("sourceSummary").textContent =
       [labels[profile.source_type], sourceName, trigger].filter(Boolean).join(" · ");
-    this.element("zone").hidden = !camera || isComparison;
+    this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
+    this.element("meterSettings").hidden = profile.module !== "meter";
+    this.element("meterSettings").toggleAttribute("disabled", !profile.available);
     const cameraZones = this.element("cameraZones");
     cameraZones.hidden = profile.source_type !== "camera";
     if (!cameraZones.hidden) {
@@ -1006,7 +1037,10 @@ class ImageLabPanel extends HTMLElement {
         image: (id, imageSignal, thumbnail) => this.images.get(
           hass, path + "/" + encodeURIComponent(id) + (thumbnail ? "?thumbnail=1" : ""), imageSignal,
         ),
-        summary: item => ({
+        summary: item => item.meter ? {
+          text: meterText({ ...item.meter, reason: item.reason }, hass.locale.language, true),
+          uncertain: Boolean(item.reason),
+        } : ({
           text: item.dominant_hex ?? (item.count == null ? "" :
             `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
           color: item.dominant_hex ?? undefined,
@@ -1018,6 +1052,11 @@ class ImageLabPanel extends HTMLElement {
             list.className = "swatches";
             list.append(...this.paletteSwatches(colors));
             content.append(list);
+          } else if (profile.module === "meter") {
+            const status = document.createElement("p");
+            status.className = "meter-status";
+            status.textContent = meterText(this.readMeter(headers), hass.locale.language);
+            content.append(status);
           } else {
             const stage = document.createElement("div");
             stage.className = "image-stage";
@@ -1041,6 +1080,12 @@ class ImageLabPanel extends HTMLElement {
         this.captureHistory.failed();
       }
     }
+  }
+
+  private readMeter(headers: Headers): MeterResult {
+    const data = headers.get("X-Image-Lab-Meter");
+    if (!data) throw new Error("Missing meter result");
+    return JSON.parse(data) as MeterResult;
   }
 
   private readPalette(headers: Headers): Rgb[] {
@@ -1070,13 +1115,22 @@ class ImageLabPanel extends HTMLElement {
         { method: manual ? "POST" : "GET", signal: controller.signal, cache: "no-store" },
       );
       if (response.status === 204) {
-        summary = this.strings[profile.available ? "noResult" : "profile_unavailable"];
+        summary = profile.available && profile.module === "meter" && !profile.meter_initialized
+          ? this.meterLabels.reasons.meter_needs_calibration
+          : this.strings[profile.available ? "noResult" : "profile_unavailable"];
         return;
       }
       if (response.status === 422) {
         const { reason } = await response.json();
         if (!controller.signal.aborted) {
-          this.showError(Object.hasOwn(this.strings, reason) ? reason : manual ? "testError" : "resultError");
+          const meterReason = profile.module === "meter" && this.meterLabels.reasons[reason];
+          if (meterReason) {
+            const error = this.element("error");
+            error.textContent = meterReason;
+            error.hidden = false;
+          } else {
+            this.showError(Object.hasOwn(this.strings, reason) ? reason : manual ? "testError" : "resultError");
+          }
         }
         return;
       }
@@ -1092,6 +1146,8 @@ class ImageLabPanel extends HTMLElement {
         summary = await this.showObjects(response.headers, this.element("imageStage"), this.element("objectsOverlay"),
           this.element("objectList"), hass, controller.signal);
         controller.signal.throwIfAborted();
+      } else if (profile.module === "meter") {
+        summary = meterText(this.readMeter(response.headers), hass.locale.language);
       } else {
         this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response.headers)));
         this.element("palette").hidden = false;

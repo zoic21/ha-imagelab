@@ -7,6 +7,7 @@ from homeassistant.helpers import selector
 from .comparison_store import get_comparison_store
 from .const import CONF_MODULE, CONF_SOURCE_TYPE, SourceType
 from .images import ImageError
+from .meter import METER
 from .output import BINARY_CLASSES, OUTPUTS
 
 
@@ -37,7 +38,7 @@ class ImageLabOptionsFlow(OptionsFlowWithReload):
             ): select_options(list(kinds), "output")
         }
         camera = entry.data[CONF_SOURCE_TYPE] == SourceType.CAMERA
-        if camera:
+        if camera and entry.data[CONF_MODULE] != METER:
             fields[
                 probatio.Required(
                     "confirmation_seconds",

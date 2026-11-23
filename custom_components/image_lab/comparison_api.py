@@ -134,6 +134,7 @@ class Capture:
     user_id: str
     frame: ImageFrame
     expires_at: float
+    revision: str | None = None
 
 
 def _captures(hass: HomeAssistant) -> dict[str, Capture]:
@@ -153,14 +154,29 @@ def drop_captures(hass: HomeAssistant, profile_id: str) -> None:
             del captures[key]
 
 
-def _capture_frame(
-    request: web.Request, profile_id: str, capture_id: str
+def cache_capture(
+    request: web.Request, profile_id: str, frame: ImageFrame, revision: str | None = None
+) -> str:
+    """Keep a bounded, short-lived snapshot tied to the requesting admin."""
+    image_id = uuid4().hex
+    captures = _captures(request.app[KEY_HASS])
+    while len(captures) >= _CAPTURE_SLOTS:
+        del captures[next(iter(captures))]
+    captures[image_id] = Capture(
+        profile_id, request[KEY_HASS_USER].id, frame, monotonic() + _CAPTURE_SECONDS, revision
+    )
+    return image_id
+
+
+def cached_capture(
+    request: web.Request, profile_id: str, capture_id: str, revision: str | None = None
 ) -> ImageFrame | None:
     capture = _captures(request.app[KEY_HASS]).get(capture_id)
     if (
         capture
         and capture.profile_id == profile_id
         and capture.user_id == request[KEY_HASS_USER].id
+        and capture.revision == revision
     ):
         return capture.frame
     return None
@@ -240,7 +256,7 @@ class ComparisonView(HomeAssistantView):
                 if ("upload_id" in values) == ("capture_id" in values):
                     raise probatio.Invalid("Specify one image source")
                 if capture_id:
-                    frame = _capture_frame(request, profile_id, capture_id)
+                    frame = cached_capture(request, profile_id, capture_id)
             data = await store.async_mutate(operation, values, frame)
         except (ValueError, probatio.Invalid):
             return self.json(
@@ -279,18 +295,7 @@ class ComparisonView(HomeAssistantView):
             profile_id,
             settings_override=values.get("settings"),
         )
-        image_id = None
-        if result.frame is not None:
-            image_id = uuid4().hex
-            captures = _captures(hass)
-            while len(captures) >= _CAPTURE_SLOTS:
-                del captures[next(iter(captures))]
-            captures[image_id] = Capture(
-                profile_id,
-                request[KEY_HASS_USER].id,
-                result.frame,
-                monotonic() + _CAPTURE_SECONDS,
-            )
+        image_id = cache_capture(request, profile_id, result.frame) if result.frame else None
         return self.json(
             {**result.response, "image_id": image_id}, headers=RESPONSE_HEADERS
         )
@@ -320,7 +325,7 @@ class ComparisonImageView(HomeAssistantView):
     ) -> web.Response:
         """Load a saved reference or the exact capture used by the preview."""
         store = _store(request, profile_id)
-        frame = _capture_frame(request, profile_id, image_id)
+        frame = cached_capture(request, profile_id, image_id)
         thumbnail = request.query.get("thumbnail") == "1"
         try:
             if frame is None:

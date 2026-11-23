@@ -25,9 +25,11 @@ from .const import (
     SourceType,
 )
 from .images import ImageError, ImageFrame, async_get_frame, crop_frame
+from .meter import METER, METER_SEED, METER_SETTINGS, async_read_meter, meter_source
 from .models import ModuleResult
 from .object_detection import ObjectDetector
 from .palette import extract_palette
+from .result_store import get_result_store
 
 
 async def _async_palette(
@@ -73,6 +75,21 @@ async def _async_detect_objects(
     )
 
 
+async def _async_meter(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    frame: ImageFrame | None,
+    settings: Settings | None,
+) -> tuple[ModuleResult, ImageFrame]:
+    assert frame is not None
+    config = entry.data.get(METER_SETTINGS)
+    if config is None or config["source"] != meter_source(entry.data):
+        return ModuleResult({}, "meter_needs_calibration"), frame
+    store = get_result_store(hass, entry.entry_id)
+    state = await store.async_meter_state() or entry.data.get(METER_SEED)
+    return await async_read_meter(hass, frame, config, state), frame
+
+
 @dataclass(frozen=True)
 class AnalysisModule:
     """Sources and image processor for a configured module."""
@@ -89,6 +106,7 @@ MODULES = {
         (SourceType.CAMERA, SourceType.UPLOAD), _async_compare
     ),
     "palette": AnalysisModule(tuple(SourceType), _async_palette),
+    METER: AnalysisModule((SourceType.CAMERA, SourceType.UPLOAD), _async_meter),
     "object_detection": AnalysisModule(
         (SourceType.CAMERA, SourceType.UPLOAD), _async_detect_objects
     ),
@@ -101,6 +119,7 @@ class AnalysisResult:
 
     response: ServiceResponse
     frame: ImageFrame | None = None
+    meter_state: dict | None = None
 
 
 def resolve_entity_id(hass: HomeAssistant, value: str | None) -> str | None:
@@ -172,4 +191,4 @@ async def async_analyze(
     response.update(status="unknown" if result.reason else "ok", data=result.data)
     if result.reason:
         response["reason"] = result.reason
-    return AnalysisResult(response, frame)
+    return AnalysisResult(response, frame, result.meter_state)

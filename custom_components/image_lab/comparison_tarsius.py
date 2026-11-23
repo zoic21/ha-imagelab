@@ -31,7 +31,7 @@ async def async_ensure_tarsius(hass: HomeAssistant) -> None:
         raise ImageError("tarsius_unavailable") from err
 
 
-def _tarsius_image(content: bytes, max_side: int) -> bytes:
+def oriented_for_tarsius(content: bytes, max_side: int) -> bytes:
     """Apply the displayed orientation before Tarsius interprets the crop."""
     with Image.open(BytesIO(content)) as image:
         if image.getexif().get(Image.ExifTags.Base.Orientation, 1) not in range(2, 9):
@@ -84,7 +84,7 @@ def _prepare_detector(
             try:
                 original = validate_image(read_image_file(images / ref))
                 prepared = detector.prepare(
-                    _tarsius_image(original.content, detector.frame_side)
+                    oriented_for_tarsius(original.content, detector.frame_side)
                 )
             except (ImageError, OSError, tarsius.BlankRegionError, tarsius.ImageError):
                 continue
@@ -102,7 +102,7 @@ def predict(detector: StateDetector, frame: ImageFrame) -> Result:
     import tarsius
 
     try:
-        return detector.classify(_tarsius_image(frame.content, detector.frame_side))
+        return detector.classify(oriented_for_tarsius(frame.content, detector.frame_side))
     except tarsius.BlankRegionError as err:
         raise ImageError("blank_region") from err
     except tarsius.BackendError as err:

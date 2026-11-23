@@ -54,7 +54,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes. La détection identifie des catégories d’objets."
+          "module": "La comparaison reconnaît des états à partir des références. La palette extrait les couleurs dominantes. La détection identifie des catégories d’objets. La lecture de compteur relève un index à partir de rouleaux et de cadrans."
         }
       }
     },
@@ -81,7 +81,8 @@
       "options": {
         "comparison": "Comparaison d’images",
         "palette": "Palette de couleurs",
-        "object_detection": "Détection d’objets"
+        "object_detection": "Détection d’objets",
+        "meter": "Lecture de compteur"
       }
     },
     "source_type": {
@@ -182,7 +183,8 @@
         "binary": "Capteur binaire",
         "occupancy": "Occupation (objets détectés)",
         "count": "Nombre d’objets détectés",
-        "color": "Couleur dominante"
+        "color": "Couleur dominante",
+        "meter_index": "Capteur d’index"
       }
     },
     "binary_class": {

@@ -35,7 +35,7 @@ export const historyStyles = `
     width: 100%; --ha-button-height: auto; --ha-button-border-radius: 0;
     --ha-button-label-overflow: visible; color: var(--primary-text-color);
   }
-  .history-entry::part(base) { width: 100%; padding: 0 4px; }
+  .history-entry::part(base) { width: 100%; padding: 0 var(--ha-space-2, 8px); }
   .history-entry::part(label) { width: 100%; min-width: 0; }
   .history-entry-label {
     display: grid; grid-template-columns: 108px minmax(58px, 1fr) fit-content(200px) 20px;

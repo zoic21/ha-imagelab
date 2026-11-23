@@ -70,7 +70,7 @@ template.innerHTML = `
       max-width: 100%; --ha-button-label-overflow: visible;
       white-space: normal; overflow-wrap: anywhere; text-align: start;
     }
-    #outputEntity::part(base) { padding-inline: 0; }
+    #outputEntity::part(base) { padding-inline: var(--ha-space-2, 8px); }
     #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
     #outputId { display: block; text-align: start; }
     #analysisId { margin-bottom: 0; }
@@ -118,7 +118,6 @@ template.innerHTML = `
       height: 32px; margin-bottom: 4px; border: 1px solid var(--divider-color);
       border-radius: var(--ha-border-radius-md, 8px);
     }
-    .dominant { display: block; font-size: 12px; }
     .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
       width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
     .zoneFrame img { width:100%; max-height:none; }
@@ -810,7 +809,7 @@ class ImageLabPanel extends HTMLElement {
         }
     }
     paletteSwatches(colors) {
-        return colors.map((rgb, index) => {
+        return colors.map((rgb) => {
             const row = document.createElement("li");
             const swatch = document.createElement("div");
             const code = document.createElement("code");
@@ -819,12 +818,6 @@ class ImageLabPanel extends HTMLElement {
             swatch.style.backgroundColor = hex;
             code.textContent = hex;
             row.append(swatch, code);
-            if (index === 0) {
-                const label = document.createElement("span");
-                label.className = "dominant secondary";
-                label.textContent = this.strings.dominant;
-                row.append(label);
-            }
             return row;
         });
     }

@@ -48,8 +48,11 @@ export const historyStyles = `
   .history-day { margin: 12px 0 2px; color: var(--secondary-text-color); font-size: .95em; font-weight: 500; }
   .history-list { margin: 0; padding: 0; list-style: none; }
   .history-list li + li { border-top: 1px solid var(--divider-color); }
-  .history-entry { width: 100%; --ha-button-height: auto; --ha-button-label-overflow: visible; color: var(--primary-text-color); }
-  .history-entry::part(base) { width: 100%; padding: 0 4px; }
+  .history-entry {
+    width: 100%; --ha-button-height: auto; --ha-button-border-radius: 0;
+    --ha-button-label-overflow: visible; color: var(--primary-text-color);
+  }
+  .history-entry::part(base) { width: 100%; padding: 0 var(--ha-space-2, 8px); }
   .history-entry::part(label) { width: 100%; min-width: 0; }
   .history-entry-label {
     display: grid; grid-template-columns: 108px minmax(58px, 1fr) fit-content(200px) 20px;

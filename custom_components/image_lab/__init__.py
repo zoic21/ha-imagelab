@@ -2,7 +2,7 @@
 
 from json import dumps
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import probatio
 from aiohttp import web
@@ -38,7 +38,7 @@ from homeassistant.loader import async_get_integration
 
 from .analysis import async_analyze, resolve_entity_id
 from .comparison_api import REGION, ComparisonImageView, ComparisonView, drop_captures
-from .comparison_store import async_remove_comparison
+from .comparison_store import async_remove_comparison, get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
     CONF_IMAGE_REVISION,
@@ -55,9 +55,10 @@ from .const import (
     SOURCE_RENAME,
     SourceType,
 )
-from .images import ImageError, async_get_frame, get_image_storage
+from .images import ImageError, ImageFrame, async_get_frame, get_image_storage
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
+from .result_store import Observation, async_remove_results, get_result_store
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -71,15 +72,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if entry and entry.domain == DOMAIN and entry.state is ConfigEntryState.LOADED:
             coordinator = entry.runtime_data
             if coordinator is not None:
-                await coordinator.async_refresh()
-                if coordinator.last_update_success and coordinator.data is not None:
-                    return coordinator.data
-                return {
-                    CONF_PROFILE_ID: profile_id,
-                    "status": "error",
-                    "data": {},
-                    "reason": "analysis_failed",
-                }
+                result, _ = await coordinator.async_run_manual()
+                return result.response
         return (await async_analyze(hass, profile_id)).response
 
     async_register_admin_service(
@@ -140,19 +134,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if camera and not entry.pref_disable_polling
         else 0
     )
-    coordinator = OutputCoordinator(hass, entry, kind) if kind or minutes else None
+    coordinator = OutputCoordinator(hass, entry, kind)
     entry.runtime_data = coordinator
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if entity.platform == DOMAIN and (
-            not kind or coordinator is None or entity.unique_id != coordinator.unique_id
-        ):
+        if entity.platform == DOMAIN and (not kind or entity.unique_id != coordinator.unique_id):
             registry.async_remove(entity.entity_id)
-    if coordinator:
-        if coordinator.platform:
-            await hass.config_entries.async_forward_entry_setups(
-                entry, [coordinator.platform]
-            )
+    if coordinator.platform:
+        await hass.config_entries.async_forward_entry_setups(entry, [coordinator.platform])
+    if kind or minutes:
 
         @callback
         def start(hass: HomeAssistant) -> None:
@@ -194,7 +184,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         return
     await get_image_storage(hass).async_remove(entry.data[CONF_IMAGE_KEY])
     drop_captures(hass, entry.entry_id)
-    await async_remove_comparison(hass, entry.entry_id)
+    if entry.data[CONF_MODULE] == "comparison":
+        await async_remove_comparison(hass, entry.entry_id)
+    else:
+        await async_remove_results(hass, entry.entry_id)
 
 
 @websocket_api.websocket_command(
@@ -312,30 +305,81 @@ class ImageLabPreviewView(HomeAssistantView):
     """Serve the exact frame processed by the analysis, to an admin only."""
 
     url = f"/api/{DOMAIN}/preview/{{profile_id}}"
+    extra_urls: ClassVar[list[str]] = [f"{url}/{{item}}"]
     name = f"api:{DOMAIN}:preview"
+    headers: ClassVar[dict[str, str]] = {
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    }
 
-    async def get(self, request: web.Request, profile_id: str) -> web.Response:
-        """Run a configured analysis and return its frame or failure reason."""
+    def _entry(self, request: web.Request, profile_id: str) -> ConfigEntry:
         if not request[KEY_HASS_USER].is_admin:
             raise web.HTTPForbidden
-        result = await async_analyze(request.app[KEY_HASS], profile_id)
-        headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
-        if result.frame is None:
-            return self.json(result.response, status_code=422, headers=headers)
+        entry = request.app[KEY_HASS].config_entries.async_get_entry(profile_id)
+        if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
+            raise web.HTTPNotFound
+        return entry
+
+    async def get(
+        self, request: web.Request, profile_id: str, item: str | None = None
+    ) -> web.Response:
+        """Read the last result or a retained capture."""
+        entry = self._entry(request, profile_id)
+        hass = request.app[KEY_HASS]
+        if entry.data[CONF_MODULE] == "comparison":
+            if item is not None:
+                raise web.HTTPNotFound
+            store = get_comparison_store(hass, profile_id)
+        else:
+            store = get_result_store(hass, profile_id)
+        try:
+            if item == "history":
+                return self.json(await store.async_history(), headers=self.headers)
+            saved = await store.async_read(item)
+        except ImageError as err:
+            return self.json({"reason": err.reason}, status_code=422, headers=self.headers)
+        if saved is None:
+            if item is not None:
+                raise web.HTTPNotFound
+            return web.Response(status=204, headers=self.headers)
+        observation, frame = saved
+        return self._image_response(observation, frame)
+
+    async def post(
+        self, request: web.Request, profile_id: str, item: str | None = None
+    ) -> web.Response:
+        """Record a manual analysis and publish its result entity."""
+        entry = self._entry(request, profile_id)
+        if item is not None:
+            raise web.HTTPNotFound
+        if entry.state is not ConfigEntryState.LOADED or entry.runtime_data is None:
+            return self.json({"reason": "profile_unavailable"}, status_code=422, headers=self.headers)
+        result, observation = await entry.runtime_data.async_run_manual()
+        if result.frame is None or observation is None:
+            reason = "storage_error" if result.frame is not None else result.response["reason"]
+            return self.json({"reason": reason}, status_code=422, headers=self.headers)
+        return self._image_response(observation, result.frame)
+
+    def _image_response(self, observation: Observation, frame: ImageFrame) -> web.Response:
+        result = observation["response"]
+        headers = self.headers.copy()
         headers.update(
             {
-                "X-Image-Lab-Width": str(result.frame.width),
-                "X-Image-Lab-Height": str(result.frame.height),
+                "X-Image-Lab-Width": str(frame.width),
+                "X-Image-Lab-Height": str(frame.height),
+                "X-Image-Lab-Time": observation["time"],
+                "X-Image-Lab-Manual": "1" if observation["manual"] else "0",
             }
         )
-        if result.response[CONF_MODULE] == "palette":
+        if result.get("confirmation") == "disagreed":
+            headers["X-Image-Lab-Confirmation"] = "disagreed"
+        if result.get(CONF_MODULE) == "palette":
             # Send the small palette alongside the exact image used for the analysis.
             headers["X-Image-Lab-Palette-Rgb"] = dumps(
-                result.response["data"]["palette_rgb"], separators=(",", ":")
+                result["data"]["palette_rgb"], separators=(",", ":")
             )
-        elif result.response[CONF_MODULE] == "object_detection":
+        elif result.get(CONF_MODULE) == "object_detection":
             # Compact rows keep the preview header below HTTP field-size limits.
-            data = result.response["data"]
+            data = result["data"]
             headers["X-Image-Lab-Objects"] = dumps(
                 [
                     [
@@ -352,8 +396,8 @@ class ImageLabPreviewView(HomeAssistantView):
             )
             headers["X-Image-Lab-Objects-Truncated"] = "1" if data["truncated"] else "0"
         return web.Response(
-            body=result.frame.content,
-            content_type=result.frame.content_type,
+            body=frame.content,
+            content_type=frame.content_type,
             headers=headers,
         )
 

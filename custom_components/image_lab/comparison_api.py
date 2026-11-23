@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import probatio
 from aiohttp import web
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util.file import WriteError
 
@@ -17,6 +18,7 @@ from .analysis import async_analyze
 from .comparison_store import ComparisonStore, GalleryImage, get_comparison_store
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame
+from .result_store import Observation
 
 RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _CAPTURE_SECONDS = 300
@@ -188,16 +190,22 @@ class ComparisonView(HomeAssistantView):
     ) -> web.Response:
         """Read saved comparison data."""
         store = _store(request, profile_id)
-        if operation is not None:
-            raise web.HTTPNotFound
         try:
+            if operation == "latest":
+                latest = await store.async_latest()
+                return self.json(
+                    _preview_response(latest) if latest is not None else None,
+                    headers=RESPONSE_HEADERS,
+                )
+            if operation is not None:
+                raise web.HTTPNotFound
             async with store.lock:
                 data = await store.hass.async_add_executor_job(store.load)
         except ImageError as err:
             return self.json(
                 {"reason": err.reason}, status_code=422, headers=RESPONSE_HEADERS
             )
-        return self.json(data, headers=RESPONSE_HEADERS)
+        return self.json(_gallery_response(data), headers=RESPONSE_HEADERS)
 
     async def post(
         self, request: web.Request, profile_id: str, operation: str | None = None
@@ -218,8 +226,6 @@ class ComparisonView(HomeAssistantView):
                     raise probatio.Invalid("Specify one image source")
                 if capture_id:
                     frame = _capture_frame(request, profile_id, capture_id)
-                    if frame is None:
-                        raise ImageError("capture_expired")
             data = await store.async_mutate(operation, values, frame)
         except (ValueError, probatio.Invalid):
             return self.json(
@@ -233,12 +239,26 @@ class ComparisonView(HomeAssistantView):
             return self.json(
                 {"reason": "storage_error"}, status_code=422, headers=RESPONSE_HEADERS
             )
-        return self.json(data, headers=RESPONSE_HEADERS)
+        return self.json(_gallery_response(data), headers=RESPONSE_HEADERS)
 
     async def _test(
         self, request: web.Request, profile_id: str, values: dict
     ) -> web.Response:
         hass = request.app[KEY_HASS]
+        entry = hass.config_entries.async_get_entry(profile_id)
+        if (
+            "settings" not in values and entry is not None
+            and entry.state is ConfigEntryState.LOADED and entry.runtime_data
+        ):
+            result, observation = await entry.runtime_data.async_run_manual()
+            if result.frame is not None and observation is None:
+                raise ImageError("storage_error")
+            return self.json(
+                _preview_response(observation) if observation is not None else {
+                    **result.response, "image_id": None,
+                },
+                headers=RESPONSE_HEADERS,
+            )
         result = await async_analyze(
             hass,
             profile_id,
@@ -259,6 +279,19 @@ class ComparisonView(HomeAssistantView):
         return self.json(
             {**result.response, "image_id": image_id}, headers=RESPONSE_HEADERS
         )
+
+
+def _gallery_response(data: dict) -> dict:
+    return {key: value for key, value in data.items() if key != "latest"}
+
+
+def _preview_response(observation: Observation) -> dict:
+    return {
+        **observation["response"],
+        "image_id": observation["id"],
+        "time": observation["time"],
+        "manual": observation["manual"],
+    }
 
 
 class ComparisonImageView(HomeAssistantView):

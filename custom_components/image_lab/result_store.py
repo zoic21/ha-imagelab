@@ -1,0 +1,180 @@
+"""Keep the exact frame and result of recent analyses in private storage."""
+
+import asyncio
+import json
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
+from shutil import rmtree
+from typing import TypedDict
+from uuid import uuid4
+
+from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.util.file import WriteError, write_utf8_file_atomic
+
+from .const import DOMAIN
+from .images import ImageError, ImageFrame
+
+STORAGE_VERSION = 1
+DEFAULT_HISTORY = {"mode": "all", "limit": 10}
+_LOGGER = logging.getLogger(__name__)
+
+
+class Observation(TypedDict):
+    id: str
+    time: str
+    manual: bool
+    response: ServiceResponse
+    content_type: str
+    width: int
+    height: int
+
+
+class ResultStore:
+    """Keep a latest observation independently of the bounded history."""
+
+    def __init__(
+        self, hass: HomeAssistant, profile_id: str, storage: str = "results",
+        filename: str = "results.json",
+    ) -> None:
+        self.hass = hass
+        self.profile_id = profile_id
+        self.directory = Path(hass.config.path(".storage", f"{DOMAIN}.{storage}", profile_id))
+        self.manifest = self.directory / filename
+        self.images = self.directory / "images"
+        self.lock = asyncio.Lock()
+
+    def _load(self) -> dict | None:
+        try:
+            with self.manifest.open(encoding="utf-8") as file:
+                stored = json.load(file)
+        except FileNotFoundError:
+            return None
+        except (ValueError, OSError) as err:
+            raise ImageError("storage_error") from err
+        if (
+            not isinstance(stored, dict)
+            or stored.get("version") != STORAGE_VERSION
+            or not isinstance(stored.get("data"), dict)
+        ):
+            raise ImageError("storage_error")
+        return stored["data"]
+
+    def load(self) -> dict:
+        return self._load() or {"history": []}
+
+    def _save(self, data: dict) -> None:
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        content = json.dumps({"version": STORAGE_VERSION, "data": data}, ensure_ascii=False)
+        write_utf8_file_atomic(str(self.manifest), content, private=True)
+
+    def _save_history(
+        self, data: dict, new_image: Path | None = None, previous: str | None = None
+    ) -> None:
+        limit = data.get("history_settings", DEFAULT_HISTORY)["limit"]
+        expired = {item["id"] for item in data["history"][:-limit]}
+        del data["history"][:-limit]
+        if previous is not None:
+            expired.add(previous)
+        try:
+            self._save(data)
+        except (OSError, WriteError):
+            if new_image is not None:
+                new_image.unlink(missing_ok=True)
+            raise
+        kept = {item["id"] for item in data["history"] + data.get("references", [])}
+        if latest := data.get("latest"):
+            kept.add(latest["id"])
+        for image_id in expired - kept:
+            try:
+                (self.images / image_id).unlink(missing_ok=True)
+            except OSError:
+                _LOGGER.exception("Could not remove expired image for %s", self.profile_id)
+
+    def _append_history(self, data: dict, observation: Observation) -> None:
+        data["history"].append(observation)
+
+    def _record(self, frame: ImageFrame, response: ServiceResponse, manual: bool) -> Observation:
+        data = self.load()
+        previous = data.get("latest")
+        observation: Observation = {
+            "id": uuid4().hex,
+            "time": datetime.now(UTC).isoformat(),
+            "manual": manual,
+            "response": response,
+            "content_type": frame.content_type,
+            "width": frame.width,
+            "height": frame.height,
+        }
+        self.images.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = self.images / observation["id"]
+        write_utf8_file_atomic(str(path), frame.content, private=True, mode="wb")
+        data["latest"] = observation
+        self._append_history(data, observation)
+        self._save_history(data, path, previous["id"] if previous else None)
+        return observation
+
+    async def async_record(
+        self, frame: ImageFrame, response: ServiceResponse, manual: bool
+    ) -> Observation:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(self._record, frame, response, manual)
+
+    def _latest(self, data: dict) -> Observation | None:
+        return data.get("latest")
+
+    async def async_latest(self) -> Observation | None:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(lambda: self._latest(self.load()))
+
+    async def async_history(self) -> list[dict]:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(
+                lambda: [
+                    {
+                        "id": item["id"], "time": item["time"], "manual": item["manual"],
+                        "dominant_hex": item["response"]["data"].get("dominant_hex"),
+                        "count": item["response"]["data"].get("count"),
+                    }
+                    for item in reversed(self.load()["history"])
+                ]
+            )
+
+    def _read(self, image_id: str | None) -> tuple[Observation, ImageFrame] | None:
+        data = self.load()
+        observation = (
+            self._latest(data) if image_id is None else
+            next((item for item in data["history"] if item["id"] == image_id), None)
+        )
+        if observation is None:
+            return None
+        try:
+            content = (self.images / observation["id"]).read_bytes()
+        except OSError as err:
+            raise ImageError("storage_error") from err
+        return observation, ImageFrame(
+            content, observation["content_type"], observation["width"], observation["height"]
+        )
+
+    async def async_read(self, image_id: str | None) -> tuple[Observation, ImageFrame] | None:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(self._read, image_id)
+
+    async def async_remove(self) -> None:
+        async with self.lock:
+            try:
+                await self.hass.async_add_executor_job(rmtree, self.directory)
+            except FileNotFoundError:
+                pass
+
+
+def get_result_store(hass: HomeAssistant, profile_id: str) -> ResultStore:
+    stores = hass.data.setdefault(f"{DOMAIN}.results", {})
+    if profile_id not in stores:
+        stores[profile_id] = ResultStore(hass, profile_id)
+    return stores[profile_id]
+
+
+async def async_remove_results(hass: HomeAssistant, profile_id: str) -> None:
+    await get_result_store(hass, profile_id).async_remove()
+    hass.data[f"{DOMAIN}.results"].pop(profile_id, None)

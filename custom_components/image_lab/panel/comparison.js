@@ -6,6 +6,7 @@ const engines = ["pillow", "tarsius"];
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
 const tabs = ["preview", "references", "history", "settings"];
 const coordinates = ["x", "y", "width", "height"];
+const sameRegion = (first, second) => coordinates.every(key => Math.abs((first?.[key] ?? -1) - (second?.[key] ?? -1)) <= 1e-9);
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons = {
     add_state: "plus", cancel: "close", classify: "tag-plus-outline",
@@ -97,6 +98,7 @@ template.innerHTML = `
       <ha-button id="whole" appearance="plain" hidden></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
+    <p class="secondary" id="testHint" hidden></p>
     <div id="result" aria-live="polite"></div>
     <div class="comparisonImages" id="comparisonImages" hidden>
       <figure id="match" hidden>
@@ -157,7 +159,6 @@ export class ImageLabComparison extends HTMLElement {
     scope;
     gallery;
     result;
-    previewRequested = false;
     captured = false;
     busy = false;
     drawing = false;
@@ -222,7 +223,7 @@ export class ImageLabComparison extends HTMLElement {
                 dateStyle: "short",
                 timeStyle: "medium",
                 timeZone: this.client?.config?.time_zone,
-            }).format();
+            }).format(this.result.time ? new Date(this.result.time) : Date.now());
             await this.update("add", {
                 state_id,
                 name: `${this.labels.capture} ${stamp}`,
@@ -379,7 +380,6 @@ export class ImageLabComparison extends HTMLElement {
         this.scope = undefined;
         this.gallery = undefined;
         this.result = undefined;
-        this.previewRequested = false;
         this.captured = false;
         this.busy = false;
         this.drawing = false;
@@ -435,12 +435,6 @@ export class ImageLabComparison extends HTMLElement {
         else
             this.clearThumbnails();
         this.refresh();
-        this.startInitialPreview();
-    }
-    startInitialPreview() {
-        if (this.tab === "preview" && !this.previewRequested && this.gallery &&
-            this.available && !this.busy)
-            void this.evaluate();
     }
     async load() {
         if (!this.profile || !this.client)
@@ -458,6 +452,9 @@ export class ImageLabComparison extends HTMLElement {
                 this.renderGallery();
             if (this.tab === "history")
                 this.renderHistory();
+            const latest = await this.request("/latest", signal);
+            if (latest)
+                await this.displayObservation(latest, signal);
         });
     }
     feedback(message = "", error = false) {
@@ -490,7 +487,6 @@ export class ImageLabComparison extends HTMLElement {
                 this.busy = false;
                 this.progress();
                 this.refresh();
-                this.startInitialPreview();
             }
         }
     }
@@ -543,26 +539,31 @@ export class ImageLabComparison extends HTMLElement {
     }
     async evaluate() {
         await this.task(async (signal) => {
-            this.previewRequested = true;
-            const settings = this.readSettings();
-            this.setFrame();
-            this.setMatch();
-            this.captured = false;
-            this.result = undefined;
-            this.matchId = undefined;
-            this.drawing = false;
-            this.cancelDrawing();
-            this.renderResult();
-            const result = await this.request("/test", signal, {
-                settings,
-            });
-            this.result = result;
-            this.matchId = result.data.reference_id ?? undefined;
-            this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
-            this.renderResult();
-            if (result.image_id)
-                await this.showImages(result.image_id, signal);
+            const result = await this.request("/test", signal, {});
+            if (result.status === "error")
+                throw new Error(result.reason ?? "failed");
+            await this.displayObservation(result, signal);
+            if (this.tab === "history") {
+                this.gallery = await this.request("", signal);
+                this.renderHistory();
+            }
+            else if (this.tab === "references") {
+                this.renderGallery();
+            }
         });
+    }
+    async displayObservation(result, signal) {
+        this.setFrame();
+        this.setMatch();
+        this.captured = false;
+        this.drawing = false;
+        this.cancelDrawing();
+        this.result = result;
+        this.matchId = result.data.reference_id ?? undefined;
+        this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
+        this.renderResult();
+        if (result.image_id)
+            await this.showImages(result.image_id, signal);
     }
     async showImages(captureId, signal) {
         const [capture, reference] = await Promise.all([
@@ -657,6 +658,18 @@ export class ImageLabComparison extends HTMLElement {
                 : this.labels.failed;
         }
         panel.append(title, message);
+        if (result.time) {
+            const date = document.createElement("p");
+            date.className = "secondary";
+            date.textContent = this.observationLabel(result.time, result.manual);
+            panel.append(date);
+        }
+        if (result.confirmation === "disagreed") {
+            const retained = document.createElement("p");
+            retained.className = "secondary";
+            retained.textContent = this.labels.notConfirmed;
+            panel.append(retained);
+        }
         if (result.data.engine) {
             const engine = document.createElement("p");
             engine.className = "secondary";
@@ -749,8 +762,7 @@ export class ImageLabComparison extends HTMLElement {
                 const draft = this.readSettings();
                 const saved = this.gallery.settings;
                 changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
-                    draft.min_margin !== saved.min_margin ||
-                    coordinates.some((key) => Math.abs((draft.region?.[key] ?? -1) - (saved.region?.[key] ?? -1)) > 1e-9);
+                    draft.min_margin !== saved.min_margin || !sameRegion(draft.region, saved.region);
                 if (changed)
                     status.textContent = this.labels.dirty;
             }
@@ -759,6 +771,9 @@ export class ImageLabComparison extends HTMLElement {
             }
         }
         this.get("save").toggleAttribute("disabled", this.busy || !changed);
+        const hint = this.get("testHint");
+        hint.hidden = !status.textContent;
+        hint.textContent = this.labels.testSavedSettings;
     }
     setRegion(region) {
         this.draftRegion = region;
@@ -769,8 +784,11 @@ export class ImageLabComparison extends HTMLElement {
         this.renderRegion();
         this.refresh();
     }
-    renderRegion(region = this.draftRegion) {
-        paintRegion(this.get("region"), this.frameUrl ? region : null);
+    renderRegion(region) {
+        const used = this.result?.data.region;
+        const saved = this.gallery?.settings.region ?? null;
+        const useDraft = this.drawing || used === undefined || !sameRegion(this.draftRegion, saved);
+        paintRegion(this.get("region"), this.frameUrl ? region ?? (useDraft ? this.draftRegion : used) : null);
     }
     button(label, action) {
         const button = document.createElement("ha-button");
@@ -884,9 +902,7 @@ export class ImageLabComparison extends HTMLElement {
             const title = document.createElement("strong");
             title.textContent = item.state_id ? item.state : this.labels.unknown;
             const stamp = document.createElement("span");
-            stamp.textContent = new Date(item.time).toLocaleString(this.client?.locale.language, {
-                timeZone: this.client?.config?.time_zone,
-            }) + " · " + engineNames[item.engine];
+            stamp.textContent = this.observationLabel(item.time, item.manual) + " · " + engineNames[item.engine];
             const open = this.imageButton(item.id, stamp.textContent, this.labels.viewCapture);
             card.append(open, title, stamp);
             if (item.reason && Object.hasOwn(this.labels, item.reason)) {
@@ -914,6 +930,11 @@ export class ImageLabComparison extends HTMLElement {
             }
             grid.append(card);
         }
+    }
+    observationLabel(time, manual) {
+        return new Date(time).toLocaleString(this.client?.locale.language, {
+            timeZone: this.client?.config?.time_zone,
+        }) + " · " + this.labels[manual ? "manualAnalysis" : "automaticAnalysis"];
     }
     renderGallery() {
         this.clearThumbnails();

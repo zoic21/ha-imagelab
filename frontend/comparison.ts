@@ -68,7 +68,7 @@ const tabs: Tab[] = ["preview", "references", "history", "settings"];
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons: Partial<Record<Label, string>> = {
   add_state: "plus", cancel: "close", classify: "tag-plus-outline",
-  close: "close", correct: "tag-edit-outline",
+  close: "close", correct: "tag-edit-outline", edit_zone: "crop",
   move: "arrow-right", reload: "refresh", remove: "delete-outline",
   rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
 };
@@ -86,6 +86,13 @@ template.innerHTML = `
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }
+    .analysisActions {
+      display:flex; align-items:center; justify-content:space-between;
+      gap:var(--ha-space-1, 4px); container-type:inline-size;
+    }
+    @container (max-width: 280px) {
+      .analysisActions ha-button::part(base) { padding-inline:var(--ha-space-1, 4px); }
+    }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -196,9 +203,11 @@ template.innerHTML = `
     <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
-    <ha-button id="save" variant="brand"></ha-button>
+    <div class="analysisActions">
+      <ha-button id="editZone" appearance="plain" size="s"></ha-button>
+      <ha-button id="save" variant="brand" size="s"></ha-button>
+    </div>
     <p id="dirty" class="secondary"></p>
-    <ha-button id="editZone" appearance="plain"></ha-button>
     <section id="historySettings">${historySettingsMarkup}</section>
     <slot name="profile-settings"></slot>
   </section>
@@ -386,7 +395,7 @@ export class ImageLabComparison extends HTMLElement {
       addState: "add_state",
       reload: "reload",
       matchCaption: "closest", captureCaption: "currentCapture",
-      save: "save",
+      save: "save", editZone: "edit_zone",
     };
     for (const tab of tabs) names["tab-" + tab + "-label"] = tab;
     for (const key of ["max_distance", "min_margin"] as const)
@@ -396,8 +405,6 @@ export class ImageLabComparison extends HTMLElement {
       if (icon) actionLabel(this.get(id), this.labels[label], icon);
       else this.get(id).textContent = this.labels[label];
     }
-    const common = this.labels === text.fr ? panelStrings.fr : panelStrings.en;
-    actionLabel(this.get("editZone"), common.zone, "crop");
     this.get("matchLink").setAttribute("label", this.labels.view_reference);
     this.get("stateName").setAttribute("label", this.labels.new_state);
     const engine = this.get<HaSelect>("engine");

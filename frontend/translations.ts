@@ -206,7 +206,8 @@ export const comparisonStrings = {
     min_margin: "Minimum margin",
     thresholds:
       "Scores range from 0 to 255. A lower distance means a closer match.",
-    save: "Save settings",
+    save: "Save",
+    edit_zone: "Edit region",
     saved: "Settings saved.",
     dirty: "You have unsaved settings.",
     testSavedSettings: "Save your changes in Settings to use them in the next test.",
@@ -283,7 +284,8 @@ export const comparisonStrings = {
     min_margin: "Écart minimal",
     thresholds:
       "Les distances vont de 0 à 255. Une distance basse indique une image plus proche.",
-    save: "Enregistrer les réglages",
+    save: "Enregistrer",
+    edit_zone: "Modifier la zone",
     saved: "Réglages enregistrés.",
     dirty: "Des réglages sont en cours d’édition.",
     testSavedSettings: "Enregistrez les modifications dans Réglages pour les utiliser au prochain test.",

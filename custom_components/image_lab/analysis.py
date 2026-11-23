@@ -24,7 +24,7 @@ from .const import (
     DOMAIN,
     SourceType,
 )
-from .images import ImageError, ImageFrame, async_get_frame, crop_frame
+from .images import ImageError, ImageFrame, async_get_frame
 from .meter import METER, METER_SEED, METER_SETTINGS, async_read_meter, meter_source
 from .models import ModuleResult
 from .object_detection import ObjectDetector
@@ -40,9 +40,7 @@ async def _async_palette(
 ) -> tuple[ModuleResult, ImageFrame]:
     assert frame is not None
     size = entry.data.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
-    return ModuleResult(
-        await hass.async_add_executor_job(extract_palette, frame, size)
-    ), frame
+    return await hass.async_add_executor_job(extract_palette, frame, size, entry.data.get("region"))
 
 
 async def _async_compare(
@@ -72,6 +70,7 @@ async def _async_detect_objects(
         entry.data.get(CONF_OBJECT_LABELS, []),
         entry.data.get(CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE),
         entry.data.get(CONF_OBJECT_DETAILED, False),
+        entry.data.get("region"),
     )
 
 
@@ -171,8 +170,6 @@ async def async_analyze(
                 resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
                 settings[CONF_IMAGE_KEY],
             )
-        if module_id != "comparison" and (region := settings.get("region")):
-            frame = await hass.async_add_executor_job(crop_frame, frame, region)
         result, frame = await MODULES[module_id].process(
             hass, entry, frame, settings_override
         )

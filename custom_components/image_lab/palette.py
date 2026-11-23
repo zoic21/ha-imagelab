@@ -1,12 +1,12 @@
 """Extract colors from a still image using the music_colors Pyscript algorithm."""
 
 from colorsys import hsv_to_rgb, rgb_to_hsv
-from io import BytesIO
 from math import dist, sqrt
 
 from PIL import Image
 
-from .images import ImageFrame
+from .images import ImageFrame, Region, analysis_pixels
+from .models import ModuleResult
 
 type RGB = tuple[float, float, float]
 type Bucket = tuple[RGB, int]
@@ -23,26 +23,25 @@ def _vivid(rgb: RGB) -> list[int]:
     return [round(channel * 255) for channel in color]
 
 
-def _buckets(frame: ImageFrame) -> tuple[list[Bucket], list[Bucket]]:
+def _buckets(source: Image.Image) -> tuple[list[Bucket], list[Bucket]]:
     colored: dict[tuple[int, int, int], list[int]] = {}
     neutral: dict[tuple[int, int, int], list[int]] = {}
-    with Image.open(BytesIO(frame.content)) as source:
-        source.thumbnail((128, 128))
-        for red, green, blue, alpha in source.convert("RGBA").get_flattened_data():
-            if alpha < 128:
-                continue
-            value = max(red, green, blue) / 255
-            if value < 0.18:
-                continue
-            # Bucket assignment uses saturation and value, with no need for hue.
-            saturation = (value - min(red, green, blue) / 255) / value
-            key = red // 32, green // 32, blue // 32
-            target = neutral if saturation < 0.18 else colored
-            bucket = target.setdefault(key, [0, 0, 0, 0])
-            bucket[0] += 1
-            bucket[1] += red
-            bucket[2] += green
-            bucket[3] += blue
+    source.thumbnail((128, 128))
+    for red, green, blue, alpha in source.convert("RGBA").get_flattened_data():
+        if alpha < 128:
+            continue
+        value = max(red, green, blue) / 255
+        if value < 0.18:
+            continue
+        # Bucket assignment uses saturation and value, with no need for hue.
+        saturation = (value - min(red, green, blue) / 255) / value
+        key = red // 32, green // 32, blue // 32
+        target = neutral if saturation < 0.18 else colored
+        bucket = target.setdefault(key, [0, 0, 0, 0])
+        bucket[0] += 1
+        bucket[1] += red
+        bucket[2] += green
+        bucket[3] += blue
 
     def averages(buckets: dict[tuple[int, int, int], list[int]]) -> list[Bucket]:
         return [
@@ -93,9 +92,12 @@ def _select_colors(buckets: list[Bucket], size: int) -> list[RGB]:
     return selected
 
 
-def extract_palette(frame: ImageFrame, size: int) -> dict:
+def extract_palette(
+    frame: ImageFrame, size: int, region: Region | None = None,
+) -> tuple[ModuleResult, ImageFrame]:
     """Return a fixed-length palette, repeating colors when needed."""
-    colored, neutral = _buckets(frame)
+    with analysis_pixels(frame, region) as (image, preview):
+        colored, neutral = _buckets(image)
     selected = _select_colors(colored, size)
     source = "image"
     if not selected and neutral:
@@ -121,4 +123,4 @@ def extract_palette(frame: ImageFrame, size: int) -> dict:
     for index, (rgb, hex_color) in enumerate(zip(colors, hex_colors), 1):
         result[f"color{index}_rgb"] = rgb
         result[f"color{index}"] = hex_color
-    return result
+    return ModuleResult(result), preview

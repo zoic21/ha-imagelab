@@ -124,6 +124,7 @@ def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entit
             data={"source_type": "camera"},
         )
         coord._unloaded = asyncio.Event()
+        coord._confirmed = None
         coord._retained = None
         coord.data = None
 
@@ -146,11 +147,14 @@ def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entit
             == "disagreed"
         )
         assert coord.entity_response["data"]["state_id"] == "a"
+        assert await measure(observation(status="unknown")) is None
+        assert coord.entity_response["status"] == "unknown"
         assert await measure(observation("b"), observation("a")) == "disagreed"
         assert await measure(observation("b"), observation("b")) == "confirmed"
         assert coord.entity_response["data"]["state_id"] == "b"
         assert await measure(observation("a"), observation(status="error")) == "failed"
         assert coord.entity_response["status"] == "error"
+        assert await measure(observation("a"), observation("b")) == "disagreed"
         await measure(observation("b"))
         coord._unloaded.set()
         await measure(observation("a"))

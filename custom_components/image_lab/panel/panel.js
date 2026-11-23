@@ -120,13 +120,8 @@ template.innerHTML = `
       height: 32px; margin-bottom: 4px; border: 1px solid var(--divider-color);
       border-radius: var(--ha-border-radius-md, 8px);
     }
-    .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
-      width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
-    .zoneFrame img { width:100%; max-height:none; }
     .selection { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
-    .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-    .zoneFields ha-input { min-width:0; }
   </style>
 
   <ha-top-app-bar-fixed id="appBar">
@@ -253,6 +248,7 @@ class ImageLabPanel extends HTMLElement {
     captureHistory;
     historySettings;
     previewUrl;
+    previewETag;
     optionsScope;
     moduleSettingsScope;
     intervalKey;
@@ -397,7 +393,7 @@ class ImageLabPanel extends HTMLElement {
         this.closeModuleSettings();
         this.clearTest();
         this.selectedId = id;
-        this.showTab("result");
+        this.showTab("result", false);
         this.render(Boolean(id));
         if (!id && scroller) {
             scroller.scrollTop = this.listScrollTop;
@@ -513,11 +509,14 @@ class ImageLabPanel extends HTMLElement {
         if (!this.selectedId && action.isConnected)
             action.focus({ preventScroll: true });
     }
-    showTab(tab) {
+    showTab(tab, refresh = true) {
+        const returning = this.element("profileNav").getAttribute("active") !== "result" || this.element("resultPane").hidden;
         this.element("profileNav").setAttribute("active", tab);
         this.element("resultPane").hidden = tab !== "result";
         this.element("historyPane").hidden = tab !== "history";
         this.element("settingsPane").hidden = tab !== "settings";
+        if (tab === "result" && refresh && returning && this.selected?.module !== "comparison")
+            void this.loadPreview();
         if (tab === "settings")
             this.showModuleSettings();
         if (tab === "history")
@@ -549,6 +548,7 @@ class ImageLabPanel extends HTMLElement {
         if (this.previewUrl)
             URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = undefined;
+        this.previewETag = undefined;
         this.element("copyStatus").hidden = true;
     }
     analysisTrigger(profile) {
@@ -1011,7 +1011,12 @@ class ImageLabPanel extends HTMLElement {
         status.textContent = !manual ? this.strings.loadingResult :
             isDetection ? this.strings.detecting : this.strings.testing;
         try {
-            const response = await hass.fetchWithAuth(this.previewPath(profile), { method: manual ? "POST" : "GET", signal: controller.signal, cache: "no-store" });
+            const response = await hass.fetchWithAuth(this.previewPath(profile), {
+                method: manual ? "POST" : "GET", signal: controller.signal, cache: "no-store",
+                headers: !manual && this.previewETag ? { "If-None-Match": this.previewETag } : undefined,
+            });
+            if (response.status === 304)
+                return;
             if (response.status === 204) {
                 summary = profile.available && profile.module === "meter" && !profile.meter_initialized
                     ? this.meterLabels.reasons.meter_needs_calibration
@@ -1055,6 +1060,7 @@ class ImageLabPanel extends HTMLElement {
             }
             if (this.previewUrl)
                 URL.revokeObjectURL(this.previewUrl);
+            this.previewETag = response.headers.get("ETag") ?? undefined;
             this.previewUrl = URL.createObjectURL(blob);
             const image = this.element("image");
             image.src = this.previewUrl;

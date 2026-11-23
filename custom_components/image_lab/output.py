@@ -108,6 +108,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             if entry.data[CONF_MODULE] == "comparison"
             else get_result_store(hass, entry.entry_id)
         )
+        self._confirmed: ServiceResponse | None = None
         self._retained: ServiceResponse | None = None
         self._unloaded = asyncio.Event()
         entry.async_on_unload(self._unloaded.set)
@@ -236,9 +237,8 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         if self.is_meter:
             return first
         delay = entry.options.get("confirmation_seconds", 0)
-        previous = self.entity_response
         candidate = self._state_key(first.response)
-        baseline = self._state_key(previous)
+        baseline = self._state_key(self._confirmed)
         if (
             not delay
             or entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA
@@ -246,6 +246,8 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             or baseline is None
             or candidate == baseline
         ):
+            if candidate is not None:
+                self._confirmed = first.response
             self._retained = None
             return first
 
@@ -276,8 +278,9 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             self._retained = None
             return replace(second, response={**second.response, "confirmation": "failed"})
         if self._state_key(second.response) != candidate:
-            self._retained = previous
+            self._retained = self._confirmed
             return replace(second, response={**second.response, "confirmation": "disagreed"})
+        self._confirmed = second.response
         self._retained = None
         return replace(second, response={**second.response, "confirmation": "confirmed"})
 

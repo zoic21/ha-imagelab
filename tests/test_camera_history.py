@@ -10,7 +10,7 @@ from PIL import Image
 
 from custom_components.image_lab import output
 from custom_components.image_lab.comparison_store import ComparisonStore
-from custom_components.image_lab.images import ImageError, crop_frame, validate_image
+from custom_components.image_lab.images import ImageError, analysis_pixels, validate_image
 from custom_components.image_lab.result_store import ResultStore
 
 
@@ -40,6 +40,7 @@ def test_history_filters_rotates_and_preserves_corrected_images(tmp_path):
     target = {"capture_id": first, "state_id": state}
     data = store._apply("correct", target, None)
     # Existing validation images keep their original bytes and assigned state.
+    data["references"][0].pop("source")
     data["references"][0]["validation"] = True
     store._save(data)
     assert store.load()["references"] == [
@@ -87,8 +88,8 @@ def test_same_camera_and_different_schedules_share_due_frames():
             async def process(future, x=x):
                 frame = await future
                 region = {"x": x, "y": 0, "width": 0.5, "height": 1}
-                crop = crop_frame(frame, region)
-                with Image.open(BytesIO(crop.content)) as image:
+                with analysis_pixels(frame, region) as (image, crop):
+                    assert crop.width == image.width
                     assert image.size == (6, 6)
                     assert image.getpixel((0, 0)) == (
                         (255, 0, 0) if x == 0 else (0, 0, 255)
@@ -169,8 +170,8 @@ def test_reuses_thumbnail_until_original_changes(tmp_path):
     assert store._read(image_id)[1] == frame
 
     original = store.images / image_id
-    cropped = crop_frame(frame, {"x": 0, "y": 0, "width": 0.5, "height": 1})
-    original.write_bytes(cropped.content)
+    with analysis_pixels(frame, {"x": 0, "y": 0, "width": 0.5, "height": 1}) as (_, cropped):
+        original.write_bytes(cropped.content)
     assert store._read(image_id, thumbnail=True)[1].width == 6
     original.unlink()
     with pytest.raises(ImageError, match="storage_error"):
@@ -202,3 +203,53 @@ def test_latest_comparison_can_use_an_older_history_format(tmp_path):
     assert gallery == legacy
     assert isinstance(latest, ImageError)
     assert latest.reason == "reference_not_found"
+
+
+def test_classifying_the_same_capture_from_result_and_history_moves_it(tmp_path):
+    store = ComparisonStore(SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath)), "profile")
+    frame = two_colors()
+    closed = store._apply("state", {"name": "Closed"}, None)["states"][0]["id"]
+    opened = store._apply("state", {"name": "Open"}, None)["states"][1]["id"]
+    observation = store._record(frame, {"status": "unknown", "data": {"engine": "pillow"}}, True)
+    target = {"capture_id": observation["id"], "name": "Capture 23/11/2026 09:12:38"}
+    store._apply("add", {**target, "state_id": closed}, None)
+    store._apply("correct", {**target, "state_id": opened}, None)
+    gallery = store._apply("add", {**target, "state_id": opened}, None)
+    assert [r["id"] for r in gallery["references"]] == [observation["id"]]
+    assert store._run(frame, gallery)[0].data["state"] == "Open"
+
+    # A copy created before IDs were shared can already coexist with the history reference.
+    legacy = {"id": "old-copy", "state_id": closed, "name": target["name"]}
+    (store.images / legacy["id"]).write_bytes(frame.content)
+    gallery["latest"]["response"]["data"]["reference_id"] = legacy["id"]
+    gallery["references"].append(legacy)
+    store._save(gallery)
+    gallery = store._apply("correct", {**target, "state_id": opened}, None)
+    assert len(gallery["references"]) == 1
+    assert store._run(frame, gallery)[0].data["state"] == "Open"
+    assert gallery["latest"]["response"]["data"]["reference_id"] == observation["id"]
+    assert [p.name for p in store.images.iterdir()] == [observation["id"]]
+
+    with patch("custom_components.image_lab.comparison_store.read_upload", return_value=frame):
+        store._apply("add", {"upload_id": "upload", "state_id": opened, "name": target["name"]}, None)
+    gallery = store._apply("correct", {**target, "state_id": opened}, None)
+    assert [r["source"] for r in gallery["references"]] == ["capture", "upload"]
+
+
+def test_stored_zone_thumbnail_uses_pixel_limit_and_imports_keep_byte_limit(tmp_path, monkeypatch):
+    from custom_components.image_lab import images
+    from custom_components.image_lab.palette import extract_palette
+
+    source = two_colors()
+    result, crop = extract_palette(source, 1, {"x": 0.5, "y": 0, "width": 0.5, "height": 1})
+    assert result.data["dominant_hex"] == "#0000FF"
+    path = tmp_path / "archived"
+    path.write_bytes(crop.content)
+    monkeypatch.setattr(images, "MAX_IMAGE_BYTES", len(crop.content) - 1)
+    with pytest.raises(ImageError, match="image_too_large"):
+        validate_image(crop.content)
+    assert images.read_thumbnail(path).width == 6
+    monkeypatch.setattr(images, "MAX_IMAGE_PIXELS", 1)
+    path.touch()
+    with pytest.raises(ImageError, match="image_too_large"):
+        images.read_thumbnail(path)

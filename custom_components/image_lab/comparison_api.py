@@ -79,7 +79,7 @@ REGION = probatio.All(
 SETTINGS = probatio.Schema(
     {
         probatio.Optional("engine"): probatio.In(("pillow", "tarsius")),
-        probatio.Required("region"): probatio.Any(None, REGION),
+        probatio.Optional("region"): probatio.Any(None, REGION),
         probatio.Required("max_distance"): _number(255),
         probatio.Required("min_margin"): _number(255),
     }
@@ -106,7 +106,9 @@ HISTORY_SETTINGS = probatio.Schema(
 )
 
 SCHEMAS = {
-    "correct": probatio.Schema({**TARGET, probatio.Required("capture_id"): ID}),
+    "correct": probatio.Schema({
+        **TARGET, probatio.Required("capture_id"): ID, probatio.Optional("name"): TITLE,
+    }),
     "history_settings": HISTORY_SETTINGS,
     "settings": SETTINGS,
     "state": probatio.Schema(

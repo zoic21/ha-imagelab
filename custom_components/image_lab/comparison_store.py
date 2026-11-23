@@ -1,10 +1,11 @@
 """Store comparison settings and originals privately in the HA configuration."""
 
 import asyncio
+from filecmp import cmp as same_file_content
 from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
-from homeassistant.util.file import WriteError, write_utf8_file_atomic
+from homeassistant.util.file import write_utf8_file_atomic
 
 from .comparison import ComparisonData, Settings, compare
 from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
@@ -68,15 +69,9 @@ class ComparisonStore(ResultStore):
         if operation == "history_settings":
             self._set_history_settings(data, values)
             return data
-        if operation == "correct":
-            item = self._history_item(data, values["capture_id"])
-            self._state(data, values["state_id"])
-            ref = next((r for r in data["references"] if r["id"] == item["id"]), None)
-            if ref is None:
-                ref = {"id": item["id"], "name": item["time"]}
-                data["references"].append(ref)
-            ref.update(state_id=values["state_id"])
-        elif operation == "settings":
+        if operation in ("add", "correct"):
+            return self._assign_reference(data, values, capture)
+        if operation == "settings":
             data["settings"].update(values)
         elif operation == "state":
             state_id = values.get("state_id")
@@ -96,33 +91,6 @@ class ComparisonStore(ResultStore):
             if any(ref["state_id"] == state["id"] for ref in data["references"]):
                 raise ImageError("state_not_empty")
             data["states"].remove(state)
-        elif operation == "add":
-            self._state(data, values["state_id"])
-            if capture is not None:
-                frame = capture
-            elif capture_id := values.get("capture_id"):
-                if capture_id != data.get("latest", {}).get("id"):
-                    self._history_item(data, capture_id)
-                frame = self._frame(capture_id)
-            else:
-                frame = read_upload(self.hass, values["upload_id"])
-            reference_id = uuid4().hex
-            self.images.mkdir(mode=0o700, parents=True, exist_ok=True)
-            path = self.images / reference_id
-            write_utf8_file_atomic(str(path), frame.content, private=True, mode="wb")
-            data["references"].append(
-                {
-                    "id": reference_id,
-                    "state_id": values["state_id"],
-                    "name": values["name"],
-                }
-            )
-            try:
-                self._save(data)
-            except (OSError, WriteError):
-                path.unlink(missing_ok=True)
-                raise
-            return data
         else:
             reference = self._reference(data, values["reference_id"])
             if operation == "move":
@@ -138,6 +106,69 @@ class ComparisonStore(ResultStore):
                     (self.images / image_id).unlink(missing_ok=True)
                 return data
         self._save(data)
+        return data
+
+    def _assign_reference(
+        self, data: ComparisonData, values: dict, capture: ImageFrame | None
+    ) -> ComparisonData:
+        state = self._state(data, values["state_id"])
+        capture_id = values.get("capture_id")
+        name = values.get("name")
+        references = data["references"]
+        reference = next((r for r in references if r["id"] == capture_id), None)
+        obsolete = []
+        if capture_id and capture is None:
+            latest = data.get("latest")
+            history = {item["id"]: item for item in data["history"]}
+            if latest:
+                history[latest["id"]] = latest
+            item = history.get(capture_id)
+            if item is None and reference is None:
+                raise ImageError("capture_expired")
+            path = self.images / capture_id
+            if not path.is_file():
+                raise ImageError("capture_expired")
+            # Older panels copied a capture under a fresh ID and a dated display name.
+            # Only reconcile that name when the bytes match as well. Keep distinct captures.
+            if name:
+                for ref in references:
+                    if (
+                        "source" in ref or ref["name"] != name
+                        or ref["id"] in history or ref["id"] == capture_id
+                    ):
+                        continue
+                    other = self.images / ref["id"]
+                    if other.is_file() and same_file_content(path, other, shallow=False):
+                        obsolete.append(ref)
+            if item:
+                name = name or item["time"]
+        elif not capture_id:
+            capture = read_upload(self.hass, values["upload_id"])
+
+        if reference is not None:
+            reference["state_id"] = state["id"]
+            reference["source"] = "capture"
+            capture = None  # A retry can still carry the temporary preview frame.
+        else:
+            reference_id = capture_id or uuid4().hex
+            reference = {
+                "id": reference_id, "state_id": state["id"], "name": name,
+                "source": "capture" if capture_id else "upload",
+            }
+            references.append(reference)
+        latest_result = data["latest"]["response"]["data"] if data.get("latest") else {}
+        for old in obsolete:
+            references.remove(old)
+            if latest_result.get("reference_id") == old["id"]:
+                latest_result["reference_id"] = reference["id"]
+
+        path = self.images / reference["id"]
+        if capture is not None:
+            self.images.mkdir(mode=0o700, parents=True, exist_ok=True)
+            write_utf8_file_atomic(str(path), capture.content, private=True, mode="wb")
+        self._save_history(
+            data, path if capture is not None else None, obsolete=tuple(r["id"] for r in obsolete)
+        )
         return data
 
     @staticmethod

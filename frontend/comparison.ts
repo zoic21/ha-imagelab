@@ -1184,4 +1184,5 @@ export class ImageLabComparison extends HTMLElement {
   }
 }
 
-customElements.define("image-lab-comparison", ImageLabComparison);
+if (!customElements.get("image-lab-comparison"))
+  customElements.define("image-lab-comparison", ImageLabComparison);

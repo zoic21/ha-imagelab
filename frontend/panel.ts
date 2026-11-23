@@ -59,7 +59,6 @@ interface AnalysisRow {
 
 interface AnalysisColumn {
   title: string;
-  label?: string;
   flex?: number;
   minWidth: string;
   hidden?: boolean;
@@ -81,10 +80,9 @@ interface AnalysisTable extends HTMLElement {
   updateComplete?: Promise<unknown>;
 }
 
-interface AnalysisSortSelect extends HTMLElement {
-  label: string;
+interface AnalysisSortItem extends HTMLElement {
   value: string;
-  options: { value: string; label: string }[];
+  checked: boolean;
 }
 
 interface HomeAssistantButton extends HTMLElement {
@@ -124,17 +122,14 @@ template.innerHTML = `
     ha-data-table { display: block; width: 100%; }
     .analysisControls {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      gap: var(--ha-space-3, 12px);
+      gap: var(--ha-space-2, 8px);
       padding: var(--ha-space-3, 12px);
       border-bottom: 1px solid var(--divider-color);
     }
-    #analysisSearch { flex: 1 1 200px; min-width: 0; }
-    #analysisSort { flex: 1 1 200px; min-width: 0; }
-    @media (min-width: 480px) {
-      #analysisSort { max-width: 240px; }
-    }
+    #analysisSearch { flex: 1; min-width: 0; }
+    #analysisSort { flex: none; }
+    :host([narrow]) ha-data-table { --data-table-row-height: var(--ha-space-16, 64px); }
     #profileNav { margin: 14px 0; }
     @media (max-width: 480px) {
       #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
@@ -231,7 +226,11 @@ template.innerHTML = `
       <ha-data-table clickable auto-height hidden>
         <div class="analysisControls" slot="header">
           <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
-          <ha-select id="analysisSort" value="warnings"></ha-select>
+          <ha-dropdown id="analysisSort" placement="bottom-end">
+            <ha-icon-button id="analysisSortButton" slot="trigger" aria-haspopup="menu">
+              <ha-icon icon="mdi:sort" aria-hidden="true"></ha-icon>
+            </ha-icon-button>
+          </ha-dropdown>
         </div>
       </ha-data-table>
     </section>
@@ -380,17 +379,14 @@ class ImageLabPanel extends HTMLElement {
     });
     const search = this.element<HTMLElement & { value: string }>("analysisSearch");
     search.addEventListener("input", () => { this.analysisTable.filter = search.value; });
-    this.analysisSort.addEventListener("selected", event => {
-      const { value } = (event as CustomEvent<{ value: string }>).detail;
+    this.element("analysisSort").addEventListener("wa-select", event => {
+      const { item: { value } } = (event as CustomEvent<{ item: AnalysisSortItem }>).detail;
       const [column, direction] = value.split(":");
       this.analysisTable.sortColumn = direction ? column : undefined;
       this.analysisTable.sortDirection = direction === "asc" || direction === "desc" ? direction : null;
-      this.analysisSort.value = value;
+      this.updateAnalysisSort();
     });
-    this.analysisTable.addEventListener("sorting-changed", event => {
-      const { column, direction } = (event as CustomEvent<{ column: string; direction: SortDirection }>).detail;
-      this.analysisSort.value = direction ? `${column}:${direction}` : "warnings";
-    });
+    this.analysisTable.addEventListener("sorting-changed", () => this.updateAnalysisSort());
     this.renderAnalysisColumns();
     this.element("profileNav").addEventListener("wa-tab-show", event => {
       this.showTab((event as CustomEvent<{name: string}>).detail.name);
@@ -505,10 +501,6 @@ class ImageLabPanel extends HTMLElement {
 
   private get analysisTable() {
     return this.shadowRoot!.querySelector<AnalysisTable>("ha-data-table")!;
-  }
-
-  private get analysisSort() {
-    return this.element<AnalysisSortSelect>("analysisSort");
   }
 
   private get scrollTarget() {
@@ -682,12 +674,12 @@ class ImageLabPanel extends HTMLElement {
     const columnDefaults = { minWidth: "0", filterable: true, sortable: true };
     this.analysisTable.columns = {
       name: {
-        ...columnDefaults, title: labels.nameColumn, flex: 1.6, showNarrow: true,
+        ...columnDefaults, title: narrow ? labels.analyses : labels.nameColumn, flex: 1.6,
+        sortable: !narrow, showNarrow: true,
         template: row => this.analysisNameCell(row),
       },
       type: {
-        ...columnDefaults, title: narrow ? labels.typeColumnShort : labels.typeColumn,
-        label: labels.typeColumn, showNarrow: true,
+        ...columnDefaults, title: labels.typeColumn, hidden: narrow,
         template: row => {
           const type = document.createElement("span");
           type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
@@ -698,14 +690,33 @@ class ImageLabPanel extends HTMLElement {
       source: { ...columnDefaults, title: labels.sourceColumn, hidden: narrow },
       trigger: { ...columnDefaults, title: labels.triggerColumn, hidden: narrow },
     };
-    this.analysisSort.label = labels.sortBy;
-    this.analysisSort.options = [
+    this.element("analysisSortButton").setAttribute("label", labels.sortBy);
+    const sort = this.element("analysisSort");
+    const options = [
       { value: "warnings", label: labels.warningsFirst },
-      ...Object.entries(this.analysisTable.columns).flatMap(([key, { title, label = title }]) => [
+      ...Object.entries({
+        name: labels.nameColumn, type: labels.typeColumn, source: labels.sourceColumn, trigger: labels.triggerColumn,
+      }).flatMap(([key, label]) => [
         { value: `${key}:asc`, label: `${label} (A–Z)` },
         { value: `${key}:desc`, label: `${label} (Z–A)` },
       ]),
     ];
+    sort.querySelectorAll("ha-dropdown-item").forEach(item => item.remove());
+    for (const option of options) {
+      const item = document.createElement("ha-dropdown-item");
+      item.setAttribute("type", "checkbox");
+      item.setAttribute("value", option.value);
+      item.textContent = option.label;
+      sort.append(item);
+    }
+    this.updateAnalysisSort();
+  }
+
+  private updateAnalysisSort() {
+    const { sortColumn, sortDirection } = this.analysisTable;
+    const active = sortDirection ? `${sortColumn}:${sortDirection}` : "warnings";
+    for (const item of this.element("analysisSort").querySelectorAll<AnalysisSortItem>("ha-dropdown-item"))
+      item.checked = item.getAttribute("value") === active;
   }
 
   private analysisNameCell(row: AnalysisRow) {
@@ -722,14 +733,19 @@ class ImageLabPanel extends HTMLElement {
     action.title = row.name;
     action.onclick = () => this.select(row.id);
     name.append(action);
-    const metadata = row.warning ? [row.warning] : narrow ? [row.source, row.trigger] : [];
+    const metadata = narrow ? [
+      row.warning || row.source,
+      row.type + (row.warning ? "" : ` · ${row.trigger}`),
+    ] : row.warning ? [row.warning] : [];
     for (const label of metadata) {
       const details = document.createElement("span");
       details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-        + "font-size:12px;line-height:13px;color:var(--secondary-text-color)";
+        + "font-size:var(--ha-font-size-s,12px);line-height:var(--ha-line-height-normal,1.4);"
+        + "color:var(--secondary-text-color)";
+      if (narrow) details.style.paddingInline = "var(--ha-space-2, 8px)";
       details.textContent = label;
       details.title = label;
-      if (row.warning) {
+      if (row.warning && label === row.warning) {
         const icon = document.createElement("ha-icon");
         icon.setAttribute("icon", "mdi:alert-outline");
         icon.setAttribute("aria-hidden", "true");

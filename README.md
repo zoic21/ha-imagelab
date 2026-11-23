@@ -77,7 +77,7 @@ Pour ajouter une capture de l’historique aux références, choisir son état p
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
-2. Dans **Résultat**, sélectionner **Tester la source** pour afficher la capture et sa référence la plus proche côte à côte. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture testée à l’état choisi.
+2. À l’ouverture de **Résultat**, Image Lab lance un aperçu et affiche la capture et sa référence la plus proche côte à côte, si une référence est disponible. **Tester la source** relance l’analyse. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture testée à l’état choisi.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
 Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. Un test depuis le panneau utilise le choix en cours d’édition. **Enregistrer** applique le moteur au profil pour l’action, les analyses périodiques et l’entité. Les profils existants utilisent Pillow par défaut.

@@ -152,24 +152,22 @@ async def async_analyze(
                 resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
                 settings[CONF_IMAGE_KEY],
             )
-        if module_id == "comparison" and scheduled_capture is not None:
-            result, frame = await get_comparison_store(hass, profile_id).async_run(
-                frame, None, record=True
-            )
-        else:
-            if (
-                frame
-                and module_id != "comparison"
-                and (region := settings.get("region"))
-            ):
-                frame = await hass.async_add_executor_job(crop_frame, frame, region)
-            result, frame = await MODULES[module_id].process(
-                hass, entry, frame, settings_override
-            )
+        if module_id != "comparison" and (region := settings.get("region")):
+            frame = await hass.async_add_executor_job(crop_frame, frame, region)
+        result, frame = await MODULES[module_id].process(
+            hass, entry, frame, settings_override
+        )
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})
     except OSError:
         return AnalysisResult({**response, "reason": "storage_error"})
+
+    if (
+        entry.state is not ConfigEntryState.LOADED
+        or entry.data is not settings
+        or hass.config_entries.async_get_entry(profile_id) is not entry
+    ):
+        return AnalysisResult({**response, "reason": "profile_unavailable"})
 
     response.update(status="unknown" if result.reason else "ok", data=result.data)
     if result.reason:

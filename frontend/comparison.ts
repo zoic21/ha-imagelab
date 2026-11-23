@@ -25,7 +25,7 @@ type Reference = {
   state_id: string;
   name: string;
 };
-type HistoryItem = { id: string; time: string; state_id: string | null; state: string; reason: string | null; engine: Engine };
+type HistoryItem = { id: string; time: string; manual?: boolean; state_id: string | null; state: string; reason: string | null; engine: Engine };
 type Gallery = { history: HistoryItem[]; history_settings: { mode: string; limit: number }; settings: Settings; states: State[]; references: Reference[] };
 
 const engines = ["pillow", "tarsius"] as const;
@@ -34,6 +34,9 @@ type Result = {
   status: "ok" | "unknown" | "error";
   reason?: string;
   image_id: string | null;
+  time?: string;
+  manual?: boolean;
+  confirmation?: "failed" | "disagreed" | "confirmed";
   data: {
     engine?: Engine;
     state?: string;
@@ -43,6 +46,7 @@ type Result = {
     ref_counts?: Record<string, number>;
     distance?: number | null;
     margin?: number | null;
+    region?: Region | null;
     reference_id?: string | null;
   };
 };
@@ -58,6 +62,8 @@ type TextField = Pick<NumberField, "value" | "reportValidity"> & HTMLElement;
 type Tab = "preview" | "references" | "history" | "settings";
 const tabs: Tab[] = ["preview", "references", "history", "settings"];
 const coordinates = ["x", "y", "width", "height"] as const;
+const sameRegion = (first: Region | null, second: Region | null) =>
+  coordinates.every(key => Math.abs((first?.[key] ?? -1) - (second?.[key] ?? -1)) <= 1e-9);
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons: Partial<Record<Label, string>> = {
   add_state: "plus", cancel: "close", classify: "tag-plus-outline",
@@ -150,6 +156,7 @@ template.innerHTML = `
       <ha-button id="whole" appearance="plain" hidden></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
+    <p class="secondary" id="testHint" hidden></p>
     <div id="result" aria-live="polite"></div>
     <div class="comparisonImages" id="comparisonImages" hidden>
       <figure id="match" hidden>
@@ -158,7 +165,7 @@ template.innerHTML = `
       </figure>
       <figure>
         <figcaption id="captureCaption"></figcaption>
-        <div class="imagebox" id="imagebox" hidden>
+        <div class="imagebox" id="imagebox">
           <img id="frame" draggable="false">
           <div id="region" hidden aria-hidden="true"></div>
         </div>
@@ -211,7 +218,6 @@ export class ImageLabComparison extends HTMLElement {
   private scope?: AbortController;
   private gallery?: Gallery;
   private result?: Result;
-  private previewRequested = false;
   private captured = false;
   private busy = false;
   private drawing = false;
@@ -278,7 +284,7 @@ export class ImageLabComparison extends HTMLElement {
           dateStyle: "short",
           timeStyle: "medium",
           timeZone: this.client?.config?.time_zone,
-        }).format();
+        }).format(this.result.time ? new Date(this.result.time) : Date.now());
         await this.update(
           "add",
           {
@@ -333,13 +339,6 @@ export class ImageLabComparison extends HTMLElement {
         this.drawing = false;
         this.setRegion(region);
       });
-    const frame = this.get<HTMLImageElement>("frame");
-    frame.addEventListener("load", () =>
-      box.style.setProperty(
-        "--ratio",
-        String(frame.naturalWidth / frame.naturalHeight),
-      ),
-    );
     this.localize();
     this.refresh();
   }
@@ -452,7 +451,6 @@ export class ImageLabComparison extends HTMLElement {
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
-    this.previewRequested = false;
     this.captured = false;
     this.busy = false;
     this.drawing = false;
@@ -470,6 +468,7 @@ export class ImageLabComparison extends HTMLElement {
   }
 
   private refresh() {
+    const hasFrame = !this.get("comparisonImages").hidden;
     this.get("preview").setAttribute("aria-busy", String(this.busy));
     this.get("test").toggleAttribute(
       "disabled",
@@ -483,7 +482,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get("gallery").inert = this.busy;
     this.get("history").inert = this.busy || !this.gallery;
     this.get("reload").hidden = Boolean(this.gallery) || this.busy;
-    this.get("draw").hidden = !this.frameUrl;
+    this.get("draw").hidden = !hasFrame;
     const draw = this.drawing ? "stop_draw" : "draw";
     actionLabel(this.get("draw"), this.labels[draw], actionIcons[draw]!);
     this.get("whole").hidden = !this.draftRegion;
@@ -492,11 +491,11 @@ export class ImageLabComparison extends HTMLElement {
         ? this.labels.drawing
         : !this.available
           ? this.labels.unavailable
-          : this.frameUrl || this.result
+          : hasFrame || this.result
             ? ""
             : this.labels.empty;
     this.get("classify").hidden =
-      !this.captured || !this.frameUrl || !this.gallery?.states.length;
+      !this.captured || !hasFrame || !this.gallery?.states.length;
     this.get("captureAdd").toggleAttribute("disabled", this.busy);
     this.renderDirty();
   }
@@ -509,12 +508,6 @@ export class ImageLabComparison extends HTMLElement {
     else if (tab === "history") { this.renderHistory(); void this.loadHistory(); }
     else this.clearThumbnails();
     this.refresh();
-    this.startInitialPreview();
-  }
-
-  private startInitialPreview() {
-    if (this.tab === "preview" && !this.previewRequested && this.gallery &&
-      this.available && !this.busy) void this.evaluate();
   }
 
   private async load() {
@@ -529,6 +522,8 @@ export class ImageLabComparison extends HTMLElement {
       this.updateSelectors();
       if (this.tab === "references") this.renderGallery();
       if (this.tab === "history") this.renderHistory();
+      const latest = await this.request<Result | null>("/latest", signal);
+      if (latest) await this.displayObservation(latest, signal);
     });
   }
 
@@ -563,7 +558,6 @@ export class ImageLabComparison extends HTMLElement {
         this.busy = false;
         this.progress();
         this.refresh();
-        this.startInitialPreview();
       }
     }
   }
@@ -628,35 +622,54 @@ export class ImageLabComparison extends HTMLElement {
 
   private async evaluate() {
     await this.task(async (signal) => {
-      this.previewRequested = true;
-      const settings = this.readSettings();
-      this.setFrame();
-      this.setMatch();
-      this.captured = false;
-      this.result = undefined;
-      this.matchId = undefined;
-      this.drawing = false;
-      this.cancelDrawing();
-      this.renderResult();
-      const result = await this.request<Result>("/test", signal, {
-        settings,
-      });
-      this.result = result;
-      this.matchId = result.data.reference_id ?? undefined;
-      this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
-      this.renderResult();
-      if (result.image_id) {
-        const blob = await this.fetchImage(result.image_id, signal);
-        signal.throwIfAborted();
-        this.setFrame(URL.createObjectURL(blob));
-        this.captured = true;
-        if (this.matchId) {
-          const reference = await this.fetchImage(this.matchId, signal).catch(() => undefined);
-          signal.throwIfAborted();
-          if (reference) this.setMatch(URL.createObjectURL(reference));
-        }
+      const result = await this.request<Result>("/test", signal, {});
+      if (result.status === "error") throw new Error(result.reason ?? "failed");
+      await this.displayObservation(result, signal);
+      if (this.tab === "history") {
+        this.gallery = await this.request<Gallery>("", signal);
+        this.renderHistory();
+      } else if (this.tab === "references") {
+        this.renderGallery();
       }
     });
+  }
+
+  private async displayObservation(result: Result, signal: AbortSignal) {
+    this.setFrame();
+    this.setMatch();
+    this.captured = false;
+    this.drawing = false;
+    this.cancelDrawing();
+    this.result = result;
+    this.matchId = result.data.reference_id ?? undefined;
+    this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
+    this.renderResult();
+    if (result.image_id) await this.showImages(result.image_id, signal);
+  }
+
+  private async showImages(captureId: string, signal: AbortSignal) {
+    const [capture, reference] = await Promise.all([
+      this.fetchImage(captureId, signal),
+      this.matchId ? this.fetchImage(this.matchId, signal).catch(() => undefined) : undefined,
+    ]);
+    signal.throwIfAborted();
+    this.setFrame(URL.createObjectURL(capture));
+    this.setMatch(reference && URL.createObjectURL(reference));
+    const frame = this.get<HTMLImageElement>("frame");
+    const [decodedFrame, decodedMatch] = await Promise.allSettled([
+      frame.decode(),
+      reference && this.get<HTMLImageElement>("matchFrame").decode(),
+    ]);
+    signal.throwIfAborted();
+    if (decodedFrame.status === "rejected") {
+      this.setFrame();
+      this.setMatch();
+      throw decodedFrame.reason;
+    }
+    if (decodedMatch.status === "rejected") this.setMatch();
+    this.get("imagebox").style.setProperty("--ratio", String(frame.naturalWidth / frame.naturalHeight));
+    this.get("comparisonImages").hidden = false;
+    this.captured = true;
   }
 
   private resultTable(columns: string[], rows: string[][]) {
@@ -695,9 +708,10 @@ export class ImageLabComparison extends HTMLElement {
     this.frameUrl = url;
     const frame = this.get<HTMLImageElement>("frame");
     if (url) frame.src = url;
-    else frame.removeAttribute("src");
-    this.get("imagebox").hidden = !url;
-    this.get("comparisonImages").hidden = !url;
+    else {
+      frame.removeAttribute("src");
+      this.get("comparisonImages").hidden = true;
+    }
     this.renderRegion();
   }
 
@@ -729,6 +743,18 @@ export class ImageLabComparison extends HTMLElement {
         : this.labels.failed;
     }
     panel.append(title, message);
+    if (result.time) {
+      const date = document.createElement("p");
+      date.className = "secondary";
+      date.textContent = this.observationLabel(result.time, result.manual);
+      panel.append(date);
+    }
+    if (result.confirmation === "disagreed") {
+      const retained = document.createElement("p");
+      retained.className = "secondary";
+      retained.textContent = this.labels.notConfirmed;
+      panel.append(retained);
+    }
     if (result.data.engine) {
       const engine = document.createElement("p");
       engine.className = "secondary";
@@ -837,15 +863,16 @@ export class ImageLabComparison extends HTMLElement {
         const draft = this.readSettings();
         const saved = this.gallery.settings;
         changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
-          draft.min_margin !== saved.min_margin ||
-          coordinates.some((key) =>
-            Math.abs((draft.region?.[key] ?? -1) - (saved.region?.[key] ?? -1)) > 1e-9);
+          draft.min_margin !== saved.min_margin || !sameRegion(draft.region, saved.region);
         if (changed) status.textContent = this.labels.dirty;
       } catch {
         status.textContent = this.labels.invalid_settings;
       }
     }
     this.get("save").toggleAttribute("disabled", this.busy || !changed);
+    const hint = this.get("testHint");
+    hint.hidden = !status.textContent;
+    hint.textContent = this.labels.testSavedSettings;
   }
 
   private setRegion(region: Region | null) {
@@ -858,8 +885,11 @@ export class ImageLabComparison extends HTMLElement {
     this.refresh();
   }
 
-  private renderRegion(region = this.draftRegion) {
-    paintRegion(this.get("region"), this.frameUrl ? region : null);
+  private renderRegion(region?: Region) {
+    const used = this.result?.data.region;
+    const saved = this.gallery?.settings.region ?? null;
+    const useDraft = this.drawing || used === undefined || !sameRegion(this.draftRegion, saved);
+    paintRegion(this.get("region"), this.frameUrl ? region ?? (useDraft ? this.draftRegion : used) : null);
   }
 
   private button(label: Label, action: () => unknown) {
@@ -975,9 +1005,7 @@ export class ImageLabComparison extends HTMLElement {
       const title = document.createElement("strong");
       title.textContent = item.state_id ? item.state : this.labels.unknown;
       const stamp = document.createElement("span");
-      stamp.textContent = new Date(item.time).toLocaleString(this.client?.locale.language, {
-        timeZone: this.client?.config?.time_zone,
-      }) + " · " + engineNames[item.engine];
+      stamp.textContent = this.observationLabel(item.time, item.manual) + " · " + engineNames[item.engine];
       const open = this.imageButton(item.id, stamp.textContent, this.labels.viewCapture);
       card.append(open, title, stamp);
       if (item.reason && Object.hasOwn(this.labels, item.reason)) {
@@ -1005,6 +1033,12 @@ export class ImageLabComparison extends HTMLElement {
       }
       grid.append(card);
     }
+  }
+
+  private observationLabel(time: string, manual?: boolean) {
+    return new Date(time).toLocaleString(this.client?.locale.language, {
+      timeZone: this.client?.config?.time_zone,
+    }) + " · " + this.labels[manual ? "manualAnalysis" : "automaticAnalysis"];
   }
 
   private renderGallery() {

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from homeassistant.core import State
 
+from custom_components.image_lab.analysis import AnalysisResult
 from custom_components.image_lab.binary_sensor import ImageLabBinarySensor
 from custom_components.image_lab.output import artwork_signature
 from custom_components.image_lab.sensor import ImageLabSensor
@@ -126,16 +127,14 @@ def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entit
         coord.data = None
 
         def observation(state=None, status="ok"):
-            return SimpleNamespace(
-                response={"status": status, "data": {"state_id": state}}
-            )
+            return AnalysisResult({"status": status, "data": {"state_id": state}})
 
         async def measure(*observations):
             with patch(
                 "custom_components.image_lab.output.async_analyze",
                 AsyncMock(side_effect=observations),
             ) as analyze:
-                coord.data = await coord._measure()
+                coord.data = (await coord._measure()).response
                 assert analyze.await_count == len(observations)
             return coord.data.get("confirmation")
 

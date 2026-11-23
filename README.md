@@ -58,7 +58,7 @@ Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Dans la fiche de l’analyse, ouvrir **Réglages → Source et déclenchement**. Avec une caméra, saisir par exemple **5** dans **Intervalle (minutes)** puis sélectionner **Enregistrer la fréquence**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. **0** lance les analyses à la demande. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
+Dans la fiche de l’analyse, ouvrir **Réglages → Source et déclenchement**. Avec une caméra, choisir une fréquence ou **Intervalle personnalisé** dans le champ **Déclenchement**. Choisir **Manuel** pour lancer les analyses à la demande. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
 Dans les options des profils caméra de comparaison, de palette et de détection, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
 
@@ -76,7 +76,7 @@ Quand plusieurs analyses automatiques de la même caméra arrivent à échéance
 
 **Historique** regroupe les captures par jour et distingue les analyses manuelles des analyses automatiques. Chaque ligne affiche une vignette et le résultat principal. Toucher une ligne ouvre l’image avec le résultat détaillé, selon le type d’analyse.
 
-Dans **Réglages → Historique**, choisir la limite d’images **de 1 à 100** (10 par défaut) et le mode de conservation. **Toutes les analyses** et **Désactivé** s’appliquent aux captures automatiques. La comparaison propose aussi **Changements et états indéterminés**. Les tests manuels comptent dans la limite. Le dernier résultat reste consultable quel que soit le mode choisi.
+Dans **Réglages → Historique**, choisir la limite d’images **de 1 à 100** (10 par défaut) et le mode de conservation des captures automatiques. Le mode par défaut des comparaisons est **Changements et états indéterminés**. Les tests manuels comptent dans la limite. Le dernier résultat reste consultable quel que soit le mode choisi.
 
 Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter comme référence**. La galerie conserve l’original après sa sortie de l’historique. La prédiction d’origine reste consultable tant que la capture figure dans l’historique.
 

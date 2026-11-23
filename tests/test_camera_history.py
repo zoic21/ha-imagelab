@@ -28,7 +28,7 @@ def test_history_filters_rotates_and_preserves_corrected_images(tmp_path):
     )
     frame = two_colors()
     data = store._apply("state", {"name": "Open"}, None)
-    assert data["history_settings"] == {"limit": 10, "mode": "all"}
+    assert data["history_settings"] == {"limit": 10, "mode": "changes"}
     state = data["states"][0]["id"]
     known = {"status": "ok", "data": {"state_id": state, "state": "Open", "engine": "pillow"}}
     unknown = {"status": "unknown", "reason": "ambiguous", "data": {"state": "unknown", "engine": "pillow"}}
@@ -75,6 +75,18 @@ def test_history_write_error_does_not_leave_an_original(tmp_path):
             frame, {"status": "unknown", "data": {"engine": "pillow"}}, manual=True
         )
     assert not list(store.images.iterdir())
+
+
+def test_comparison_history_default_preserves_saved_mode(tmp_path):
+    store = ComparisonStore(
+        SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath)), "test"
+    )
+    data = store.load()
+    data.pop("history_settings")
+    store._save(data)
+    assert store.load()["history_settings"] == {"mode": "changes", "limit": 10}
+    store._apply("history_settings", {"mode": "all", "limit": 15}, None)
+    assert store.load()["history_settings"] == {"mode": "all", "limit": 15}
 
 
 def test_same_camera_and_different_schedules_share_due_frames():

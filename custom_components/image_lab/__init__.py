@@ -61,7 +61,7 @@ from .meter import METER, METER_SEED
 from .meter_api import MeterView
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
-from .result_store import Observation, async_remove_results, get_result_store
+from .result_store import SIGNAL_CAPTURE_SAVED, Observation, async_remove_results, get_result_store
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -88,6 +88,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
+    websocket_api.async_register_command(hass, async_subscribe_captures)
     websocket_api.async_register_command(hass, async_set_schedule)
     websocket_api.async_register_command(hass, async_module_settings)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
@@ -258,6 +259,28 @@ def async_subscribe_profiles(
     async_send_profiles()
 
 
+@websocket_api.websocket_command({probatio.Required("type"): f"{DOMAIN}/subscribe_captures"})
+@websocket_api.require_admin
+@callback
+def async_subscribe_captures(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Notify the mobile list when a new image is available."""
+
+    @callback
+    def async_capture_saved(profile_id: str, image_id: str) -> None:
+        connection.send_message(websocket_api.event_message(
+            msg["id"], {CONF_PROFILE_ID: profile_id, "image_id": image_id}
+        ))
+
+    connection.subscriptions[msg["id"]] = async_dispatcher_connect(
+        hass, SIGNAL_CAPTURE_SAVED, async_capture_saved
+    )
+    connection.send_result(msg["id"])
+    # A reconnect can have missed captures. Existing lists revalidate visible thumbnails.
+    connection.send_message(websocket_api.event_message(msg["id"], None))
+
+
 class AnalysisFlowView(ConfigManagerFlowIndexView):
     """Start an analysis creation or rename flow from Image Lab."""
 
@@ -341,7 +364,7 @@ class ImageLabPreviewView(HomeAssistantView):
                 return self.json(await store.async_history(), headers=self.headers)
             if item == "history_settings":
                 return self.json(await store.async_history_settings(), headers=self.headers)
-            thumbnail = item is not None and request.query.get("thumbnail") == "1"
+            thumbnail = request.query.get("thumbnail") == "1"
             if item is None and (etag := request.headers.get("If-None-Match")):
                 latest = await store.async_latest()
                 if latest and etag == f'"{latest["id"]}"':

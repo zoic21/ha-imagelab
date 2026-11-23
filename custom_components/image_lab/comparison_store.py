@@ -16,6 +16,8 @@ from .images import (
 from .models import ModuleResult
 from .result_store import DEFAULT_HISTORY, Observation, ResultStore
 
+DEFAULT_COMPARISON_HISTORY = {**DEFAULT_HISTORY, "mode": "changes"}
+
 
 class ComparisonStore(ResultStore):
     """Own the settings and gallery for one stable config entry ID."""
@@ -35,7 +37,7 @@ class ComparisonStore(ResultStore):
                     "max_distance": 25.0,
                     "min_margin": 3.0,
                 },
-                "history_settings": DEFAULT_HISTORY.copy(),
+                "history_settings": DEFAULT_COMPARISON_HISTORY.copy(),
                 "history": [],
                 "states": [],
                 "references": [],
@@ -47,7 +49,7 @@ class ComparisonStore(ResultStore):
             "engine", "pillow"
         ) not in ("pillow", "tarsius"):
             raise ImageError("storage_error")
-        data.setdefault("history_settings", DEFAULT_HISTORY.copy())
+        data.setdefault("history_settings", DEFAULT_COMPARISON_HISTORY.copy())
         data.setdefault("history", [])
         for reference in data["references"]:
             reference.pop("validation", None)

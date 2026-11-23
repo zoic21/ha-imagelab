@@ -100,30 +100,54 @@ template.innerHTML = `
     #progress { display:block; --ha-progress-bar-track-height:4px; }
     ${historyStyles}
     #historySettings { border-top:1px solid var(--divider-color); margin:16px 0; padding-top:12px; }
-    .comparisonImages { display:grid; align-items:start; gap:12px; margin:12px 0;
-      grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .comparisonImages:not(.withMatch) { grid-template-columns:minmax(0,1fr); }
-    @media(max-width:480px) { .comparisonImages { grid-template-columns:minmax(0,1fr); } }
-    .comparisonImages figure { margin:0; min-width:0; }
-    .comparisonImages figcaption {
-      display:flex; align-items:center; min-height:var(--ha-space-8, 32px); margin:0 0 6px; font-weight:500;
+    #preview { display:grid; gap:var(--ha-space-3, 12px); }
+    .resultHeader {
+      display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start;
+      gap:var(--ha-space-2, 8px);
     }
-    #matchLink {
-      margin-inline-start:auto;
-      flex:none;
-      --ha-icon-button-size:var(--ha-space-8, 32px);
-      --ha-icon-button-padding-inline:var(--ha-space-1, 4px);
-      --mdc-icon-size:var(--ha-space-5, 20px);
+    #test { grid-column:2; justify-self:end; }
+    #previewHint, #testHint, #result p, #resultDetails p { margin:0; }
+    #previewHint:empty, #resultDetails:empty { display:none; }
+    #resultTitle { display:block; font-weight:var(--ha-font-weight-medium, 500); overflow-wrap:anywhere; }
+    .recognizedState {
+      display:inline-flex; align-items:center; gap:var(--ha-space-1, 4px); box-sizing:border-box;
+      max-width:calc(100% - var(--ha-space-1, 4px));
+      vertical-align:middle; padding:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
+      margin-inline-start:var(--ha-space-1, 4px); border-radius:var(--ha-border-radius-pill, 999px);
+      background:color-mix(in srgb, var(--success-color, var(--primary-color)) 18%, transparent);
     }
-    .imagebox { position:relative; width:min(100%, calc(52dvh * var(--ratio, 1))); margin:auto; }
-    #matchFrame { display:block; width:100%; max-height:52dvh; object-fit:contain;
-      border-radius:var(--ha-border-radius-md, 8px); }
-    #frame { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
-    #region { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
+    .recognizedState ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
+    #result .secondary { margin-block-start:var(--ha-space-1, 4px); font-size:var(--ha-font-size-s, 12px); }
+    #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
+    #comparisonImages { display:grid; gap:var(--ha-space-3, 12px); }
+    #comparisonImages figure { margin:0; min-width:0; }
+    #captureCaption { margin:0 0 var(--ha-space-1, 4px); font-weight:var(--ha-font-weight-medium, 500); }
+    .previewButton { display:block; width:100%; --ha-button-height:auto; }
+    .previewButton::part(base) { padding:0; }
+    .previewButton::part(label) { display:block; width:100%; padding:0; }
+    .imagebox { display:block; position:relative; width:min(100%, calc(var(--capture-height, 52dvh) * var(--ratio, 1))); margin:auto; }
+    .imagebox img { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
+    .captureRegion { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
+    .accessibleLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    .matchRow {
+      display:grid; grid-template-columns:56px minmax(0,1fr) auto; align-items:center;
+      gap:var(--ha-space-2, 8px); padding:var(--ha-space-2, 8px);
+      background:var(--secondary-background-color); color:var(--primary-text-color);
+      border-radius:var(--ha-border-radius-md, 8px); text-align:start; white-space:normal;
+    }
+    #matchCaption { font-size:var(--ha-font-size-s, 12px); }
+    #matchLink { --ha-button-border-radius:var(--ha-border-radius-md, 8px); }
+    .matchThumbnail { display:grid; place-items:center; aspect-ratio:16 / 9; position:relative;
+      border-radius:inherit; overflow:hidden; }
+    #matchFrame { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .matchThumbnail ha-icon { color:var(--secondary-text-color); }
+    .matchThumbnail img:not([src]), .matchThumbnail:has(img[src]) ha-icon { visibility:hidden; }
+    #matchMeta { display:block; font-size:var(--ha-font-size-s, 12px); font-weight:var(--ha-font-weight-normal, 400); }
+    .matchIcon { color:var(--primary-color); --mdc-icon-size:20px; }
+    #scoreDetails { --expansion-panel-summary-padding:0; --expansion-panel-content-padding:0; }
+    #scores > p { margin:0 0 var(--ha-space-1, 4px); }
     .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
-    #result { margin:12px 0; }
-    #result > strong { display:block; font-size:1.1em; }
     table { width:100%; border-collapse:collapse; }
     td, th { padding:8px; text-align:start; border-bottom:1px solid var(--divider-color); overflow-wrap:anywhere; }
     td:nth-child(n+2), th:nth-child(n+2) { text-align:end; }
@@ -179,7 +203,9 @@ template.innerHTML = `
     .moveTarget { width:100%; }
     .referenceImport { margin-block:var(--ha-space-2, 8px); }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
-    #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
+    #captureDialog { --ha-dialog-min-height:auto; --capture-height:56dvh; }
+    #classify { margin-block-start:var(--ha-space-3, 12px); }
+    #captureState { flex:1 1 100px; }
     #stateMessage { margin-bottom:9px; }
   </style>
   <ha-tab-group id="nav" class="profileTabs" active="preview">
@@ -193,35 +219,35 @@ template.innerHTML = `
   <ha-alert id="feedback" hidden role="status"></ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
-    <div class="row">
+    <div class="resultHeader">
+      <div id="result" aria-live="polite" hidden></div>
       <ha-button id="test" variant="brand"></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
     <p class="secondary" id="testHint" hidden></p>
-    <div id="result" aria-live="polite"></div>
-    <div class="comparisonImages" id="comparisonImages" hidden>
-      <figure id="match" hidden>
-        <figcaption>
-          <span id="matchCaption"></span>
-          <ha-icon-button id="matchLink" hidden>
-            <ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon>
-          </ha-icon-button>
-        </figcaption>
-        <img id="matchFrame" alt="">
-      </figure>
+    <div id="resultDetails"></div>
+    <div id="comparisonImages" hidden>
       <figure>
         <figcaption id="captureCaption"></figcaption>
-        <div class="imagebox" id="imagebox">
-          <img id="frame" draggable="false">
-          <div id="region" hidden aria-hidden="true"></div>
-        </div>
+        <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
+          <span id="openCaptureLabel" class="accessibleLabel"></span>
+          <span class="imagebox" id="imagebox">
+            <img id="frame" alt="" draggable="false">
+            <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
+          </span>
+        </ha-button>
       </figure>
+      <ha-button id="matchLink" class="previewButton" appearance="plain" variant="neutral" hidden>
+        <span class="matchRow">
+          <span class="matchThumbnail" aria-hidden="true">
+            <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
+          </span>
+          <span><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
+          <ha-icon class="matchIcon" icon="mdi:link-variant" aria-hidden="true"></ha-icon>
+        </span>
+      </ha-button>
     </div>
-    <div id="scores"></div>
-    <div id="classify" class="row" hidden>
-      <ha-select id="captureState"></ha-select>
-      <ha-button id="captureAdd" appearance="outlined"></ha-button>
-    </div>
+    <ha-expansion-panel id="scoreDetails" hidden><div id="scores"></div></ha-expansion-panel>
   </section>
   <section id="references" role="tabpanel" aria-labelledby="tab-references" hidden>
     <form id="stateForm" class="row fieldRow">
@@ -247,6 +273,16 @@ template.innerHTML = `
     <section id="historySettings">${historySettingsMarkup}</section>
     <slot name="profile-settings"></slot>
   </section>
+  <ha-dialog id="captureDialog">
+    <div class="imagebox" id="captureDialogBox">
+      <img id="captureDialogImage" draggable="false">
+      <div id="captureDialogRegion" class="captureRegion" hidden aria-hidden="true"></div>
+    </div>
+    <div id="classify" class="row" hidden>
+      <ha-select id="captureState"></ha-select>
+      <ha-button id="captureAdd" appearance="outlined"></ha-button>
+    </div>
+  </ha-dialog>
   <div id="dialogSlot"></div>
 `;
 
@@ -296,11 +332,17 @@ export class ImageLabComparison extends HTMLElement {
           this.renderEngine();
           this.renderDirty();
         }
+        if (select.id === "captureState") this.refresh();
       }
     });
     this.onClick("reload", () => this.load());
     this.onClick("test", () => this.evaluate());
+    this.onClick("openCapture", () => this.openCapture());
     this.onClick("matchLink", () => this.openMatch());
+    const captureDialog = this.get("captureDialog");
+    captureDialog.addEventListener("closed", event => {
+      if (event.target === captureDialog) this.closeCapture();
+    });
     this.onClick("editZone", () => {
       if (!this.gallery || !this.profile || !this.client || !this.scope) return;
       const labels = this.client.locale.language.startsWith("fr") ? panelStrings.fr : panelStrings.en;
@@ -323,6 +365,7 @@ export class ImageLabComparison extends HTMLElement {
         if (!this.result?.image_id || !this.captured) return;
         const state_id = this.get<HaSelect>("captureState").value;
         if (!state_id) throw new Error("choose_state");
+        captureDialog.removeAttribute("open");
         await this.update(
           "add",
           {
@@ -431,6 +474,7 @@ export class ImageLabComparison extends HTMLElement {
       addState: "add_state",
       reload: "reload",
       matchCaption: "closest", captureCaption: "currentCapture",
+      openCaptureLabel: "open_capture",
       save: "save", editZone: "edit_zone",
     };
     for (const tab of tabs) names["tab-" + tab + "-label"] = tab;
@@ -441,21 +485,25 @@ export class ImageLabComparison extends HTMLElement {
       if (icon) actionLabel(this.get(id), this.labels[label], icon);
       else this.get(id).textContent = this.labels[label];
     }
-    this.get("matchLink").setAttribute("label", this.labels.view_reference);
+    this.get("matchLink").title = this.labels.view_reference;
+    this.get("scoreDetails").setAttribute("header", this.labels.state_scores);
+    this.get("captureDialog").setAttribute("header-title", this.labels.currentCapture);
     this.get("stateName").setAttribute("label", this.labels.new_state);
     const engine = this.get<HaSelect>("engine");
     engine.label = this.labels.engine;
     engine.options = engines.map((value) => ({ value, label: engineNames[value] }));
     this.renderEngine();
     this.get<HaSelect>("captureState").label = this.labels.state;
-    this.get<HTMLImageElement>("frame").alt = this.labels.preview;
+    this.get<HTMLImageElement>("captureDialogImage").alt = this.labels.currentCapture;
     this.get("nav").setAttribute("aria-label", "Image Lab");
   }
 
   private reset() {
     this.scope?.abort();
     this.progress();
+    this.closeCapture();
     this.get("dialogSlot").replaceChildren();
+    this.get("scoreDetails").removeAttribute("expanded");
     this.scope = undefined;
     this.gallery = undefined;
     this.result = undefined;
@@ -496,9 +544,13 @@ export class ImageLabComparison extends HTMLElement {
       : !this.available ? this.labels.unavailable : hasFrame || this.result ? "" : this.labels.empty;
     this.get("classify").hidden =
       !this.captured || !hasFrame || !this.gallery?.states.length;
-    this.get("captureAdd").toggleAttribute("disabled", busy);
-    const canOpenMatch = Boolean(this.gallery?.references.some(ref => ref.id === this.matchId));
-    this.get("matchLink").hidden = !canOpenMatch;
+    this.get("captureAdd").toggleAttribute("disabled", busy || !this.get<HaSelect>("captureState").value);
+    this.get("openCapture").toggleAttribute("disabled", busy);
+    const reference = this.gallery?.references.find(ref => ref.id === this.matchId);
+    const state = this.gallery?.states.find(item => item.id === reference?.state_id);
+    this.get("matchLink").hidden = !reference;
+    this.get("matchMeta").hidden = !state;
+    this.get("matchMeta").textContent = state ? `${this.labels.state} ${state.name}` : "";
     this.renderDirty();
   }
 
@@ -668,7 +720,7 @@ export class ImageLabComparison extends HTMLElement {
   private async showImages(captureId: string, signal: AbortSignal) {
     const [capture, reference] = await Promise.all([
       this.fetchImage(captureId, signal),
-      this.matchId ? this.fetchImage(this.matchId, signal).catch(() => undefined) : undefined,
+      this.matchId ? this.fetchImage(this.matchId, signal, true).catch(() => undefined) : undefined,
     ]);
     signal.throwIfAborted();
     this.setFrame(URL.createObjectURL(capture));
@@ -738,48 +790,70 @@ export class ImageLabComparison extends HTMLElement {
     const image = this.get<HTMLImageElement>("matchFrame");
     if (url) image.src = url;
     else image.removeAttribute("src");
-    this.get("match").hidden = !url;
-    this.get("comparisonImages").classList.toggle("withMatch", Boolean(url));
   }
 
   private renderResult() {
     const panel = this.get("result");
+    const details = this.get("resultDetails");
+    const scoresPanel = this.get("scores");
+    const expansion = this.get("scoreDetails");
     panel.replaceChildren();
-    this.get("scores").replaceChildren();
+    details.replaceChildren();
+    scoresPanel.replaceChildren();
+    expansion.hidden = true;
     const result = this.result;
+    panel.hidden = !result;
     if (!result) return;
-    const title = document.createElement("strong");
-    const message = document.createElement("p");
-    if (result.status === "ok")
-      title.textContent = `${this.labels.recognized} · ${result.data.state}`;
-    if (result.status === "unknown") title.textContent = this.labels.unknown;
+    const title = document.createElement("span");
+    title.id = "resultTitle";
+    if (result.status === "ok") {
+      title.textContent = this.labels.recognized;
+      if (result.data.state) {
+        const state = document.createElement("span");
+        state.className = "recognizedState";
+        state.innerHTML = `<ha-icon icon="mdi:check" aria-hidden="true"></ha-icon><span></span>`;
+        state.lastElementChild!.textContent = result.data.state;
+        title.append(" ", state);
+      }
+    } else if (result.status === "unknown") {
+      title.textContent = this.labels.unknown;
+    }
+    if (title.textContent) panel.append(title);
     if (result.reason) {
+      const message = document.createElement("p");
       const key = result.reason as Label;
       message.textContent = Object.hasOwn(this.labels, key)
         ? this.labels[key]
         : this.labels.failed;
+      details.append(message);
     }
-    panel.append(title, message);
     if (result.time) {
       const date = document.createElement("p");
       date.className = "secondary";
-      date.textContent = this.observationLabel(result.time, result.manual);
+      const stamp = document.createElement("time");
+      stamp.dateTime = result.time;
+      stamp.textContent = new Intl.DateTimeFormat(this.client?.locale.language, {
+        timeZone: this.client?.config?.time_zone,
+        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      }).format(new Date(result.time));
+      date.append(stamp, ` · ${this.labels[result.manual ? "manualAnalysis" : "automaticAnalysis"]}`);
       panel.append(date);
     }
     if (result.confirmation === "disagreed") {
       const retained = document.createElement("p");
       retained.className = "secondary";
       retained.textContent = this.labels.notConfirmed;
-      panel.append(retained);
+      details.append(retained);
     }
+    const scores = result.data.scores;
+    const hasScores = scores && Object.keys(scores).length > 0;
     if (result.data.engine) {
       const engine = document.createElement("p");
       engine.className = "secondary";
       engine.textContent = engineNames[result.data.engine];
-      panel.append(engine);
+      (hasScores ? scoresPanel : details).append(engine);
     }
-    if (result.data.scores && Object.keys(result.data.scores).length) {
-      const scores = result.data.scores;
+    if (hasScores) {
       const similarity = result.data.engine === "tarsius";
       const order = (state: string) => Object.hasOwn(scores, state)
         ? (similarity ? -scores[state] : scores[state]) : Infinity;
@@ -790,10 +864,30 @@ export class ImageLabComparison extends HTMLElement {
           Object.hasOwn(scores, state) ? String(scores[state]) : "–",
           String(count),
         ]);
-      this.get("scores").append(this.resultTable(
+      scoresPanel.append(this.resultTable(
         [this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows,
       ));
+      expansion.hidden = false;
     }
+  }
+
+  private openCapture() {
+    if (!this.frameUrl || !this.result || this.activity) return;
+    const dialog = this.get("captureDialog");
+    if (this.result.time) {
+      dialog.setAttribute("header-subtitle", this.observationLabel(this.result.time, this.result.manual));
+    } else {
+      dialog.removeAttribute("header-subtitle");
+    }
+    this.get("captureDialogBox").style.setProperty("--ratio", this.get("imagebox").style.getPropertyValue("--ratio"));
+    this.get<HTMLImageElement>("captureDialogImage").src = this.frameUrl;
+    paintRegion(this.get("captureDialogRegion"), this.result.data.region ?? null);
+    dialog.setAttribute("open", "");
+  }
+
+  private closeCapture() {
+    this.get("captureDialog").removeAttribute("open");
+    this.get("captureDialogImage").removeAttribute("src");
   }
 
   private async openMatch() {

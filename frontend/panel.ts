@@ -99,6 +99,7 @@ template.innerHTML = `
     .heading { display: inline-flex; align-items: center; gap: var(--ha-space-3, 12px); max-width: 100%; }
     .heading img { flex: none; width: 26px; height: 26px; background: none; }
     h1 { display: inline-block; margin: 0; font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    #title:focus { outline: none; }
     #add {
       position: absolute; z-index: 3;
       inset-inline-end: calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));

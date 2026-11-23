@@ -158,7 +158,7 @@ template.innerHTML = `
       </figure>
       <figure>
         <figcaption id="captureCaption"></figcaption>
-        <div class="imagebox" id="imagebox" hidden>
+        <div class="imagebox" id="imagebox">
           <img id="frame" draggable="false">
           <div id="region" hidden aria-hidden="true"></div>
         </div>
@@ -333,13 +333,6 @@ export class ImageLabComparison extends HTMLElement {
         this.drawing = false;
         this.setRegion(region);
       });
-    const frame = this.get<HTMLImageElement>("frame");
-    frame.addEventListener("load", () =>
-      box.style.setProperty(
-        "--ratio",
-        String(frame.naturalWidth / frame.naturalHeight),
-      ),
-    );
     this.localize();
     this.refresh();
   }
@@ -470,6 +463,7 @@ export class ImageLabComparison extends HTMLElement {
   }
 
   private refresh() {
+    const hasFrame = !this.get("comparisonImages").hidden;
     this.get("preview").setAttribute("aria-busy", String(this.busy));
     this.get("test").toggleAttribute(
       "disabled",
@@ -483,7 +477,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get("gallery").inert = this.busy;
     this.get("history").inert = this.busy || !this.gallery;
     this.get("reload").hidden = Boolean(this.gallery) || this.busy;
-    this.get("draw").hidden = !this.frameUrl;
+    this.get("draw").hidden = !hasFrame;
     const draw = this.drawing ? "stop_draw" : "draw";
     actionLabel(this.get("draw"), this.labels[draw], actionIcons[draw]!);
     this.get("whole").hidden = !this.draftRegion;
@@ -492,11 +486,11 @@ export class ImageLabComparison extends HTMLElement {
         ? this.labels.drawing
         : !this.available
           ? this.labels.unavailable
-          : this.frameUrl || this.result
+          : hasFrame || this.result
             ? ""
             : this.labels.empty;
     this.get("classify").hidden =
-      !this.captured || !this.frameUrl || !this.gallery?.states.length;
+      !this.captured || !hasFrame || !this.gallery?.states.length;
     this.get("captureAdd").toggleAttribute("disabled", this.busy);
     this.renderDirty();
   }
@@ -645,18 +639,33 @@ export class ImageLabComparison extends HTMLElement {
       this.matchId = result.data.reference_id ?? undefined;
       this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
       this.renderResult();
-      if (result.image_id) {
-        const blob = await this.fetchImage(result.image_id, signal);
-        signal.throwIfAborted();
-        this.setFrame(URL.createObjectURL(blob));
-        this.captured = true;
-        if (this.matchId) {
-          const reference = await this.fetchImage(this.matchId, signal).catch(() => undefined);
-          signal.throwIfAborted();
-          if (reference) this.setMatch(URL.createObjectURL(reference));
-        }
-      }
+      if (result.image_id) await this.showImages(result.image_id, signal);
     });
+  }
+
+  private async showImages(captureId: string, signal: AbortSignal) {
+    const [capture, reference] = await Promise.all([
+      this.fetchImage(captureId, signal),
+      this.matchId ? this.fetchImage(this.matchId, signal).catch(() => undefined) : undefined,
+    ]);
+    signal.throwIfAborted();
+    this.setFrame(URL.createObjectURL(capture));
+    this.setMatch(reference && URL.createObjectURL(reference));
+    const frame = this.get<HTMLImageElement>("frame");
+    const [decodedFrame, decodedMatch] = await Promise.allSettled([
+      frame.decode(),
+      reference && this.get<HTMLImageElement>("matchFrame").decode(),
+    ]);
+    signal.throwIfAborted();
+    if (decodedFrame.status === "rejected") {
+      this.setFrame();
+      this.setMatch();
+      throw decodedFrame.reason;
+    }
+    if (decodedMatch.status === "rejected") this.setMatch();
+    this.get("imagebox").style.setProperty("--ratio", String(frame.naturalWidth / frame.naturalHeight));
+    this.get("comparisonImages").hidden = false;
+    this.captured = true;
   }
 
   private resultTable(columns: string[], rows: string[][]) {
@@ -695,9 +704,10 @@ export class ImageLabComparison extends HTMLElement {
     this.frameUrl = url;
     const frame = this.get<HTMLImageElement>("frame");
     if (url) frame.src = url;
-    else frame.removeAttribute("src");
-    this.get("imagebox").hidden = !url;
-    this.get("comparisonImages").hidden = !url;
+    else {
+      frame.removeAttribute("src");
+      this.get("comparisonImages").hidden = true;
+    }
     this.renderRegion();
   }
 

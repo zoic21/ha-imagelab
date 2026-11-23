@@ -80,11 +80,7 @@ template.innerHTML = `
     .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
     .fieldRow { align-items:flex-start; }
     .fieldActions { min-height:var(--ha-space-14, 56px); }
-    ha-tab-group { margin-bottom:16px; }
-    @media (max-width: 480px) {
-      ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
-      ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
-    }
+    [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
     #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }

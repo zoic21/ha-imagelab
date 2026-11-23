@@ -47,11 +47,7 @@ template.innerHTML = `
     @media (min-width: 480px) {
       #analysisSort { max-width: 240px; }
     }
-    #profileNav { margin: 14px 0; }
-    @media (max-width: 480px) {
-      #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
-      #profileNav ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
-    }
+    #profile > [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ${historyStyles}
     ${meterStyles}
     #profileSettings { margin-top: 18px; }

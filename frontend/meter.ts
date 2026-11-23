@@ -81,6 +81,8 @@ export const meterStyles = `
   .meter-coordinate-content { display:grid; gap:8px; padding:8px; }
   .meter-coordinate-group p { margin:0 0 4px; }
   .meter-coordinate-content ha-button { justify-self:start; }
+  .meter-initial-warning { margin-top:8px; }
+  .meter-initial-warning ha-button { margin-top:4px; }
   .meter-rebase-content { padding:0 8px 4px; }
   .meter-rebase-content ha-input { display:block; }
   .meter-dialog .meter-footer { flex-direction:column; align-items:stretch; gap:8px; }
@@ -240,6 +242,10 @@ export async function editMeter(
         <section class="meter-section">
           <h3 data-index-title></h3>
           <div class="meter-grid" data-limits></div>
+          <div class="meter-initial-warning" data-initial-warning hidden>
+            <ha-alert alert-type="warning" data-initial-warning-text></ha-alert>
+            <ha-button appearance="plain" size="s" data-confirm-initial></ha-button>
+          </div>
           <p class="secondary" data-help></p>
           <ha-expansion-panel data-rebase hidden>
             <div class="meter-rebase-content">
@@ -289,6 +295,8 @@ export async function editMeter(
   el("format-title").textContent = labels.formatTitle;
   el("zones-title").textContent = labels.zonesTitle;
   el("index-title").textContent = labels.indexTitle;
+  el("initial-warning-text").textContent = labels.initialUncertain;
+  actionLabel(el("confirm-initial"), labels.confirmInitial, "check");
   el("fine-tune").setAttribute("header", labels.fineTune);
   for (const [group, label] of [["position", labels.zonePosition], ["size", labels.zoneSize]]) {
     el(`${group}-group`).setAttribute("aria-label", label);
@@ -330,7 +338,7 @@ export async function editMeter(
     let captureId: string | null = null;
     let busy = false;
     let selected = 0;
-    let suggestedInitial = false;
+    let initialSuggestion: "accepted" | "uncertain" | undefined;
     let invalidCoordinates = false;
 
     const select = (field: Select, label: string, options: Select["options"], value: string) => {
@@ -395,7 +403,10 @@ export async function editMeter(
       el("wheel-limit").hidden = wheelCount() <= 12;
       const ready = !busy && !!captureId && !addingDial() && !invalidCoordinates && !!layout.digits &&
         layout.dials.every(dial => dial.region) && validNumbers();
-      el("save").toggleAttribute("disabled", !ready || !!(initial?.value && !validIndex(initial)));
+      const needsConfirmation = initialSuggestion === "uncertain";
+      el("initial-warning").hidden = !needsConfirmation;
+      el("help").hidden = needsConfirmation;
+      el("save").toggleAttribute("disabled", !ready || needsConfirmation || !!(initial?.value && !validIndex(initial)));
       el("test").toggleAttribute("disabled", !ready);
       el("add").toggleAttribute("disabled", busy || !captureId || layout.dials.length >= 8);
       el("apply-rebase").toggleAttribute("disabled", busy || !rebaseValue || !validIndex(rebaseValue));
@@ -420,8 +431,8 @@ export async function editMeter(
       status.hidden = !status.textContent;
     };
     const clearSuggestion = () => {
-      if (suggestedInitial && initial) initial.value = "";
-      suggestedInitial = false;
+      if (initialSuggestion && initial) initial.value = "";
+      initialSuggestion = undefined;
     };
     const changed = () => {
       fail();
@@ -533,10 +544,15 @@ export async function editMeter(
     };
     for (const input of [whole, decimals]) input.addEventListener("input", changed);
     rate.addEventListener("input", refreshButtons);
-    initial?.addEventListener("input", () => {
-      suggestedInitial = false;
+    const confirmInitial = () => {
+      initialSuggestion = undefined;
       refreshButtons();
-    });
+    };
+    initial?.addEventListener("input", confirmInitial);
+    el("confirm-initial").onclick = () => {
+      initial?.focus();
+      confirmInitial();
+    };
     rebaseValue?.addEventListener("input", refreshButtons);
     rotation.addEventListener("input", () => {
       if (rotation.value !== "" && rotation.checkValidity()) layout.rotation = Number(rotation.value);
@@ -607,7 +623,10 @@ export async function editMeter(
       showResult();
     });
     const submit = (operation: "test" | "save") => working(el(operation), async () => {
-      if (operation === "test") clearSuggestion();
+      if (operation === "test") {
+        clearSuggestion();
+        showResult();
+      }
       const response = await request(url + "/" + operation, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: editorSignal,
         body: JSON.stringify({
@@ -621,12 +640,10 @@ export async function editMeter(
       editorSignal.throwIfAborted();
       if (operation === "test") {
         showResult(result);
-        if (
-          initial && !initial.value && !result.reason && typeof result.value === "number"
-          && result.value >= 0 && result.value < indexLimit()
-        ) {
-          initial.value = String(result.value);
-          suggestedInitial = true;
+        const value = result.reason ? result.candidate : result.value;
+        if (initial && !initial.value && typeof value === "number" && value >= 0 && value < indexLimit()) {
+          initial.value = String(value);
+          initialSuggestion = result.reason ? "uncertain" : "accepted";
         }
       } else { saved(); close(); }
     });
@@ -648,7 +665,10 @@ export async function editMeter(
       });
     };
     el("capture").onclick = () => void capture();
-    el("test").onclick = () => void submit("test");
+    el("test").onclick = async () => {
+      await submit("test");
+      if (initialSuggestion === "uncertain") el("initial-warning").scrollIntoView({ block: "nearest" });
+    };
     el("save").onclick = () => void submit("save");
     el("editor").hidden = false;
     selectZone(0);

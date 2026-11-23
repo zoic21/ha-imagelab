@@ -69,13 +69,12 @@ class ResultStore:
         write_utf8_file_atomic(str(self.manifest), content, private=True)
 
     def _save_history(
-        self, data: dict, new_image: Path | None = None, previous: str | None = None
+        self, data: dict, new_image: Path | None = None, *, obsolete: tuple[str, ...] = (),
     ) -> None:
         limit = data.get("history_settings", DEFAULT_HISTORY)["limit"]
         expired = {item["id"] for item in data["history"][:-limit]}
         del data["history"][:-limit]
-        if previous is not None:
-            expired.add(previous)
+        expired.update(obsolete)
         try:
             self._save(data)
         except (OSError, WriteError):
@@ -139,7 +138,7 @@ class ResultStore:
         if meter_state is not None:
             data["meter_state"] = meter_state
         self._append_history(data, observation)
-        self._save_history(data, path, previous["id"] if previous else None)
+        self._save_history(data, path, obsolete=(previous["id"],) if previous else ())
         return observation
 
     async def async_record(

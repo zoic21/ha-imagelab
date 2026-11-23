@@ -16,7 +16,7 @@ Le panneau et les appels manuels à l’action sont réservés aux administrateu
 
 - Pour mettre à jour Image Lab, installer la version proposée par HACS et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
 - Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
-- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages**, vérifier le rectangle et sélectionner **Enregistrer**.
+- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, ouvrir **Réglages → Modifier la zone d’analyse**, tracer le rectangle au doigt et sélectionner **Enregistrer**.
 
 ## Outils disponibles
 
@@ -68,7 +68,7 @@ L’action renvoie la dernière observation et, lorsqu’une seconde capture a �
 
 Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.
 
-Pour une comparaison, tracer le rectangle dans **Aperçu** puis l’enregistrer dans **Réglages**. Pour la palette et la détection, utiliser **Modifier la zone caméra**, tracer sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer. **Tester la source** montre le résultat sur le cadrage choisi.
+Pour la comparaison, la palette et la détection, ouvrir **Réglages → Modifier la zone d’analyse**. Tracer le rectangle sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer dans la même fenêtre. **Tester la source** montre le résultat sur le cadrage choisi.
 
 Quand plusieurs analyses automatiques de la même caméra arrivent à échéance ensemble, Home Assistant prend une seule image pour toutes ces zones. Avec des intervalles de 2 et 5 minutes, les deux zones partagent donc la capture toutes les 10 minutes. Un test ou une action manuelle demande sa propre capture.
 
@@ -83,8 +83,8 @@ Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter co
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
-2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
-3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Enregistrer les réglages avant de relancer un test.
+2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
+3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. **Modifier la zone d’analyse** permet de cadrer à la souris, au doigt ou en pourcentage. Enregistrer les réglages avant de relancer un test.
 
 Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. **Enregistrer** applique le moteur aux tests, à l’action et aux analyses périodiques. Les profils existants utilisent Pillow par défaut.
 
@@ -110,7 +110,7 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 
 1. Créer une analyse **Lecture de compteur** avec une caméra fixe ou une image importée.
 2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Dans **Rouleaux**, indiquer le nombre de chiffres entiers et de chiffres décimaux, puis tracer un seul rectangle autour de tous les rouleaux.
-3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Sélectionner un cadran dans la liste pour ajuster sa zone ou son sens de rotation.
+3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Le facteur affiché à côté de chaque cadran dépend des rouleaux décimaux et de son rang. Avec plusieurs cadrans, **Changer l’ordre des cadrans** échange les deux positions.
 4. Sélectionner **Tester** en bas de la fenêtre. Une lecture acceptée remplit l’index de départ. Vérifier cette valeur, régler une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
 5. Lancer **Tester la source** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 
@@ -207,4 +207,4 @@ npx --yes --package typescript@6.0.3 tsc -p frontend
 
 ## Publier une version
 
-Mettre à jour `version` dans `custom_components/image_lab/manifest.json`. Après fusion sur `main`, ouvrir **Actions → Validate integration → Run workflow**, choisir `main` et activer **Publish the version declared in manifest.json**. Après les deux validations, GitHub crée la release et le tag au numéro du manifeste. HACS récupère le répertoire de l’intégration depuis ce tag.
+Mettre à jour `version` dans `custom_components/image_lab/manifest.json`. Après fusion sur `main`, ouvrir **Actions → Validate integration → Run workflow**, choisir `main` et activer **Publish the version declared in manifest.json**. Après les validations, GitHub crée la release et le tag au numéro du manifeste. HACS récupère le répertoire de l’intégration depuis ce tag.

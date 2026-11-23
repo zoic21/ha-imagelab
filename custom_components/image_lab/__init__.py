@@ -342,6 +342,10 @@ class ImageLabPreviewView(HomeAssistantView):
             if item == "history_settings":
                 return self.json(await store.async_history_settings(), headers=self.headers)
             thumbnail = item is not None and request.query.get("thumbnail") == "1"
+            if item is None and (etag := request.headers.get("If-None-Match")):
+                latest = await store.async_latest()
+                if latest and etag == f'"{latest["id"]}"':
+                    return web.Response(status=304, headers={**self.headers, "ETag": etag})
             saved = await store.async_read(item, thumbnail)
         except OSError:
             return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
@@ -389,6 +393,7 @@ class ImageLabPreviewView(HomeAssistantView):
         headers = self.headers.copy()
         headers.update(
             {
+                "ETag": f'"{observation["id"]}"',
                 "X-Image-Lab-Width": str(frame.width),
                 "X-Image-Lab-Height": str(frame.height),
                 "X-Image-Lab-Time": observation["time"],
@@ -432,7 +437,7 @@ class ImageLabPreviewView(HomeAssistantView):
 
 
 class CameraZoneView(HomeAssistantView):
-    """Edit the region of a palette or detection profile on the full camera frame."""
+    """Edit a comparison, palette or detection region on the full source image."""
 
     url = f"/api/{DOMAIN}/zone/{{profile_id}}"
     name = f"api:{DOMAIN}:zone"
@@ -445,8 +450,8 @@ class CameraZoneView(HomeAssistantView):
         if (
             entry is None
             or entry.domain != DOMAIN
-            or entry.data.get(CONF_SOURCE_TYPE) != "camera"
-            or entry.data[CONF_MODULE] not in ("palette", "object_detection")
+            or entry.data.get(CONF_MODULE) not in ("comparison", "palette", "object_detection")
+            or (entry.data[CONF_MODULE] != "comparison" and entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA)
         ):
             raise web.HTTPNotFound
         return entry
@@ -457,9 +462,9 @@ class CameraZoneView(HomeAssistantView):
         try:
             frame = await async_get_frame(
                 hass,
-                SourceType.CAMERA,
-                resolve_entity_id(hass, entry.data[CONF_ENTITY_ID]),
-                "",
+                SourceType(entry.data[CONF_SOURCE_TYPE]),
+                resolve_entity_id(hass, entry.data.get(CONF_ENTITY_ID)),
+                entry.data[CONF_IMAGE_KEY],
             )
         except ImageError as err:
             return self.json({"reason": err.reason}, status_code=422)
@@ -480,7 +485,11 @@ class CameraZoneView(HomeAssistantView):
         except (probatio.Invalid, ValueError):
             return self.json({"reason": "invalid_request"}, status_code=400)
         hass = request.app[KEY_HASS]
-        hass.config_entries.async_update_entry(
-            entry, data={**entry.data, "region": region}
-        )
+        if entry.data[CONF_MODULE] == "comparison":
+            try:
+                await get_comparison_store(hass, profile_id).async_mutate("settings", {"region": region})
+            except (ImageError, OSError, WriteError):
+                return self.json({"reason": "storage_error"}, status_code=422)
+        else:
+            hass.config_entries.async_update_entry(entry, data={**entry.data, "region": region})
         return self.json({"region": region})

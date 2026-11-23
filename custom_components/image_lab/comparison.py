@@ -45,6 +45,7 @@ class Reference(TypedDict):
     id: str
     state_id: str
     name: str
+    source: NotRequired[Literal["capture", "upload"]]
 
 
 class ComparisonData(TypedDict):

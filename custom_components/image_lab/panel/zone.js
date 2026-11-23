@@ -1,10 +1,19 @@
 import { bindRegionDrawing, paintRegion } from "./region.js";
 import { actionLabel } from "./action.js";
 import { numberField } from "./number-field.js";
-export async function editZone(host, region, labels, url, request, signal) {
+export async function editZone(host, region, labels, url, request, signal, onSaved) {
     const dialog = document.createElement("ha-dialog");
     dialog.setAttribute("header-title", labels.zone);
     dialog.innerHTML = `
+    <style>
+    .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
+      width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
+    .zoneFrame img { display:block; width:100%; height:auto; max-height:none; }
+    .zoneFrame .selection { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
+      box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
+    .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .zoneFields ha-input { min-width:0; }
+    </style>
     <p></p><div class="zoneFrame" hidden><img draggable="false"><div class="selection"></div></div>
     <div class="zoneFields"></div><ha-button appearance="plain" id="fullZone"></ha-button>
     <ha-alert alert-type="error" hidden></ha-alert>
@@ -76,6 +85,8 @@ export async function editZone(host, region, labels, url, request, signal) {
                 body: JSON.stringify({ region }), signal: scope.signal });
             if (!response.ok)
                 throw Error();
+            scope.signal.throwIfAborted();
+            onSaved?.(region);
             close();
         }
         catch {

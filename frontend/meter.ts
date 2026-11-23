@@ -221,7 +221,7 @@ export async function editMeter(
             <ha-button data-remove appearance="plain" size="s" hidden></ha-button>
           </div>
           <div class="meter-grid" data-dial-settings hidden>
-            <ha-select data-multiplier></ha-select>
+            <ha-select data-dial-order></ha-select>
             <ha-select data-direction></ha-select>
           </div>
           <ha-expansion-panel class="meter-coordinates" data-fine-tune>
@@ -372,7 +372,7 @@ export async function editMeter(
     el("rebase").hidden = !initialized;
     el("help").textContent = initialized ? labels.fixedScale : labels.initialHelp;
     const direction = el<Select>("direction");
-    const multiplier = el<Select>("multiplier");
+    const order = el<Select>("dial-order");
     select(direction, labels.direction, [
       { value: "cw", label: labels.clockwise }, { value: "ccw", label: labels.counterclockwise },
     ], "cw");
@@ -487,8 +487,8 @@ export async function editMeter(
       el("cancel-dial").hidden = !addingDial();
       el("dial-settings").hidden = el("remove").hidden = !dial;
       if (dial) {
-        select(multiplier, labels.multiplier, multipliers, String(selected - 1));
-        multiplier.toggleAttribute("disabled", multipliers.length < 2);
+        order.hidden = multipliers.length < 2;
+        if (!order.hidden) select(order, labels.dialOrder, multipliers, String(selected - 1));
         direction.value = dial.counterclockwise ? "ccw" : "cw";
       }
     };
@@ -520,7 +520,7 @@ export async function editMeter(
         changed();
       }
     });
-    onSelect(multiplier, value => {
+    onSelect(order, value => {
       const current = selected - 1;
       const next = Number(value);
       if (next === current || !layout.dials[current] || !layout.dials[next]) return;

@@ -1,10 +1,12 @@
-import { comparisonStrings as text } from "./translations.js";
+import { comparisonStrings as text, panelStrings } from "./translations.js";
 
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
 import { ImageCache } from "./image-cache.js";
 import { numberField, type NumberField } from "./number-field.js";
-import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
+import { paintRegion, type Region } from "./region.js";
+import { editZone } from "./zone.js";
+
 type Engine = "pillow" | "tarsius";
 type Settings = {
   engine: Engine;
@@ -62,16 +64,12 @@ type TextField = Pick<NumberField, "value" | "reportValidity"> & HTMLElement;
 type Tab = "preview" | "references" | "history" | "settings";
 type Activity = "working" | "loadingResult" | "analyzing";
 const tabs: Tab[] = ["preview", "references", "history", "settings"];
-const coordinates = ["x", "y", "width", "height"] as const;
-const sameRegion = (first: Region | null, second: Region | null) =>
-  coordinates.every(key => Math.abs((first?.[key] ?? -1) - (second?.[key] ?? -1)) <= 1e-9);
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons: Partial<Record<Label, string>> = {
   add_state: "plus", cancel: "close", classify: "tag-plus-outline",
-  close: "close", correct: "tag-edit-outline", draw: "crop",
+  close: "close", correct: "tag-edit-outline",
   move: "arrow-right", reload: "refresh", remove: "delete-outline",
-  rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
-  whole: "crop-free",
+  rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
 };
 
 const template = document.createElement("template");
@@ -114,7 +112,6 @@ template.innerHTML = `
     #matchFrame { display:block; width:100%; max-height:52dvh; object-fit:contain;
       border-radius:var(--ha-border-radius-md, 8px); }
     #frame { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
-    .drawing { touch-action:none; cursor:crosshair; user-select:none; }
     #region { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
@@ -139,9 +136,6 @@ template.innerHTML = `
     .accessibleLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
     .original { display:block; max-width:100%; max-height:65dvh; margin:auto; }
     .reference img { width:100%; height:110px; object-fit:contain; }
-    fieldset { margin:12px 0; padding:12px; border:1px solid var(--divider-color);
-      border-radius:var(--ha-border-radius-md, 8px); }
-    label { display:grid; gap:4px; margin:4px 0; }
     ha-file-upload { display:block; min-width:0; margin-block:8px; }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
@@ -160,8 +154,6 @@ template.innerHTML = `
   <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
     <div class="row">
       <ha-button id="test" variant="brand"></ha-button>
-      <ha-button id="draw" appearance="plain" hidden></ha-button>
-      <ha-button id="whole" appearance="plain" hidden></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
     <p class="secondary" id="testHint" hidden></p>
@@ -206,12 +198,9 @@ template.innerHTML = `
     <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
-    <fieldset><legend id="cropLabel"></legend>
-      <p id="regionHint" class="secondary"></p>
-      <div id="regionFields" class="fields"></div>
-    </fieldset>
     <ha-button id="save" variant="brand"></ha-button>
     <p id="dirty" class="secondary"></p>
+    <ha-button id="editZone" appearance="plain"></ha-button>
     <section id="historySettings">${historySettingsMarkup}</section>
     <slot name="profile-settings"></slot>
   </section>
@@ -230,9 +219,7 @@ export class ImageLabComparison extends HTMLElement {
   private result?: Result;
   private captured = false;
   private activity?: Activity;
-  private drawing = false;
-  private cancelDrawing: () => void;
-  private draftRegion: Region | null = null;
+  private refreshPreview = false;
   private frameUrl?: string;
   private matchUrl?: string;
   private thumbnailUrls: string[] = [];
@@ -268,13 +255,16 @@ export class ImageLabComparison extends HTMLElement {
     this.onClick("reload", () => this.load());
     this.onClick("test", () => this.evaluate());
     this.onClick("matchLink", () => this.openMatch());
-    this.onClick("draw", () => {
-      this.drawing = !this.drawing;
-      this.cancelDrawing();
-      this.renderRegion();
-      this.refresh();
+    this.onClick("editZone", () => {
+      if (!this.gallery || !this.profile || !this.client || !this.scope) return;
+      const labels = this.client.locale.language.startsWith("fr") ? panelStrings.fr : panelStrings.en;
+      void editZone(this.get("dialogSlot"), this.gallery.settings.region, labels,
+        "/api/image_lab/zone/" + encodeURIComponent(this.profile),
+        this.client.fetchWithAuth.bind(this.client), this.scope.signal, region => {
+          if (this.gallery) this.gallery.settings.region = region;
+          this.feedback(this.labels.saved);
+        });
     });
-    this.onClick("whole", () => this.setRegion(null));
     this.onClick("save", () =>
       this.task(async (signal) => {
         await this.update("settings", this.readSettings(), signal);
@@ -287,16 +277,11 @@ export class ImageLabComparison extends HTMLElement {
         if (!this.result?.image_id || !this.captured) return;
         const state_id = this.get<HaSelect>("captureState").value;
         if (!state_id) throw new Error("choose_state");
-        const stamp = new Intl.DateTimeFormat(this.client?.locale.language, {
-          dateStyle: "short",
-          timeStyle: "medium",
-          timeZone: this.client?.config?.time_zone,
-        }).format(this.result.time ? new Date(this.result.time) : Date.now());
         await this.update(
           "add",
           {
             state_id,
-            name: `${this.labels.capture} ${stamp}`,
+            name: this.captureName(this.result.time),
             capture_id: this.result.image_id,
           },
           signal,
@@ -318,34 +303,12 @@ export class ImageLabComparison extends HTMLElement {
       event.preventDefault();
       void createState();
     });
-    for (const field of [
-      "max_distance",
-      "min_margin",
-      ...coordinates,
-    ] as const) {
-      const isCoordinate = coordinates.some((key) => key === field);
-      const input = numberField(isCoordinate ? 100 : 255);
+    for (const field of ["max_distance", "min_margin"]) {
+      const input = numberField(255);
       input.id = field;
-      input.addEventListener("input", () => {
-        if (isCoordinate) {
-          try {
-            this.draftRegion = this.readRegion();
-            this.renderRegion();
-          } catch {
-            /* incomplete entry */
-          }
-        }
-        this.renderDirty();
-      });
-      this.get(isCoordinate ? "regionFields" : "thresholdFields").append(input);
+      input.addEventListener("input", () => this.renderDirty());
+      this.get("thresholdFields").append(input);
     }
-
-    const box = this.get("imagebox");
-    this.cancelDrawing = bindRegionDrawing(box, () => this.drawing,
-      region => this.renderRegion(region), region => {
-        this.drawing = false;
-        this.setRegion(region);
-      });
     this.localize();
     this.refresh();
   }
@@ -418,24 +381,22 @@ export class ImageLabComparison extends HTMLElement {
     const names: Record<string, Label> = {
       analysisSettingsTitle: "analysis",
       test: "test",
-      draw: "draw",
-      whole: "whole",
       captureAdd: "classify",
       addState: "add_state",
       reload: "reload",
-      cropLabel: "crop",
       matchCaption: "closest", captureCaption: "currentCapture",
-      regionHint: "region_help",
       save: "save",
     };
     for (const tab of tabs) names["tab-" + tab] = tab;
-    for (const key of ["max_distance", "min_margin", ...coordinates] as const)
+    for (const key of ["max_distance", "min_margin"] as const)
       this.get(key).setAttribute("label", this.labels[key]);
     for (const [id, label] of Object.entries(names)) {
       const icon = actionIcons[label];
       if (icon) actionLabel(this.get(id), this.labels[label], icon);
       else this.get(id).textContent = this.labels[label];
     }
+    const common = this.labels === text.fr ? panelStrings.fr : panelStrings.en;
+    actionLabel(this.get("editZone"), common.zone, "crop");
     this.get("matchLink").setAttribute("label", this.labels.view_reference);
     this.get("stateName").setAttribute("label", this.labels.new_state);
     const engine = this.get<HaSelect>("engine");
@@ -456,9 +417,7 @@ export class ImageLabComparison extends HTMLElement {
     this.result = undefined;
     this.captured = false;
     this.activity = undefined;
-    this.drawing = false;
-    this.cancelDrawing();
-    this.draftRegion = null;
+    this.refreshPreview = false;
     this.matchId = undefined;
     this.setFrame();
     this.setMatch();
@@ -487,20 +446,10 @@ export class ImageLabComparison extends HTMLElement {
     this.get("history").inert = busy || !this.gallery;
     this.get("historySettings").inert = busy || !this.gallery;
     this.get("reload").hidden = Boolean(this.gallery) || busy;
-    this.get("draw").hidden = !hasFrame;
-    const draw = this.drawing ? "stop_draw" : "draw";
-    actionLabel(this.get("draw"), this.labels[draw], actionIcons[draw]!);
-    this.get("whole").hidden = !this.draftRegion;
-    this.get("imagebox").classList.toggle("drawing", this.drawing);
+    this.get("editZone").toggleAttribute("disabled", !this.gallery || busy || !this.available);
     this.get("previewHint").textContent = this.activity
       ? this.activity === "working" ? "" : this.labels[this.activity]
-      : this.drawing
-        ? this.labels.drawing
-        : !this.available
-          ? this.labels.unavailable
-          : hasFrame || this.result
-            ? ""
-            : this.labels.empty;
+      : !this.available ? this.labels.unavailable : hasFrame || this.result ? "" : this.labels.empty;
     this.get("classify").hidden =
       !this.captured || !hasFrame || !this.gallery?.states.length;
     this.get("captureAdd").toggleAttribute("disabled", busy);
@@ -510,6 +459,7 @@ export class ImageLabComparison extends HTMLElement {
   }
 
   private show(tab: Tab) {
+    this.refreshPreview = tab === "preview" && this.tab !== tab && Boolean(this.gallery);
     this.tab = tab;
     this.get("nav").setAttribute("active", tab);
     for (const key of tabs) this.get(key).hidden = tab !== key;
@@ -520,6 +470,17 @@ export class ImageLabComparison extends HTMLElement {
       if (tab === "history") void this.loadHistory();
     }
     this.refresh();
+    this.loadLatestIfNeeded();
+  }
+
+  private loadLatestIfNeeded() {
+    if (!this.refreshPreview || this.activity) return;
+    this.refreshPreview = false;
+    void this.task(async signal => {
+      const latest = await this.request<Result | null>("/latest", signal);
+      if (latest && this.tab === "preview" && (latest.image_id !== this.result?.image_id || !this.frameUrl))
+        await this.displayObservation(latest, signal);
+    }, "loadingResult");
   }
 
   private async load() {
@@ -573,6 +534,7 @@ export class ImageLabComparison extends HTMLElement {
         this.activity = undefined;
         this.progress();
         this.refresh();
+        this.loadLatestIfNeeded();
       }
     }
   }
@@ -653,8 +615,6 @@ export class ImageLabComparison extends HTMLElement {
     this.setFrame();
     this.setMatch();
     this.captured = false;
-    this.drawing = false;
-    this.cancelDrawing();
     this.result = result;
     this.matchId = result.data.reference_id ?? undefined;
     this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
@@ -822,37 +782,16 @@ export class ImageLabComparison extends HTMLElement {
     this.get<NumberField>("min_margin").value = String(
       settings.min_margin,
     );
-    this.setRegion(settings.region);
   }
 
-  private readRegion(): Region | null {
-    const fields = coordinates.map((name) => this.get<NumberField>(name));
-    if (fields.every((field) => !field.value && field.checkValidity()))
-      return null;
-    if (fields.some((field) => !field.checkValidity() || !field.value))
-      throw new Error("invalid_settings");
-    const [x, y, width, height] = fields.map(
-      (field) => Number(field.value) / 100,
-    );
-    if (
-      width <= 0 ||
-      height <= 0 ||
-      x + width > 1 + 1e-9 ||
-      y + height > 1 + 1e-9
-    ) {
-      throw new Error("invalid_settings");
-    }
-    return { x, y, width, height };
-  }
-
-  private readSettings(): Settings {
+  private readSettings(): Omit<Settings, "region"> {
     const max = this.get<NumberField>("max_distance");
     const margin = this.get<NumberField>("min_margin");
     const engine = this.get<HaSelect>("engine").value === "tarsius" ? "tarsius" : "pillow";
     const valid = max.checkValidity() && !!max.value && margin.checkValidity() && !!margin.value;
     if (engine === "pillow" && !valid) throw new Error("invalid_settings");
     return {
-      engine, region: this.readRegion(),
+      engine,
       max_distance: valid ? Number(max.value) : this.gallery!.settings.max_distance,
       min_margin: valid ? Number(margin.value) : this.gallery!.settings.min_margin,
     };
@@ -867,7 +806,7 @@ export class ImageLabComparison extends HTMLElement {
         const draft = this.readSettings();
         const saved = this.gallery.settings;
         changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
-          draft.min_margin !== saved.min_margin || !sameRegion(draft.region, saved.region);
+          draft.min_margin !== saved.min_margin;
         if (changed) status.textContent = this.labels.dirty;
       } catch {
         status.textContent = this.labels.invalid_settings;
@@ -879,21 +818,8 @@ export class ImageLabComparison extends HTMLElement {
     hint.textContent = this.labels.testSavedSettings;
   }
 
-  private setRegion(region: Region | null) {
-    this.draftRegion = region;
-    for (const key of coordinates)
-      this.get<NumberField>(key).value = region
-        ? String(Math.round(region[key] * 10000) / 100)
-        : "";
-    this.renderRegion();
-    this.refresh();
-  }
-
-  private renderRegion(region?: Region) {
-    const used = this.result?.data.region;
-    const saved = this.gallery?.settings.region ?? null;
-    const useDraft = this.drawing || used === undefined || !sameRegion(this.draftRegion, saved);
-    paintRegion(this.get("region"), this.frameUrl ? region ?? (useDraft ? this.draftRegion : used) : null);
+  private renderRegion() {
+    paintRegion(this.get("region"), this.frameUrl ? this.result?.data.region ?? null : null);
   }
 
   private button(label: Label, action: () => unknown) {
@@ -1031,7 +957,9 @@ export class ImageLabComparison extends HTMLElement {
       action.setAttribute("loading", "");
       state.setAttribute("disabled", "");
       try {
-        await this.update("correct", { capture_id: item.id, state_id: state.value }, signal);
+        await this.update("correct", {
+          capture_id: item.id, state_id: state.value, name: this.captureName(item.time),
+        }, signal);
         actionLabel(action, this.labels.correct, actionIcons.correct!);
         status.textContent = this.labels.capture_saved;
       } catch (error) {
@@ -1053,6 +981,13 @@ export class ImageLabComparison extends HTMLElement {
     controls.className = "history-correction";
     controls.append(state, action);
     content.append(controls, status);
+  }
+
+  private captureName(time?: string) {
+    const stamp = new Intl.DateTimeFormat(this.client?.locale.language, {
+      dateStyle: "short", timeStyle: "medium", timeZone: this.client?.config?.time_zone,
+    }).format(time ? new Date(time) : Date.now());
+    return `${this.labels.capture} ${stamp}`;
   }
 
   private observationLabel(time: string, manual?: boolean) {

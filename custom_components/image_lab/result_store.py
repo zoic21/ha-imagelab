@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 
 from .const import DOMAIN
-from .images import ImageError, ImageFrame, thumbnail_frame
+from .images import ImageError, ImageFrame, read_thumbnail
 
 STORAGE_VERSION = 1
 DEFAULT_HISTORY = {"mode": "all", "limit": 10}
@@ -171,14 +171,17 @@ class ResultStore:
         )
         if observation is None:
             return None
+        path = self.images / observation["id"]
         try:
-            content = (self.images / observation["id"]).read_bytes()
+            if thumbnail:
+                return observation, read_thumbnail(path)
+            content = path.read_bytes()
         except OSError as err:
             raise ImageError("storage_error") from err
         frame = ImageFrame(
             content, observation["content_type"], observation["width"], observation["height"]
         )
-        return observation, thumbnail_frame(frame) if thumbnail else frame
+        return observation, frame
 
     async def async_read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
         async with self.lock:

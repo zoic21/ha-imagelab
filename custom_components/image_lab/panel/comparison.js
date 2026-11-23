@@ -452,9 +452,8 @@ export class ImageLabComparison extends HTMLElement {
         this.scope?.abort();
         this.scope = new AbortController();
         await this.task(async (signal) => {
-            this.gallery = await this.request("", signal);
-            if (signal.aborted)
-                return;
+            const { gallery, latest, latest_error } = await this.request("?include_latest=1", signal);
+            this.gallery = gallery;
             this.fillSettings();
             this.historySettings.setValue(this.gallery.history_settings);
             this.updateSelectors();
@@ -462,7 +461,8 @@ export class ImageLabComparison extends HTMLElement {
                 this.renderGallery();
             if (this.tab === "history")
                 this.renderHistory();
-            const latest = await this.request("/latest", signal);
+            if (latest_error)
+                throw new Error(latest_error);
             if (latest)
                 await this.displayObservation(latest, signal);
         }, "loadingResult");

@@ -28,12 +28,14 @@ def _buckets(frame: ImageFrame) -> tuple[list[Bucket], list[Bucket]]:
     neutral: dict[tuple[int, int, int], list[int]] = {}
     with Image.open(BytesIO(frame.content)) as source:
         source.thumbnail((128, 128))
-        for red, green, blue, alpha in source.convert("RGBA").getdata():
+        for red, green, blue, alpha in source.convert("RGBA").get_flattened_data():
             if alpha < 128:
                 continue
-            _, saturation, value = _hsv((red, green, blue))
+            value = max(red, green, blue) / 255
             if value < 0.18:
                 continue
+            # Bucket assignment uses saturation and value, with no need for hue.
+            saturation = (value - min(red, green, blue) / 255) / value
             key = red // 32, green // 32, blue // 32
             target = neutral if saturation < 0.18 else colored
             bucket = target.setdefault(key, [0, 0, 0, 0])

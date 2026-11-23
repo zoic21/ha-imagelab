@@ -10,7 +10,7 @@ from PIL import Image
 
 from custom_components.image_lab import output
 from custom_components.image_lab.comparison_store import ComparisonStore
-from custom_components.image_lab.images import crop_frame, validate_image
+from custom_components.image_lab.images import ImageError, crop_frame, validate_image
 from custom_components.image_lab.result_store import ResultStore
 
 
@@ -157,6 +157,26 @@ def test_disabling_automatic_history_keeps_the_latest_and_manual_frames(tmp_path
     assert thumbnail.content_type == "image/jpeg"
 
 
+def test_reuses_thumbnail_until_original_changes(tmp_path):
+    hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
+    store = ResultStore(hass, "palette")
+    frame = two_colors()
+    capture = store._record(frame, {"status": "ok", "data": {}}, manual=True)
+    image_id = capture["id"]
+
+    _, thumbnail = store._read(image_id, thumbnail=True)
+    assert store._read(image_id, thumbnail=True)[1] is thumbnail
+    assert store._read(image_id)[1] == frame
+
+    original = store.images / image_id
+    cropped = crop_frame(frame, {"x": 0, "y": 0, "width": 0.5, "height": 1})
+    original.write_bytes(cropped.content)
+    assert store._read(image_id, thumbnail=True)[1].width == 6
+    original.unlink()
+    with pytest.raises(ImageError, match="storage_error"):
+        store._read(image_id, thumbnail=True)
+
+
 def test_latest_comparison_can_use_an_older_history_format(tmp_path):
     hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
     store = ComparisonStore(hass, "camera")
@@ -173,3 +193,12 @@ def test_latest_comparison_can_use_an_older_history_format(tmp_path):
     assert newest["id"] == observed["id"]
     assert newest["response"]["data"]["state"] == "Closed"
     assert restored_frame == frame
+    gallery, latest = store.load_with_latest()
+    assert gallery == legacy
+    assert latest == newest
+
+    (store.images / observed["id"]).unlink()
+    gallery, latest = store.load_with_latest()
+    assert gallery == legacy
+    assert isinstance(latest, ImageError)
+    assert latest.reason == "reference_not_found"

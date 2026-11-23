@@ -22,6 +22,7 @@ from .const import (
     IMAGE_TYPES,
     INSTALLATION_ID,
     SOURCE_ANALYSIS,
+    SOURCE_RENAME,
     SourceType,
 )
 from .images import ImageError, get_image_storage
@@ -86,7 +87,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Edit an existing analysis while keeping its ID and module."""
+        """Edit the source while keeping the analysis ID and module."""
         self._entry = self._get_reconfigure_entry()
         if CONF_MODULE not in self._entry.data:
             return self.async_abort(reason="profile_not_found")
@@ -95,6 +96,28 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_IMAGE_KEY: self._entry.data.get(CONF_IMAGE_KEY) or uuid4().hex,
         }
         return await self.async_step_source(user_input)
+
+    async def async_step_rename(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Rename an analysis without asking for its source again."""
+        entry_id = self.context.get("entry_id")
+        entry = self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
+        if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
+            return self.async_abort(reason="profile_not_found")
+        if user_input is not None and (title := user_input[CONF_NAME].strip()):
+            return self.async_update_reload_and_abort(
+                entry, title=title, reason="rename_successful",
+                reload_even_if_entry_is_unchanged=False,
+            )
+        return self.async_show_form(
+            step_id=SOURCE_RENAME,
+            data_schema=probatio.Schema(
+                {probatio.Required(CONF_NAME, default=entry.title): selector.TextSelector()}
+            ),
+            errors={CONF_NAME: "name_required"} if user_input is not None else None,
+            last_step=True,
+        )
 
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
@@ -108,14 +131,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
             default_source = sources[0]
         fields: dict[probatio.Required, selector.Selector[Any]] = {}
         errors = {}
-        if self._entry:
-            fields[probatio.Required(CONF_NAME, default=self._entry.title)] = (
-                selector.TextSelector()
-            )
-            if user_input is not None:
-                self._title = user_input[CONF_NAME].strip()
-                if not self._title:
-                    errors[CONF_NAME] = "name_required"
         fields[probatio.Required(CONF_SOURCE_TYPE, default=default_source)] = (
             select_options(list(sources), CONF_SOURCE_TYPE)
         )
@@ -185,7 +200,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     options.pop("confirmation_seconds", None)
                 return self.async_update_reload_and_abort(
                     self._entry,
-                    title=self._title,
                     data=data,
                     options=options,
                     reload_even_if_entry_is_unchanged=False,

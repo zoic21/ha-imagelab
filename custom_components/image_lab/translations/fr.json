@@ -5,10 +5,15 @@
       "user": "Configurer Image Lab"
     },
     "step": {
+      "rename": {
+        "title": "Renommer l’analyse",
+        "data": {
+          "name": "Nom"
+        }
+      },
       "source": {
         "title": "Source de l’image",
         "data": {
-          "name": "Nom",
           "source_type": "Source",
           "palette_size": "Nombre de couleurs",
           "object_confidence": "Seuil de confiance",
@@ -64,6 +69,7 @@
       "invalid_object_confidence": "Saisissez un pourcentage entier de 5 à 100."
     },
     "abort": {
+      "rename_successful": "Analyse renommée.",
       "profile_not_found": "Cette analyse a été supprimée."
     },
     "create_entry": {

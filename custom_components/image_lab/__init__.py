@@ -52,6 +52,7 @@ from .const import (
     PANEL_PATH,
     SERVICE_ANALYZE,
     SOURCE_ANALYSIS,
+    SOURCE_RENAME,
     SourceType,
 )
 from .images import ImageError, async_get_frame, get_image_storage
@@ -260,15 +261,17 @@ def async_subscribe_profiles(
 
 
 class AnalysisFlowView(ConfigManagerFlowIndexView):
-    """Start an analysis wizard only from Image Lab."""
+    """Start an analysis creation or rename flow from Image Lab."""
 
     url = f"/api/{DOMAIN}/analysis_flow"
     name = f"api:{DOMAIN}:analysis_flow"
 
     def get_context(self, data: dict[str, Any]) -> dict[str, Any]:
-        if data["handler"] != DOMAIN or "entry_id" in data:
+        if data["handler"] != DOMAIN:
             raise web.HTTPBadRequest
-        return {**super().get_context(data), "source": SOURCE_ANALYSIS}
+        context = super().get_context(data)
+        source = SOURCE_RENAME if "entry_id" in context else SOURCE_ANALYSIS
+        return {**context, "source": source}
 
 
 @websocket_api.websocket_command(

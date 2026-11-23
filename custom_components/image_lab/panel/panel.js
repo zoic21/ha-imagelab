@@ -45,26 +45,32 @@ template.innerHTML = `
     }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-top: 18px; }
-    .moduleSettingsSave { margin-top: 12px; }
-    #profileConfiguration {
+    .moduleSettingsSave, #zone { margin-top: 12px; }
+    #technicalInfo {
       --expansion-panel-summary-padding: 0 12px;
       --expansion-panel-content-padding: 0 12px;
     }
-    #profileFlow { padding-block: 4px 12px; }
-    #profileFlow .toolbar { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
-    .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
     code { overflow-wrap: anywhere; }
-    #outputEntity { max-width: 100%; }
-    #outputEntity { --ha-button-label-overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: start; }
-    #outputId { display: block; margin: 4px 0; }
-    #analysisSchedule {
+    .settingsSection {
       border-top: 1px solid var(--divider-color);
       padding-top: 12px;
       margin-bottom: 16px;
     }
-    #frequencyTitle { font-size: 1rem; margin: 0 0 8px; }
+    .settingsTitle { font-size: 1rem; margin: 0 0 8px; }
+    .settingsRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+    .settingsRow > .metadata { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+    .settingsRow p { margin: 0; }
+    #outputEntity {
+      max-width: 100%; --ha-button-label-overflow: visible;
+      white-space: normal; overflow-wrap: anywhere; text-align: start;
+    }
+    #outputEntity::part(base) { padding-inline: 0; }
+    #outputId, #profileId { display: block; margin: 4px 0; }
+    #technicalInfo .settingsRow { padding: 4px 0 12px; }
+    #copyStatus { margin-top: 0; }
+    #cameraSchedule { margin-top: 8px; }
     #intervalControls { align-items: flex-start; }
     #intervalAction { min-height: var(--ha-space-14, 56px); }
     #interval { width: min(100%, 230px); }
@@ -117,6 +123,15 @@ template.innerHTML = `
   <ha-top-app-bar-fixed id="appBar">
   <ha-icon-button-arrow-prev id="back" hidden></ha-icon-button-arrow-prev>
   <div class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
+  <ha-dropdown id="profileMenu" slot="actionItems" placement="bottom-end" hidden>
+    <ha-icon-button id="profileMenuButton" slot="trigger" aria-haspopup="menu">
+      <ha-icon icon="mdi:dots-vertical" aria-hidden="true"></ha-icon>
+    </ha-icon-button>
+    <ha-dropdown-item value="rename">
+      <ha-icon slot="icon" icon="mdi:pencil-outline"></ha-icon>
+      <span id="renameAction"></span>
+    </ha-dropdown-item>
+  </ha-dropdown>
   <main>
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
@@ -155,10 +170,19 @@ template.innerHTML = `
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
-            <div id="moduleSettings"></div>
+            <section aria-labelledby="analysisSettingsTitle">
+              <h3 id="analysisSettingsTitle" class="settingsTitle"></h3>
+              <div id="moduleSettings"></div>
+              <ha-button id="zone" appearance="plain" hidden></ha-button>
+            </section>
             <div id="profileSettings" slot="profile-settings">
-              <section id="analysisSchedule" aria-labelledby="frequencyTitle">
-                <h3 id="frequencyTitle"></h3>
+              <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
+                <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
+                <div class="settingsRow">
+                  <p id="sourceSummary" class="metadata"></p>
+                  <ha-button id="editSource" appearance="plain"></ha-button>
+                </div>
+                <p id="schedule" class="secondary" hidden></p>
                 <div id="cameraSchedule" hidden>
                   <div id="intervalControls" class="toolbar">
                     <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
@@ -167,24 +191,30 @@ template.innerHTML = `
                   <p id="frequencyHelp" class="secondary"></p>
                   <p id="frequencyStatus" role="status"></p>
                 </div>
-                <p id="schedule" class="secondary" hidden></p>
+                <p class="secondary" id="cameraZones" hidden></p>
               </section>
-              <ha-button id="zone" appearance="outlined" hidden></ha-button>
-              <div id="output" class="row" hidden>
-                <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
-                <code id="outputId" class="secondary"></code>
-              </div>
-              <div class="toolbar">
-                <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
-              </div>
-              <p class="secondary" id="cameraZones" hidden></p>
-              <div class="id">
-                <span id="idLabel" class="secondary"></span>
-                <code id="profileId"></code>
-                <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
-              </div>
-              <ha-expansion-panel id="profileConfiguration" outlined>
-                <div id="profileFlow"></div>
+              <section class="settingsSection" aria-labelledby="outputTitle">
+                <h3 id="outputTitle" class="settingsTitle"></h3>
+                <div class="settingsRow">
+                  <div class="metadata">
+                    <div id="output" hidden>
+                      <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
+                      <code id="outputId" class="secondary"></code>
+                    </div>
+                    <p id="noOutput" class="secondary"></p>
+                  </div>
+                  <ha-button id="settings" appearance="plain"></ha-button>
+                </div>
+              </section>
+              <ha-expansion-panel id="technicalInfo" outlined>
+                <div class="settingsRow">
+                  <div class="metadata">
+                    <span id="idLabel" class="secondary"></span>
+                    <code id="profileId"></code>
+                  </div>
+                  <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
+                </div>
+                <p id="copyStatus" role="status" hidden></p>
               </ha-expansion-panel>
             </div>
           </section>
@@ -206,7 +236,6 @@ class ImageLabPanel extends HTMLElement {
     activeTest;
     previewUrl;
     optionsScope;
-    profileFlowScope;
     moduleSettingsScope;
     intervalKey;
     savingInterval = false;
@@ -219,15 +248,8 @@ class ImageLabPanel extends HTMLElement {
         this.comparison = new ImageLabComparison();
         this.element("comparisonSlot").append(this.comparison);
         this.element("add").addEventListener("click", () => this.openFlow("create"));
-        const configuration = this.element("profileConfiguration");
-        configuration.addEventListener("expanded-changed", event => {
-            if (event.target !== configuration)
-                return;
-            if (event.detail.expanded)
-                this.editProfile();
-            else
-                this.closeProfileFlow();
-        });
+        this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
+        this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
         this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
         this.element("interval").addEventListener("input", () => {
             this.element("frequencyStatus").textContent = "";
@@ -327,8 +349,8 @@ class ImageLabPanel extends HTMLElement {
         if (!previous && scroller)
             this.listScrollTop = scroller.scrollTop;
         this.optionsScope?.abort();
-        this.closeProfileFlow();
         this.closeModuleSettings();
+        this.element("technicalInfo").removeAttribute("expanded");
         this.clearTest();
         this.selectedId = id;
         this.showTab("result");
@@ -343,7 +365,6 @@ class ImageLabPanel extends HTMLElement {
     }
     disconnectedCallback() {
         this.optionsScope?.abort();
-        this.closeProfileFlow();
         this.closeModuleSettings();
         this.unsubscribe();
         this.clearTest();
@@ -370,23 +391,7 @@ class ImageLabPanel extends HTMLElement {
             return;
         this.optionsScope?.abort();
         this.optionsScope = new AbortController();
-        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, { onCreated: id => this.select(id) });
-    }
-    editProfile() {
-        const profile = this.selected;
-        const hass = this._hass;
-        if (!profile || !hass)
-            return;
-        const scope = new AbortController();
-        this.profileFlowScope?.abort();
-        this.profileFlowScope = scope;
-        void runProfileFlow(this.element("profileFlow"), hass, "configure", profile.profile_id, this.strings, scope.signal, { onClosed: () => this.closeProfileFlow() });
-    }
-    closeProfileFlow() {
-        const scope = this.profileFlowScope;
-        this.profileFlowScope = undefined;
-        scope?.abort();
-        this.element("profileConfiguration").removeAttribute("expanded");
+        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, id => this.select(id));
     }
     closeModuleSettings() {
         this.moduleSettingsScope?.abort();
@@ -483,7 +488,7 @@ class ImageLabPanel extends HTMLElement {
         if (this.previewUrl)
             URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = undefined;
-        actionLabel(this.element("copy"), this.strings.copy, "content-copy");
+        this.element("copyStatus").hidden = true;
     }
     analysisTrigger(profile) {
         const labels = this.strings;
@@ -580,7 +585,9 @@ class ImageLabPanel extends HTMLElement {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
             idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab, settingsTab: labels.settingsTab,
-            frequencyTitle: labels.frequencyTitle, frequencyHelp: labels.frequencyHelp,
+            analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
+            outputTitle: labels.settings, noOutput: labels.noResultEntity, renameAction: labels.rename,
+            frequencyHelp: labels.frequencyHelp,
         })) {
             this.element(id).textContent = message;
         }
@@ -588,14 +595,16 @@ class ImageLabPanel extends HTMLElement {
             add: [labels.add, "plus"],
             retry: [labels.retry, "refresh"],
             copy: [labels.copy, "content-copy"],
-            settings: [labels.settings, "chart-box-outline"],
+            settings: [labels.configure, "cog-outline"],
+            editSource: [labels.editSource, "pencil-outline"],
             saveInterval: [labels.saveFrequency, "content-save-outline"],
             test: [labels.test, "play-outline"],
             zone: [labels.zone, "crop"],
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
-        this.element("profileConfiguration").setAttribute("header", labels.profileConfiguration);
+        this.element("technicalInfo").setAttribute("header", labels.technicalInfo);
+        this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
         const profile = this.selected;
         const detail = this.element("detailCard");
         const opened = detail.hidden || moveFocus;
@@ -604,6 +613,7 @@ class ImageLabPanel extends HTMLElement {
         this.shadowRoot.querySelector("main").classList.toggle("with-detail", Boolean(profile));
         this.element("add").hidden = Boolean(profile);
         this.element("icon").hidden = Boolean(profile);
+        this.element("profileMenu").hidden = !profile;
         const back = this.element("back");
         back.hidden = !profile;
         back.slot = profile ? "navigationIcon" : "";
@@ -636,7 +646,8 @@ class ImageLabPanel extends HTMLElement {
         const interval = this.element("interval");
         this.element("cameraSchedule").hidden = !camera;
         const schedule = this.element("schedule");
-        schedule.hidden = camera;
+        schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
+        schedule.textContent = labels.frequencyMediaInactive;
         if (camera) {
             interval.setAttribute("label", labels.intervalLabel);
             const key = `${profile.profile_id}/${profile.interval_minutes}`;
@@ -648,9 +659,14 @@ class ImageLabPanel extends HTMLElement {
         }
         else {
             this.intervalKey = undefined;
-            schedule.textContent = profile.source_type === "upload" ? labels.frequencyUpload :
-                profile.output_entity_id ? labels.onArtworkChange : labels.frequencyMediaInactive;
         }
+        const sourceName = profile.entity_id
+            ? this._hass?.states[profile.entity_id]?.attributes.friendly_name || profile.entity_id
+            : undefined;
+        const trigger = camera ? undefined : profile.output_entity_id && profile.source_type === "media_player"
+            ? labels.artworkTrigger : labels.onDemand;
+        this.element("sourceSummary").textContent =
+            [labels[profile.source_type], sourceName, trigger].filter(Boolean).join(" · ");
         this.element("zone").hidden = !camera || isComparison;
         const cameraZones = this.element("cameraZones");
         cameraZones.hidden = profile.source_type !== "camera";
@@ -669,9 +685,9 @@ class ImageLabPanel extends HTMLElement {
         }
         this.element("profileId").textContent = profile.profile_id;
         this.element("output").hidden = !profile.output_entity_id;
+        this.element("noOutput").hidden = Boolean(profile.output_entity_id);
         this.renderOutputName();
-        const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
-        this.element("source").textContent = source.filter(Boolean).join(" · ");
+        this.element("source").textContent = labels[profile.module];
         this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
         if (opened) {
             const scroller = this.scrollTarget;
@@ -718,7 +734,9 @@ class ImageLabPanel extends HTMLElement {
         if (!id)
             return;
         const name = this._hass?.states[id]?.attributes.friendly_name;
-        actionLabel(this.element("outputEntity"), name || id, "information-outline");
+        const button = this.element("outputEntity");
+        if (button.textContent !== (name || id))
+            button.textContent = name || id;
         const identifier = this.element("outputId");
         identifier.hidden = !name || name === id;
         if (identifier.textContent !== id)
@@ -733,6 +751,8 @@ class ImageLabPanel extends HTMLElement {
         const profile = this.selected;
         if (!profile)
             return;
+        const status = this.element("copyStatus");
+        let message = this.strings.copied;
         try {
             if (navigator.clipboard) {
                 await navigator.clipboard.writeText(profile.profile_id);
@@ -753,12 +773,13 @@ class ImageLabPanel extends HTMLElement {
                     this.element("copy").focus();
                 }
             }
-            if (profile.profile_id === this.selectedId)
-                actionLabel(this.element("copy"), this.strings.copied, "check");
         }
         catch {
-            if (profile.profile_id === this.selectedId)
-                this.showError("copyError");
+            message = this.strings.copyError;
+        }
+        if (profile.profile_id === this.selectedId) {
+            status.textContent = message;
+            status.hidden = false;
         }
     }
     showPalette(colors) {

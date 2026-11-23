@@ -43,7 +43,6 @@ template.innerHTML = `
     }
     #analysisSearch { flex: 1; min-width: 0; }
     #analysisSort { flex: none; }
-    :host([narrow]) ha-data-table { --data-table-row-height: var(--ha-space-16, 64px); }
     #profileNav { margin: 14px 0; }
     @media (max-width: 480px) {
       #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
@@ -647,8 +646,11 @@ class ImageLabPanel extends HTMLElement {
             details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
                 + "font-size:var(--ha-font-size-s,12px);line-height:var(--ha-line-height-normal,1.4);"
                 + "color:var(--secondary-text-color)";
-            if (narrow)
+            if (narrow) {
+                // Keep both metadata lines inside the native table row's auto-height.
+                details.style.lineHeight = "14px";
                 details.style.paddingInline = "var(--ha-space-2, 8px)";
+            }
             details.textContent = label;
             details.title = label;
             if (row.warning && label === row.warning) {

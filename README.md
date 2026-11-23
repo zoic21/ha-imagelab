@@ -36,7 +36,7 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. Dans **Réglages**, déplier **Nom et source** pour modifier le nom, la source et les options propres à l’analyse. Le type est fixé à la création. Pour la comparaison, **Références** et **Historique** sont également disponibles. Les formulaires et sélecteurs sont ceux de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse. Déplier **Nom et source** pour renommer l’analyse ou changer sa source. Le type est fixé à la création. Pour la comparaison, **Références** et **Historique** sont également disponibles. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
 ### Publier le résultat dans une entité
 

@@ -17,25 +17,15 @@ from .const import (
     CONF_IMAGE_KEY,
     CONF_IMAGE_REVISION,
     CONF_MODULE,
-    CONF_OBJECT_CONFIDENCE,
-    CONF_OBJECT_DETAILED,
-    CONF_OBJECT_LABELS,
-    CONF_PALETTE_SIZE,
     CONF_SOURCE_TYPE,
-    DEFAULT_OBJECT_CONFIDENCE,
-    DEFAULT_PALETTE_SIZE,
     DOMAIN,
     IMAGE_TYPES,
     INSTALLATION_ID,
-    MAX_OBJECT_CONFIDENCE,
-    MAX_PALETTE_SIZE,
-    MIN_OBJECT_CONFIDENCE,
-    MIN_PALETTE_SIZE,
     SOURCE_ANALYSIS,
     SourceType,
 )
 from .images import ImageError, get_image_storage
-from .object_detection import LABELS
+from .module_settings import module_settings_fields, normalize_module_settings
 from .options_flow import ImageLabOptionsFlow, select_options
 
 PROFILE_SCHEMA = probatio.Schema(
@@ -109,7 +99,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose a supported source and configure module-specific options."""
+        """Choose a supported source and set initial module settings for new analyses."""
         module = self._settings[CONF_MODULE]
         sources = MODULES[module].sources
         previous = self._entry.data if self._entry else {}
@@ -129,71 +119,15 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
         fields[probatio.Required(CONF_SOURCE_TYPE, default=default_source)] = (
             select_options(list(sources), CONF_SOURCE_TYPE)
         )
-        if module == "palette":
-            default_size = previous.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
-            if user_input is not None:
-                size = user_input.get(CONF_PALETTE_SIZE, default_size)
-                if MIN_PALETTE_SIZE <= size <= MAX_PALETTE_SIZE and int(size) == size:
-                    self._settings[CONF_PALETTE_SIZE] = int(size)
-                else:
-                    errors[CONF_PALETTE_SIZE] = "invalid_palette_size"
-            fields[probatio.Required(CONF_PALETTE_SIZE, default=default_size)] = (
-                selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_PALETTE_SIZE,
-                        max=MAX_PALETTE_SIZE,
-                        step=1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                )
-            )
-        if module == "object_detection":
-            default_confidence = previous.get(
-                CONF_OBJECT_CONFIDENCE, DEFAULT_OBJECT_CONFIDENCE
-            )
-            default_labels = previous.get(CONF_OBJECT_LABELS, [])
-            detailed = previous.get(CONF_OBJECT_DETAILED, False)
-            fields[probatio.Required(CONF_OBJECT_DETAILED, default=detailed)] = (
-                selector.BooleanSelector()
-            )
-            fields[
-                probatio.Required(CONF_OBJECT_CONFIDENCE, default=default_confidence)
-            ] = selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_OBJECT_CONFIDENCE,
-                    max=MAX_OBJECT_CONFIDENCE,
-                    step=1,
-                    unit_of_measurement="%",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            )
-            fields[probatio.Required(CONF_OBJECT_LABELS, default=default_labels)] = (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=list(LABELS),
-                        translation_key=CONF_OBJECT_LABELS,
-                        multiple=True,
-                        sort=True,
-                    )
-                )
-            )
-            if user_input is not None:
-                confidence = user_input.get(CONF_OBJECT_CONFIDENCE, default_confidence)
-                if (
-                    MIN_OBJECT_CONFIDENCE <= confidence <= MAX_OBJECT_CONFIDENCE
-                    and confidence % 1 == 0
-                ):
-                    self._settings[CONF_OBJECT_CONFIDENCE] = int(confidence)
-                else:
-                    errors[CONF_OBJECT_CONFIDENCE] = "invalid_object_confidence"
-                labels = user_input.get(CONF_OBJECT_LABELS, default_labels)
-                self._settings[CONF_OBJECT_LABELS] = list(dict.fromkeys(labels))
-                self._settings[CONF_OBJECT_DETAILED] = user_input.get(
-                    CONF_OBJECT_DETAILED, detailed
-                )
-        if user_input is not None and not errors:
-            self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
-            return await self.async_step_image()
+        module_fields = module_settings_fields(module, previous) if not self._entry else {}
+        fields.update(module_fields)
+        if user_input is not None:
+            settings = {field.schema: user_input[field.schema] for field in module_fields}
+            errors.update(normalize_module_settings(settings))
+            if not errors:
+                self._settings.update(settings)
+                self._settings[CONF_SOURCE_TYPE] = user_input[CONF_SOURCE_TYPE]
+                return await self.async_step_image()
         schema = probatio.Schema(fields)
         if errors:
             schema = self.add_suggested_values_to_schema(schema, user_input)
@@ -233,14 +167,18 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     is None
                 ):
                     return self.async_abort(reason="profile_not_found")
+                # Read the current entry after the image import so changes from
+                # the separate settings form survive a source edit in progress.
+                data = {**self._entry.data, **self._settings}
+                if source is SourceType.UPLOAD:
+                    data.pop(CONF_ENTITY_ID, None)
+                else:
+                    data.pop(CONF_IMAGE_REVISION, None)
                 if (
-                    self._entry.data.get(CONF_ENTITY_ID)
-                    == self._settings.get(CONF_ENTITY_ID)
-                    and source is SourceType.CAMERA
-                    and self._settings[CONF_MODULE] != "comparison"
-                    and self._entry.data.get("region")
+                    source is not SourceType.CAMERA
+                    or self._entry.data.get(CONF_ENTITY_ID) != data[CONF_ENTITY_ID]
                 ):
-                    self._settings["region"] = self._entry.data["region"]
+                    data.pop("region", None)
                 options = dict(self._entry.options)
                 if options and source is not SourceType.CAMERA:
                     options["interval_minutes"] = 0
@@ -248,7 +186,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     self._entry,
                     title=self._title,
-                    data=self._settings,
+                    data=data,
                     options=options,
                     reload_even_if_entry_is_unchanged=False,
                 )

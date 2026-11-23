@@ -1,7 +1,7 @@
 import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 import { actionLabel } from "./action.js";
-import { runProfileFlow } from "./options.js";
+import { editModuleSettings, runProfileFlow } from "./options.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
 const template = document.createElement("template");
@@ -45,6 +45,7 @@ template.innerHTML = `
     }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-top: 18px; }
+    .moduleSettingsSave { margin-top: 12px; }
     #profileConfiguration {
       --expansion-panel-summary-padding: 0 12px;
       --expansion-panel-content-padding: 0 12px;
@@ -151,6 +152,7 @@ template.innerHTML = `
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <div id="moduleSettings"></div>
             <div id="profileSettings" slot="profile-settings">
               <ha-button id="zone" appearance="outlined" hidden></ha-button>
               <section id="cameraSchedule" aria-labelledby="frequencyTitle" hidden>
@@ -200,6 +202,7 @@ class ImageLabPanel extends HTMLElement {
     previewUrl;
     optionsScope;
     profileFlowScope;
+    moduleSettingsScope;
     intervalKey;
     savingInterval = false;
     zoneScope;
@@ -281,6 +284,7 @@ class ImageLabPanel extends HTMLElement {
         this.renderOutputName();
         if (languageChanged) {
             this.strings = language;
+            this.closeModuleSettings();
             this.renderAnalysisColumns();
             this.render();
         }
@@ -319,6 +323,7 @@ class ImageLabPanel extends HTMLElement {
             this.listScrollTop = scroller.scrollTop;
         this.optionsScope?.abort();
         this.closeProfileFlow();
+        this.closeModuleSettings();
         this.clearTest();
         this.selectedId = id;
         this.showTab("result");
@@ -334,6 +339,7 @@ class ImageLabPanel extends HTMLElement {
     disconnectedCallback() {
         this.optionsScope?.abort();
         this.closeProfileFlow();
+        this.closeModuleSettings();
         this.unsubscribe();
         this.clearTest();
     }
@@ -376,6 +382,18 @@ class ImageLabPanel extends HTMLElement {
         this.profileFlowScope = undefined;
         scope?.abort();
         this.element("profileConfiguration").removeAttribute("expanded");
+    }
+    closeModuleSettings() {
+        this.moduleSettingsScope?.abort();
+        this.moduleSettingsScope = undefined;
+    }
+    showModuleSettings() {
+        const profile = this.selected;
+        const hass = this._hass;
+        if (this.moduleSettingsScope || !profile || profile.module === "comparison" || !hass)
+            return;
+        this.moduleSettingsScope = new AbortController();
+        editModuleSettings(this.element("moduleSettings"), hass, profile.profile_id, this.strings, this.moduleSettingsScope.signal);
     }
     subscribe() {
         if (!this.isConnected || !this._hass || this.subscription)
@@ -439,6 +457,8 @@ class ImageLabPanel extends HTMLElement {
         this.element("profileNav").setAttribute("active", tab);
         this.element("resultPane").hidden = tab !== "result";
         this.element("settingsPane").hidden = tab !== "settings";
+        if (tab === "settings")
+            this.showModuleSettings();
     }
     clearTest() {
         this.zoneScope?.abort();
@@ -603,6 +623,8 @@ class ImageLabPanel extends HTMLElement {
         const tab = this.element("profileNav").getAttribute("active");
         this.element("resultPane").hidden = isComparison || tab === "settings";
         this.element("settingsPane").hidden = isComparison || tab !== "settings";
+        if (!isComparison && tab === "settings")
+            this.showModuleSettings();
         if (!profile)
             return;
         const camera = profile.source_type === "camera";

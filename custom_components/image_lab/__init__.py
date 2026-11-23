@@ -54,6 +54,7 @@ from .const import (
     SourceType,
 )
 from .images import ImageError, async_get_frame, get_image_storage
+from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -89,6 +90,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     websocket_api.async_register_command(hass, async_set_schedule)
+    websocket_api.async_register_command(hass, async_module_settings)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
     hass.http.register_view(CameraZoneView)

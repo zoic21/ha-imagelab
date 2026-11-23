@@ -5,16 +5,10 @@
       "user": "Set up Image Lab"
     },
     "step": {
-      "reconfigure": {
-        "title": "Reconfigure analysis",
-        "data": {
-          "name": "Name",
-          "module": "Module"
-        }
-      },
       "source": {
         "title": "Image source",
         "data": {
+          "name": "Name",
           "source_type": "Source",
           "palette_size": "Number of colors",
           "object_confidence": "Confidence threshold",

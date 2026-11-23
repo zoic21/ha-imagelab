@@ -1,6 +1,7 @@
 """Regression checks for the meter's cumulative index."""
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
@@ -9,7 +10,13 @@ import pytest
 from PIL import Image, ImageDraw
 
 from custom_components.image_lab.images import validate_image
-from custom_components.image_lab.meter import _read, meter_entity_values, rebase_meter_state
+from custom_components.image_lab.meter import (
+    _read,
+    calibrate_meter,
+    meter_entity_values,
+    rebase_meter_state,
+    seed_state,
+)
 from custom_components.image_lab.result_store import ResultStore
 from custom_components.image_lab.sensor import ImageLabSensor
 
@@ -32,6 +39,47 @@ def settings():
         "dials": [],
         "max_rate": 5,
     }
+
+
+def test_meter_improves_low_contrast_wheels_without_accepting_a_blocked_frame(monkeypatch):
+    meter = pytest.importorskip("tarsius.meter")
+    raw_calibration = meter.Calibration(exposure=(meter.Exposure(spread=16),) * 3)
+    enhanced_calibration = meter.Calibration(exposure=(meter.Exposure(spread=50),) * 3)
+    raw = meter.MeterReading(0, 0, None, 0.59, 0, 1, wheels=(meter.Reading(0, 0.73),) * 3)
+    enhanced = meter.MeterReading(
+        84.3, 84.3, None, 0.95, 0, 1, wheels=(meter.Reading(4.3, 0.97),) * 3
+    )
+
+    def calibrate(_, content, _layout):
+        return enhanced_calibration if isinstance(content, Image.Image) else raw_calibration
+
+    def read(_, content, layout, calibration):
+        if isinstance(content, Image.Image):
+            assert layout.rotation == 0
+            assert calibration == enhanced_calibration
+            return enhanced
+        assert calibration == raw_calibration
+        return raw
+
+    monkeypatch.setattr(meter.MeterReader, "calibrate", calibrate)
+    monkeypatch.setattr(meter.MeterReader, "read", read)
+    photo = frame()
+    profile = {**settings(), "rotation": 12}
+    result, calibration = calibrate_meter(photo, profile)
+    assert result.data["value"] == 84.3
+    profile["calibration"] = calibration
+    previous = seed_state(84.3)
+    result, _ = _read(photo, profile, previous, False)
+    assert result.data["value"] == 84.3
+
+    raw = replace(
+        raw.rejected(meter.Rejection.FAULT),
+        wheels=(meter.Reading(0, 0.73, fault=meter.Fault.GLARE), *raw.wheels[1:]),
+    )
+    result, state = _read(photo, profile, previous, False)
+    assert result.reason == "meter_fault"
+    assert state["value"] == previous["value"]
+    assert state["at"] == previous["at"]
 
 
 def test_meter_keeps_its_index_after_repeated_decreases_and_unwraps(monkeypatch):

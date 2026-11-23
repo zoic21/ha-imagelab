@@ -37,6 +37,13 @@ class ImageLabSensor(OutputEntity, SensorEntity):
         return list(response["data"].get("ref_counts", {})) if response else []
 
     @property
+    def extra_state_attributes(self) -> dict | None:
+        attributes = super().extra_state_attributes
+        if self.coordinator.kind == METER_OUTPUT and (index := self.result.get("meter_value")) is not None:
+            return {**(attributes or {}), "meter_index": index}
+        return attributes
+
+    @property
     def native_value(self) -> str | int | float | None:
         result = self.result
         if self.coordinator.kind == "count":
@@ -44,5 +51,5 @@ class ImageLabSensor(OutputEntity, SensorEntity):
         if self.coordinator.kind == "color":
             return result.get("dominant_hex")
         if self.coordinator.kind == METER_OUTPUT:
-            return result.get("meter_value")
+            return result.get("meter_total", result.get("meter_value"))
         return result.get("state")

@@ -155,6 +155,16 @@ class ResultStore:
         async with self.lock:
             return await self.hass.async_add_executor_job(lambda: self.load().get("meter_state"))
 
+    async def async_set_meter_state(self, state: dict) -> None:
+        """Persist a confirmed index while keeping the saved observations."""
+        def save() -> None:
+            self._save({**self.load(), "meter_state": state})
+
+        async with self.lock:
+            if self.hass.config_entries.async_get_entry(self.profile_id) is None:
+                raise ImageError("profile_not_found")
+            await self.hass.async_add_executor_job(save)
+
     def _latest(self, data: dict) -> Observation | None:
         return data.get("latest")
 

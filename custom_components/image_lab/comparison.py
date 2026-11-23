@@ -18,6 +18,7 @@ from .images import (
     validate_image,
 )
 from .models import ModuleResult
+from .result_store import Observation
 
 MAX_COMPARE_SIZE = (640, 360)
 
@@ -51,6 +52,7 @@ class ComparisonData(TypedDict):
 
     history: NotRequired[list[dict]]
     history_settings: NotRequired[dict]
+    latest: NotRequired[Observation]
     settings: Settings
     states: list[State]
     references: list[Reference]

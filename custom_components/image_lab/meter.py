@@ -1,17 +1,25 @@
 """Read a mechanical meter locally with Tarsius."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from statistics import fmean
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from PIL import Image, ImageOps
 
 from .comparison_tarsius import async_ensure_tarsius, oriented_for_tarsius
 from .const import CONF_SOURCE_TYPE
 from .images import ImageError, ImageFrame, Region
 from .models import ModuleResult
+
+if TYPE_CHECKING:
+    from tarsius.meter import MeterLayout, MeterReader, MeterReading
 
 METER = "meter"
 METER_OUTPUT = "meter_index"
@@ -19,6 +27,10 @@ METER_SETTINGS = "meter_settings"
 METER_SEED = "meter_seed"
 METER_TOTAL_OFFSET = "total_offset"
 METER_UNITS = {"water": "m³", "gas": "m³", "energy": "kWh"}
+
+_CONTRAST_CALIBRATION = "wheel_contrast"
+_LOW_WHEEL_SPREAD = 25.0
+_MIN_WHEEL_CONFIDENCE_GAIN = 0.10
 
 
 def meter_source(settings: Mapping[str, Any]) -> str:
@@ -34,6 +46,50 @@ def _roi(region: Region):
     return Roi(x, y, min(1, x + region["width"]), min(1, y + region["height"]))
 
 
+def _contrast_frame(content: bytes, layout: MeterLayout) -> tuple[Image.Image, MeterLayout]:
+    """Stretch the color channels inside the wheel strip in preview coordinates."""
+    from tarsius.meter.frame import decode_frame
+
+    frame = decode_frame(content)
+    if layout.rotation:
+        frame = frame.rotate(layout.rotation, Image.Resampling.BILINEAR)
+        layout = replace(layout, rotation=0)
+    box = layout.digits.box(frame.size)
+    frame.paste(ImageOps.autocontrast(frame.crop(box), cutoff=1), box[:2])
+    return frame, layout
+
+
+def _observe_meter(
+    reader: MeterReader, content: bytes, layout: MeterLayout, saved: dict | None
+) -> tuple[MeterReading, dict | None]:
+    from tarsius.meter import Calibration
+
+    if saved is not None:
+        raw = reader.read(content, layout, Calibration.from_dict(saved))
+        contrast = saved.get(_CONTRAST_CALIBRATION)
+        # Inspect the raw exposure first so contrast cannot hide glare or a blank crop.
+        if contrast is None or raw.faults:
+            return raw, None
+        frame, oriented = _contrast_frame(content, layout)
+        return reader.read(frame, oriented, Calibration.from_dict(contrast)), None
+
+    calibration = reader.calibrate(content, layout)
+    raw = reader.read(content, layout, calibration)
+    saved = calibration.as_dict()
+    spread = fmean(sample.spread for sample in calibration.exposure[: layout.wheels])
+    confidence = fmean(wheel.confidence for wheel in raw.wheels)
+    if raw.faults or spread >= _LOW_WHEEL_SPREAD or confidence >= 1 - _MIN_WHEEL_CONFIDENCE_GAIN:
+        return raw, saved
+
+    frame, oriented = _contrast_frame(content, layout)
+    contrast = reader.calibrate(frame, oriented)
+    reading = reader.read(frame, oriented, contrast)
+    improved = fmean(wheel.confidence for wheel in reading.wheels)
+    if reading.accepted and improved >= confidence + _MIN_WHEEL_CONFIDENCE_GAIN:
+        return reading, {**saved, _CONTRAST_CALIBRATION: contrast.as_dict()}
+    return raw, saved
+
+
 def _read(
     frame: ImageFrame, settings: dict, state: dict | None, calibrate: bool
 ) -> tuple[ModuleResult, dict | None]:
@@ -42,7 +98,6 @@ def _read(
         import tarsius
         from tarsius.meter import (
             METER_FRAME_SIDE,
-            Calibration,
             Dial,
             MeterLayout,
             MeterReader,
@@ -65,15 +120,11 @@ def _read(
             ),
         )
         content = oriented_for_tarsius(frame.content, METER_FRAME_SIDE)
-        reader = MeterReader()
-        calibration = (
-            reader.calibrate(content, layout)
-            if calibrate
-            else Calibration.from_dict(settings["calibration"])
+        reading, calibration = _observe_meter(
+            MeterReader(), content, layout, None if calibrate else settings["calibration"]
         )
-        reading = reader.read(content, layout, calibration)
         if calibrate:
-            return _result(reading, settings), calibration.as_dict()
+            return _result(reading, settings), calibration
 
         previous = PlausibilityState.from_dict(state) if state is not None else None
         guard = Plausibility(

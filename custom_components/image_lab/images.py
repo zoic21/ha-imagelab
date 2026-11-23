@@ -1,7 +1,10 @@
 """Fetch and store the original image used by an analysis."""
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import TypedDict
@@ -50,7 +53,8 @@ class Region(TypedDict):
 
 
 def crop_image(image: Image.Image, bounds: Bounds | None) -> Image.Image:
-    image = ImageOps.exif_transpose(image)
+    """Orient an opened image in place, then crop it if bounds are set."""
+    ImageOps.exif_transpose(image, in_place=True)
     if bounds is None:
         return image
 
@@ -78,40 +82,67 @@ def crop_frame(frame: ImageFrame, region: Region) -> ImageFrame:
 def thumbnail_frame(frame: ImageFrame) -> ImageFrame:
     """Render a small, oriented image for lists and galleries."""
     with Image.open(BytesIO(frame.content)) as source:
-        image = ImageOps.exif_transpose(source).convert("RGB")
-        image.thumbnail((240, 144))
-        buffer = BytesIO()
-        image.save(buffer, "JPEG", quality=80)
+        return _thumbnail(source)
+
+
+def _thumbnail(image: Image.Image) -> ImageFrame:
+    ImageOps.exif_transpose(image, in_place=True)
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    image.thumbnail((240, 144))
+    buffer = BytesIO()
+    image.save(buffer, "JPEG", quality=80)
     return ImageFrame(buffer.getvalue(), "image/jpeg", *image.size)
 
 
-def validate_image(content: bytes) -> ImageFrame:
-    """Check the format and size and decode the image off the event loop."""
+@contextmanager
+def open_validated_image(content: bytes) -> Iterator[Image.Image]:
+    """Open, validate and decode an image for immediate pixel processing."""
     if not content:
         raise ImageError("invalid_image")
     if len(content) > MAX_IMAGE_BYTES:
         raise ImageError("image_too_large")
 
-    try:
-        with Image.open(BytesIO(content), formats=list(IMAGE_TYPES)) as image:
+    with ExitStack() as stack:
+        try:
+            image = stack.enter_context(
+                Image.open(BytesIO(content), formats=list(IMAGE_TYPES))
+            )
             width, height = image.size
             if width * height > MAX_IMAGE_PIXELS:
                 raise ImageError("image_too_large")
             if getattr(image, "is_animated", False):
                 raise ImageError("invalid_image")
-            content_type = IMAGE_TYPES[image.format]
             image.load()
-    except Image.DecompressionBombError as err:
-        raise ImageError("image_too_large") from err
-    except (OSError, SyntaxError, ValueError) as err:
-        raise ImageError("invalid_image") from err
+        except Image.DecompressionBombError as err:
+            raise ImageError("image_too_large") from err
+        except (OSError, SyntaxError, ValueError) as err:
+            raise ImageError("invalid_image") from err
+        yield image
 
-    return ImageFrame(content, content_type, width, height)
+
+def validate_image(content: bytes) -> ImageFrame:
+    """Check the format and size and decode the image off the event loop."""
+    with open_validated_image(content) as image:
+        return ImageFrame(content, IMAGE_TYPES[image.format], *image.size)
 
 
 def read_image_file(path: Path) -> bytes:
     with path.open("rb") as file:
         return file.read(MAX_IMAGE_BYTES + 1)
+
+
+def read_thumbnail(path: Path) -> ImageFrame:
+    """Reuse a thumbnail while its original file is unchanged."""
+    stat = path.stat()
+    revision = (stat.st_ino, stat.st_ctime_ns, stat.st_mtime_ns, stat.st_size)
+    return _read_thumbnail(path, revision)
+
+
+@lru_cache(maxsize=256)
+def _read_thumbnail(path: Path, _revision: tuple[int, int, int, int]) -> ImageFrame:
+    with open_validated_image(read_image_file(path)) as image:
+        return _thumbnail(image)
 
 
 def read_upload(hass: HomeAssistant, upload_id: str) -> ImageFrame:

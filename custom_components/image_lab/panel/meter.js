@@ -48,7 +48,7 @@ export const meterStyles = `
     background:var(--ha-color-surface-lowered,var(--secondary-background-color));
   }
   @media (min-width: 760px) {
-    .meter-viewport { height:clamp(220px,calc(100dvh - 330px),620px); }
+    .meter-viewport { height:clamp(220px,calc(100dvh - 385px),560px); }
   }
   .meter-viewport[data-zoomed] { overscroll-behavior:contain; }
   .meter-extent { position:relative; min-width:100%; min-height:100%; display:grid; place-items:center; }
@@ -57,7 +57,7 @@ export const meterStyles = `
   .meter-viewport[data-panning] .meter-frame:active { cursor:grabbing; }
   .meter-frame img { display:block; width:100%; height:100%; max-height:none; }
   .meter-frame .selection:not(.active) { border-style:dashed; background:transparent; opacity:.65; }
-  .meter-section + .meter-section { border-top:1px solid var(--divider-color); margin-top:12px; padding-top:12px; }
+  .meter-section + .meter-section { border-top:1px solid var(--divider-color); margin-top:8px; padding-top:10px; }
   .meter-section h3 { margin:0 0 8px; font-size:1rem; }
   .meter-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
   .meter-grid > :only-child { grid-column:1 / -1; }
@@ -68,6 +68,8 @@ export const meterStyles = `
   .meter-dials ha-button::part(label) { white-space:normal; text-align:start; }
   .meter-settings ha-select { display:block; }
   .meter-coordinates .zoneFields { padding:0 8px 4px; }
+  .meter-rebase-content { padding:0 8px 4px; }
+  .meter-rebase-content ha-input { display:block; }
   .meter-dialog .meter-footer { flex-direction:column; align-items:stretch; gap:8px; }
   .meter-footer p, .meter-footer ha-alert { margin:0; }
   .meter-status { font-variant-numeric:tabular-nums; }
@@ -187,7 +189,7 @@ export async function editMeter(host, language, url, request, signal, saved) {
         </section>
         <section class="meter-section">
           <h3 data-zones-title></h3>
-          <div class="meter-tools"><ha-button data-wheels-zone size="s"></ha-button></div>
+          <div class="meter-tools" data-wheel-picker hidden><ha-button data-wheels-zone size="s"></ha-button></div>
           <div class="meter-grid" data-wheel-counts></div>
           <p class="secondary" data-wheel-limit role="status" hidden></p>
           <div class="meter-dials" data-dials role="group" hidden></div>
@@ -205,6 +207,13 @@ export async function editMeter(host, language, url, request, signal, saved) {
           <h3 data-index-title></h3>
           <div class="meter-grid" data-limits></div>
           <p class="secondary" data-help></p>
+          <ha-expansion-panel data-rebase hidden>
+            <div class="meter-rebase-content">
+              <p class="secondary" data-rebase-help></p>
+              <div data-rebase-value></div>
+              <ha-button data-apply-rebase appearance="outlined" size="s" disabled></ha-button>
+            </div>
+          </ha-expansion-panel>
         </section>
       </div>
     </div>
@@ -248,6 +257,9 @@ export async function editMeter(host, language, url, request, signal, saved) {
     el("zones-title").textContent = labels.zonesTitle;
     el("index-title").textContent = labels.indexTitle;
     el("fine-tune").setAttribute("header", labels.fineTune);
+    el("rebase").setAttribute("header", labels.rebase);
+    el("rebase-help").textContent = labels.rebaseHelp;
+    actionLabel(el("apply-rebase"), labels.confirmRebase, "check");
     actionLabel(el("wheels-zone"), labels.digits, "crop");
     el("dials").setAttribute("aria-label", labels.dials);
     el("wheel-limit").textContent = labels.wheelLimit;
@@ -277,6 +289,7 @@ export async function editMeter(host, language, url, request, signal, saved) {
         let captureId = null;
         let busy = false;
         let selected = 0;
+        let suggestedInitial = false;
         const select = (field, label, options, value) => {
             field.label = label;
             field.options = options;
@@ -299,8 +312,13 @@ export async function editMeter(host, language, url, request, signal, saved) {
         whole.toggleAttribute("disabled", initialized);
         const decimals = field(labels.decimalDigits, 0, 11, "1", layout.decimal_wheels, el("wheel-counts"));
         const rate = field(labels.maxRate, 0.000001, 1_000_000, "any", layout.max_rate, el("limits"));
+        const indexLimit = () => 10 ** Number(whole.value);
         const initial = initialized ? undefined :
             field(labels.initial, 0, 10 ** 12, "any", "", el("limits"), false);
+        const rebaseValue = initialized
+            ? field(labels.rebaseIndex, 0, indexLimit(), "any", "", el("rebase-value"))
+            : undefined;
+        el("rebase").hidden = !initialized;
         el("help").textContent = initialized ? labels.fixedScale : labels.initialHelp;
         const direction = el("direction").querySelector("ha-select");
         select(direction, labels.direction, [
@@ -328,15 +346,16 @@ export async function editMeter(host, language, url, request, signal, saved) {
         };
         const wheelCount = () => Number(whole.value) + Number(decimals.value);
         const validNumbers = () => [whole, decimals, rotation, rate].every(f => f.value !== "" && f.checkValidity()) &&
-            wheelCount() <= 12 &&
-            (!initial?.value || (initial.checkValidity() && Number(initial.value) < 10 ** Number(whole.value)));
+            wheelCount() <= 12;
+        const validIndex = (input) => input.value !== "" && input.checkValidity() && Number(input.value) < indexLimit();
         const refreshButtons = () => {
             el("wheel-limit").hidden = wheelCount() <= 12;
             const ready = !busy && !!captureId && !addingDial() && !!layout.digits &&
                 layout.dials.every(dial => dial.region) && validNumbers();
-            el("save").toggleAttribute("disabled", !ready);
+            el("save").toggleAttribute("disabled", !ready || !!(initial?.value && !validIndex(initial)));
             el("test").toggleAttribute("disabled", !ready);
             el("add").toggleAttribute("disabled", busy || !captureId || layout.dials.length >= 8);
+            el("apply-rebase").toggleAttribute("disabled", busy || !rebaseValue || !validIndex(rebaseValue));
         };
         const paint = (draft) => {
             const overlay = el("overlay");
@@ -359,9 +378,15 @@ export async function editMeter(host, language, url, request, signal, saved) {
             status.textContent = result ? meterText(result, language) : "";
             status.hidden = !status.textContent;
         };
+        const clearSuggestion = () => {
+            if (suggestedInitial && initial)
+                initial.value = "";
+            suggestedInitial = false;
+        };
         const changed = () => {
             fail();
             showResult();
+            clearSuggestion();
             updateZones();
             refreshButtons();
             paint();
@@ -376,6 +401,7 @@ export async function editMeter(host, language, url, request, signal, saved) {
             button.setAttribute("appearance", current ? "outlined" : "plain");
         };
         const updateZones = () => {
+            el("wheel-picker").hidden = layout.dials.length === 0;
             markZone(el("wheels-zone"), selected === 0);
             const dials = el("dials");
             const places = decimals.value !== "" && decimals.checkValidity()
@@ -448,8 +474,14 @@ export async function editMeter(host, language, url, request, signal, saved) {
             selectZone(0);
             changed();
         };
-        for (const input of [whole, decimals, rate, initial])
-            input?.addEventListener("input", changed);
+        for (const input of [whole, decimals])
+            input.addEventListener("input", changed);
+        rate.addEventListener("input", refreshButtons);
+        initial?.addEventListener("input", () => {
+            suggestedInitial = false;
+            refreshButtons();
+        });
+        rebaseValue?.addEventListener("input", refreshButtons);
         rotation.addEventListener("input", () => {
             if (rotation.value !== "" && rotation.checkValidity())
                 layout.rotation = Number(rotation.value);
@@ -514,9 +546,12 @@ export async function editMeter(host, language, url, request, signal, saved) {
             captureId = response.headers.get("X-Image-Lab-Capture");
             viewport.hidden = false;
             image.src = nextImageUrl;
+            clearSuggestion();
             showResult();
         });
         const submit = (operation) => working(el(operation), async () => {
+            if (operation === "test")
+                clearSuggestion();
             const response = await request(url + "/" + operation, {
                 method: "POST", headers: { "Content-Type": "application/json" }, signal: editorSignal,
                 body: JSON.stringify({
@@ -529,13 +564,38 @@ export async function editMeter(host, language, url, request, signal, saved) {
                 throw await responseError(response);
             const result = await response.json();
             editorSignal.throwIfAborted();
-            if (operation === "test")
+            if (operation === "test") {
                 showResult(result);
+                if (initial && !initial.value && !result.reason && typeof result.value === "number"
+                    && result.value >= 0 && result.value < indexLimit()) {
+                    initial.value = String(result.value);
+                    suggestedInitial = true;
+                }
+            }
             else {
                 saved();
                 close();
             }
         });
+        el("apply-rebase").onclick = () => {
+            if (!rebaseValue || !validIndex(rebaseValue))
+                return;
+            void working(el("apply-rebase"), async () => {
+                const response = await request(url + "/rebase", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, signal: editorSignal,
+                    body: JSON.stringify({ revision, value: Number(rebaseValue.value) }),
+                });
+                if (!response.ok)
+                    throw await responseError(response);
+                const { value } = await response.json();
+                editorSignal.throwIfAborted();
+                rebaseValue.value = "";
+                el("rebase").removeAttribute("expanded");
+                const status = el("result");
+                status.textContent = labels.rebased.replace("{value}", factor.format(value));
+                status.hidden = false;
+            });
+        };
         el("capture").onclick = () => void capture();
         el("test").onclick = () => void submit("test");
         el("save").onclick = () => void submit("save");

@@ -8,6 +8,7 @@ from aiohttp import web
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_ENTITY_ID
+from homeassistant.util.file import WriteError
 
 from .analysis import resolve_entity_id
 from .comparison_api import ID, REGION, RESPONSE_HEADERS, cache_capture, cached_capture
@@ -51,6 +52,11 @@ _REQUEST = probatio.Schema({
     probatio.Required("revision"): str,
     probatio.Required("settings"): _LAYOUT,
     probatio.Optional("initial_value"): _number(0, 10**12),
+})
+
+_REBASE = probatio.Schema({
+    probatio.Required("revision"): str,
+    probatio.Required("value"): _number(0, 10**12),
 })
 
 
@@ -115,6 +121,8 @@ class MeterView(HomeAssistantView):
         self, request: web.Request, profile_id: str, operation: str | None = None
     ) -> web.Response:
         entry = _entry(request, profile_id)
+        if operation == "rebase":
+            return await self._rebase(request, entry)
         if operation not in ("test", "save"):
             raise web.HTTPNotFound
         try:
@@ -170,3 +178,20 @@ class MeterView(HomeAssistantView):
             if changed:
                 hass.config_entries.async_schedule_reload(entry.entry_id)
         return self.json({**result.data, "reason": result.reason}, headers=RESPONSE_HEADERS)
+
+
+    async def _rebase(self, request: web.Request, entry: ConfigEntry) -> web.Response:
+        try:
+            values = _REBASE(await request.json())
+        except (ValueError, probatio.Invalid):
+            return self._error("meter_invalid_settings", 400)
+        coordinator = entry.runtime_data if entry.state is ConfigEntryState.LOADED else None
+        if coordinator is None:
+            return self._error("profile_unavailable")
+        try:
+            await coordinator.async_rebase_meter(values["value"], values["revision"])
+        except ImageError as err:
+            return self._error(err.reason, 409 if err.reason == "meter_settings_changed" else 422)
+        except (WriteError, OSError):
+            return self._error("storage_error")
+        return self.json({"value": values["value"]}, headers=RESPONSE_HEADERS)

@@ -986,4 +986,6 @@ class ImageLabPanel extends HTMLElement {
   }
 }
 
-customElements.define("image-lab-panel", ImageLabPanel);
+// An open Home Assistant tab can reconnect and load the new URL before a refresh.
+if (!customElements.get("image-lab-panel"))
+  customElements.define("image-lab-panel", ImageLabPanel);

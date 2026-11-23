@@ -34,6 +34,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .analysis import async_analyze, resolve_entity_id
 from .comparison_api import REGION, ComparisonImageView, ComparisonView, drop_captures
@@ -97,7 +98,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(ComparisonView)
     hass.http.register_view(ComparisonImageView)
 
-    static_url = f"/{DOMAIN}_assets"
+    # A versioned directory also invalidates the panel's relative module imports.
+    integration = await async_get_integration(hass, DOMAIN)
+    static_url = f"/{DOMAIN}_assets/{integration.version}"
     assets = Path(__file__).parent / "panel"
     await hass.http.async_register_static_paths(
         [

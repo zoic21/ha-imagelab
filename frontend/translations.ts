@@ -162,7 +162,6 @@ export const panelStrings = {
 
 export const comparisonStrings = {
   en: {
-    close: "Close",
     history: "History", correct: "Change reference state", prediction: "Detected state",
     preview: "Result", currentCapture: "Analyzed capture",
     manualAnalysis: "Manual", automaticAnalysis: "Automatic",
@@ -199,6 +198,8 @@ export const comparisonStrings = {
     tarsius_needs_references: "Add a usable reference image for at least two states.",
     tarsius_unavailable: "Tarsius could not be installed or loaded.",
     move: "Move",
+    move_reference: "Move reference",
+    uploaded_image: "Imported image",
     classify: "Add as a reference",
     capture: "Capture",
     capture_saved: "Capture classified.",
@@ -240,7 +241,6 @@ export const comparisonStrings = {
     reload: "Reload",
   },
   fr: {
-    close: "Fermer",
     history: "Historique", correct: "Modifier l’état de référence", prediction: "État détecté",
     preview: "Résultat", currentCapture: "Capture analysée",
     manualAnalysis: "Manuelle", automaticAnalysis: "Automatique",
@@ -277,6 +277,8 @@ export const comparisonStrings = {
     tarsius_needs_references: "Ajoutez une référence exploitable pour au moins deux états.",
     tarsius_unavailable: "Impossible d’installer ou de charger Tarsius.",
     move: "Déplacer",
+    move_reference: "Déplacer la référence",
+    uploaded_image: "Image importée",
     classify: "Ajouter comme référence",
     capture: "Capture",
     capture_saved: "Capture classée.",

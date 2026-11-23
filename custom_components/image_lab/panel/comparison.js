@@ -12,7 +12,7 @@ const tabs = ["preview", "references", "history", "settings"];
 const accept = "image/jpeg,image/png,image/webp";
 const actionIcons = {
     add_state: "plus", cancel: "close", classify: "tag-plus-outline",
-    close: "close", correct: "tag-edit-outline", edit_zone: "crop",
+    correct: "tag-edit-outline", edit_zone: "crop",
     move: "arrow-right", reload: "refresh", remove: "delete-outline",
     rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
     upload: "file-upload",
@@ -83,16 +83,42 @@ template.innerHTML = `
       display:flex; align-items:center; min-height:var(--ha-space-14, 56px);
     }
     .stateActions .removeState { color:var(--error-color); }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr)); gap:8px; }
-    .reference { display:grid; gap:6px; min-width:0; padding:8px; border-radius:var(--ha-border-radius-md, 8px);
-      background:var(--secondary-background-color); overflow-wrap:anywhere; }
+    .referenceGrid {
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%, 180px),1fr));
+      gap:var(--ha-space-2, 8px);
+    }
+    @media(max-width:600px) {
+      .referenceGrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    .reference { min-width:0; border-radius:var(--ha-border-radius-md, 8px); }
     .reference[data-matched=true] { outline:2px solid var(--primary-color); }
-    .openImage { width:100%; --ha-button-height:auto; }
-    .openImage::part(base) { padding:0; }
-    .openImage::part(label) { width:100%; }
-    .accessibleLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-    .original { display:block; max-width:100%; max-height:65dvh; margin:auto; }
-    .reference img { width:100%; height:110px; object-fit:contain; }
+    .openImage {
+      display:block; width:100%; height:100%; color:var(--primary-text-color);
+      --ha-button-height:auto; --ha-button-border-radius:var(--ha-border-radius-md, 8px);
+    }
+    .openImage::part(base) { padding:0; height:100%; }
+    .openImage::part(label) { width:100%; height:100%; }
+    .referenceTile {
+      display:block; height:100%; border-radius:var(--ha-border-radius-md, 8px);
+      overflow:hidden; background:var(--secondary-background-color); text-align:start;
+      font-weight:var(--ha-font-weight-normal, 400);
+    }
+    .referenceThumbnail {
+      display:grid; place-items:center; aspect-ratio:16 / 9; position:relative;
+      background:var(--divider-color); color:var(--secondary-text-color);
+    }
+    .referenceThumbnail img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .referenceThumbnail img:not([src]) { visibility:hidden; }
+    .referenceCaption { display:block; padding:var(--ha-space-2, 8px); }
+    .referenceName, .referenceDetail { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .referenceName { font-weight:var(--ha-font-weight-medium, 500); }
+    .referenceDetail { color:var(--secondary-text-color); font-size:var(--ha-font-size-s, 12px); }
+    .referencePreview { --ha-dialog-min-height:auto; }
+    .original {
+      display:block; max-width:100%; max-height:65dvh; margin:auto;
+      object-fit:contain; border-radius:var(--ha-border-radius-md, 8px);
+    }
+    .moveTarget { width:100%; }
     .referenceImport { margin-block:var(--ha-space-2, 8px); }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
@@ -524,14 +550,13 @@ export class ImageLabComparison extends HTMLElement {
     }
     updateSelectors() {
         const captureState = this.get("captureState");
-        this.stateOptions(captureState, captureState.value, false);
+        this.stateOptions(captureState, captureState.value);
     }
-    stateOptions(select, state = select.value, first = true) {
+    stateOptions(select, state) {
         select.options = (this.gallery?.states ?? []).map(({ id, name }) => ({
             value: id, label: name,
         }));
-        select.value = select.options.some((option) => option.value === state)
-            ? state : (first ? select.options[0]?.value : undefined) ?? "";
+        select.value = select.options.some((option) => option.value === state) ? state : "";
     }
     async evaluate() {
         await this.task(async (signal) => {
@@ -554,7 +579,7 @@ export class ImageLabComparison extends HTMLElement {
         this.captured = false;
         this.result = result;
         this.matchId = result.data.reference_id ?? undefined;
-        this.stateOptions(this.get("captureState"), result.data.state_id ?? "", false);
+        this.stateOptions(this.get("captureState"), result.data.state_id ?? "");
         this.renderResult();
         if (result.image_id)
             await this.showImages(result.image_id, signal);
@@ -828,22 +853,35 @@ export class ImageLabComparison extends HTMLElement {
                 this.renderHistory();
         });
     }
-    inspectImage(id, title) {
+    inspectReference(ref) {
         return this.task(async (signal) => {
-            const blob = await this.fetchImage(id, signal);
+            const blob = await this.fetchImage(ref.id, signal);
             signal.throwIfAborted();
+            if (this.tab !== "references")
+                return;
             const url = URL.createObjectURL(blob);
             const dialog = document.createElement("ha-dialog");
-            dialog.setAttribute("header-title", title);
+            dialog.className = "referencePreview";
+            dialog.setAttribute("header-title", ref.name);
             const image = document.createElement("img");
             image.className = "original";
-            image.alt = title;
+            image.alt = ref.name;
             image.src = url;
+            const afterClose = (action) => {
+                dialog.addEventListener("closed", () => {
+                    if (!signal.aborted && this.tab === "references")
+                        action();
+                }, { once: true });
+                dialog.removeAttribute("open");
+            };
             const footer = document.createElement("ha-dialog-footer");
             footer.slot = "footer";
-            const close = this.button("close", () => dialog.removeAttribute("open"));
-            close.slot = "primaryAction";
-            footer.append(close);
+            const remove = this.button("remove", () => afterClose(() => this.confirmRemoval("confirm_remove", ref.name, () => this.galleryMutation("delete", { reference_id: ref.id }))));
+            remove.slot = "secondaryAction";
+            const move = this.button("move", () => afterClose(() => this.moveReference(ref)));
+            move.slot = "primaryAction";
+            move.toggleAttribute("disabled", !this.gallery || this.gallery.states.length < 2);
+            footer.append(remove, move);
             dialog.append(image, footer);
             const release = () => {
                 URL.revokeObjectURL(url);
@@ -855,6 +893,42 @@ export class ImageLabComparison extends HTMLElement {
             this.get("dialogSlot").replaceChildren(dialog);
             dialog.setAttribute("open", "");
         });
+    }
+    moveReference(ref) {
+        const options = (this.gallery?.states ?? [])
+            .filter(state => state.id !== ref.state_id)
+            .map(state => ({ value: state.id, label: state.name }));
+        const dialog = document.createElement("ha-dialog");
+        dialog.setAttribute("header-title", this.labels.move_reference);
+        dialog.setAttribute("width", "small");
+        const target = document.createElement("ha-select");
+        target.className = "moveTarget";
+        target.label = this.labels.new_state;
+        target.options = options;
+        target.value = options.length === 1 ? options[0].value : "";
+        const footer = document.createElement("ha-dialog-footer");
+        footer.slot = "footer";
+        const cancel = this.button("cancel", () => dialog.removeAttribute("open"));
+        cancel.slot = "secondaryAction";
+        const move = this.button("move", () => {
+            if (!target.value)
+                return;
+            dialog.removeAttribute("open");
+            return this.galleryMutation("move", { reference_id: ref.id, state_id: target.value });
+        });
+        move.slot = "primaryAction";
+        move.setAttribute("appearance", "filled");
+        move.setAttribute("variant", "brand");
+        move.toggleAttribute("disabled", !target.value);
+        target.addEventListener("selected", event => {
+            target.value = event.detail.value;
+            move.toggleAttribute("disabled", !target.value);
+        });
+        footer.append(cancel, move);
+        dialog.append(target, footer);
+        dialog.addEventListener("closed", () => dialog.remove(), { once: true });
+        this.get("dialogSlot").replaceChildren(dialog);
+        dialog.setAttribute("open", "");
     }
     renderHistory() {
         if (!this.gallery || this.tab !== "history")
@@ -884,7 +958,7 @@ export class ImageLabComparison extends HTMLElement {
         const reference = this.gallery.references.find(ref => ref.id === item.id);
         const state = document.createElement("ha-select");
         state.label = this.labels.expected;
-        this.stateOptions(state, reference?.state_id ?? item.state_id ?? "", false);
+        this.stateOptions(state, reference?.state_id ?? item.state_id ?? "");
         const status = document.createElement("p");
         status.className = "secondary";
         status.setAttribute("role", "status");
@@ -944,6 +1018,11 @@ export class ImageLabComparison extends HTMLElement {
         if (!this.gallery || this.tab !== "references")
             return;
         this.observeThumbnails();
+        const captureTimes = new Map(this.gallery.history.map(item => [item.id, item.time]));
+        const timestamp = new Intl.DateTimeFormat(this.client?.locale.language, {
+            timeZone: this.client?.config?.time_zone,
+            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+        });
         for (const state of this.gallery.states) {
             const panel = document.createElement("ha-expansion-panel");
             panel.className = "state";
@@ -992,57 +1071,63 @@ export class ImageLabComparison extends HTMLElement {
             importer.className = "referenceImport";
             importer.append(upload, input);
             const grid = document.createElement("div");
-            grid.className = "grid";
+            grid.className = "referenceGrid";
             for (const ref of this.gallery.references.filter(item => item.state_id === state.id)) {
-                grid.append(this.referenceRow(ref));
+                const time = ref.source === "capture" ? captureTimes.get(ref.id) : undefined;
+                grid.append(this.referenceTile(ref, time ? timestamp.format(new Date(time)) : undefined));
             }
             section.append(importer, grid);
             panel.append(section);
             node.append(panel);
         }
     }
-    referenceRow(ref) {
+    referenceTile(ref, captureDate) {
         const card = document.createElement("article");
         card.className = "reference";
         card.dataset.matched = String(this.matchId === ref.id);
         card.tabIndex = -1;
-        const title = document.createElement("strong");
-        title.textContent = ref.name;
-        const state = document.createElement("ha-select");
-        state.label = this.labels.state;
-        this.stateOptions(state, ref.state_id);
-        const controls = document.createElement("div");
-        controls.className = "row";
-        const move = this.button("move", () => this.galleryMutation("move", {
-            reference_id: ref.id,
-            state_id: state.value,
-        }));
-        const remove = this.button("remove", () => this.confirmRemoval("confirm_remove", ref.name, () => this.galleryMutation("delete", { reference_id: ref.id })));
-        controls.append(move, remove);
-        const image = this.imageButton(ref.id, ref.name, `${this.labels.view_reference} · ${ref.name}`);
-        card.append(image, title, state, controls);
-        return card;
-    }
-    imageButton(id, title, label) {
+        const tile = document.createElement("span");
+        tile.className = "referenceTile";
+        const thumbnail = document.createElement("span");
+        thumbnail.className = "referenceThumbnail";
+        const fallback = document.createElement("ha-icon");
+        fallback.setAttribute("icon", "mdi:image-outline");
+        fallback.setAttribute("aria-hidden", "true");
         const image = document.createElement("img");
         image.alt = "";
-        image.dataset.reference = id;
+        image.dataset.reference = ref.id;
         this.thumbnailObserver?.observe(image);
+        thumbnail.append(fallback, image);
+        const caption = document.createElement("span");
+        caption.className = "referenceCaption";
+        const title = document.createElement("span");
+        title.className = "referenceName";
+        title.textContent = captureDate ? this.labels.capture : ref.name;
+        caption.append(title);
+        const description = captureDate ?? (ref.source === "upload" ? this.labels.uploaded_image : undefined);
+        if (description) {
+            const detail = document.createElement("span");
+            detail.className = "referenceDetail";
+            detail.textContent = description;
+            caption.append(detail);
+        }
+        tile.append(thumbnail, caption);
         const open = document.createElement("ha-button");
         open.className = "openImage";
         open.setAttribute("appearance", "plain");
-        open.onclick = () => void this.inspectImage(id, title);
-        const openLabel = document.createElement("span");
-        openLabel.className = "accessibleLabel";
-        openLabel.textContent = label;
-        open.append(image, openLabel);
-        return open;
+        open.setAttribute("variant", "neutral");
+        open.onclick = () => void this.inspectReference(ref);
+        open.append(tile);
+        card.append(open);
+        return card;
     }
     async galleryMutation(operation, data) {
         await this.task(async (signal) => {
             await this.update(operation, data, signal);
             if (operation === "delete_state" && data.state_id)
                 this.expandedStates.delete(data.state_id);
+            if (operation === "move" && data.state_id)
+                this.expandedStates.add(data.state_id);
             this.renderGallery();
         });
     }

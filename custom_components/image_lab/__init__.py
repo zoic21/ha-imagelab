@@ -35,9 +35,10 @@ from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
+from homeassistant.util.file import WriteError
 
 from .analysis import async_analyze, resolve_entity_id
-from .comparison_api import REGION, ComparisonImageView, ComparisonView, drop_captures
+from .comparison_api import HISTORY_SETTINGS, REGION, ComparisonImageView, ComparisonView, drop_captures
 from .comparison_store import async_remove_comparison, get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
@@ -334,7 +335,12 @@ class ImageLabPreviewView(HomeAssistantView):
         try:
             if item == "history":
                 return self.json(await store.async_history(), headers=self.headers)
-            saved = await store.async_read(item)
+            if item == "history_settings":
+                return self.json(await store.async_history_settings(), headers=self.headers)
+            thumbnail = item is not None and request.query.get("thumbnail") == "1"
+            saved = await store.async_read(item, thumbnail)
+        except OSError:
+            return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
         except ImageError as err:
             return self.json({"reason": err.reason}, status_code=422, headers=self.headers)
         if saved is None:
@@ -342,6 +348,8 @@ class ImageLabPreviewView(HomeAssistantView):
                 raise web.HTTPNotFound
             return web.Response(status=204, headers=self.headers)
         observation, frame = saved
+        if thumbnail:
+            return web.Response(body=frame.content, content_type=frame.content_type, headers=self.headers)
         return self._image_response(observation, frame)
 
     async def post(
@@ -349,6 +357,19 @@ class ImageLabPreviewView(HomeAssistantView):
     ) -> web.Response:
         """Record a manual analysis and publish its result entity."""
         entry = self._entry(request, profile_id)
+        if item == "history_settings" and entry.data[CONF_MODULE] != "comparison":
+            try:
+                settings = HISTORY_SETTINGS(await request.json())
+                if settings["mode"] == "changes":
+                    raise probatio.Invalid("Change detection is only available for comparisons")
+            except (ValueError, probatio.Invalid):
+                raise web.HTTPBadRequest from None
+            store = get_result_store(request.app[KEY_HASS], profile_id)
+            try:
+                await store.async_set_history_settings(settings)
+            except (ImageError, OSError, WriteError):
+                return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
+            return self.json(settings, headers=self.headers)
         if item is not None:
             raise web.HTTPNotFound
         if entry.state is not ConfigEntryState.LOADED or entry.runtime_data is None:

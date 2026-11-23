@@ -15,9 +15,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.file import WriteError
 
 from .analysis import async_analyze
-from .comparison_store import ComparisonStore, GalleryImage, get_comparison_store
+from .comparison_store import ComparisonStore, get_comparison_store
 from .const import CONF_MODULE, DOMAIN
-from .images import ImageError, ImageFrame
+from .images import ImageError, ImageFrame, thumbnail_frame
 from .result_store import Observation
 
 RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
@@ -98,14 +98,16 @@ def _history_limit(n: int) -> int:
     return n
 
 
+HISTORY_SETTINGS = probatio.Schema(
+    {
+        probatio.Required("mode"): probatio.In(("off", "all", "changes")),
+        probatio.Required("limit"): _history_limit,
+    }
+)
+
 SCHEMAS = {
     "correct": probatio.Schema({**TARGET, probatio.Required("capture_id"): ID}),
-    "history_settings": probatio.Schema(
-        {
-            probatio.Required("mode"): probatio.In(("off", "all", "changes")),
-            probatio.Required("limit"): _history_limit,
-        }
-    ),
+    "history_settings": HISTORY_SETTINGS,
     "settings": SETTINGS,
     "state": probatio.Schema(
         {probatio.Optional("state_id"): ID, probatio.Required("name"): TITLE}
@@ -306,14 +308,14 @@ class ComparisonImageView(HomeAssistantView):
         """Load a saved reference or the exact capture used by the preview."""
         store = _store(request, profile_id)
         frame = _capture_frame(request, profile_id, image_id)
+        thumbnail = request.query.get("thumbnail") == "1"
         try:
-            image = (
-                GalleryImage(frame.content, frame.content_type)
-                if frame is not None
-                else await store.async_image(
-                    image_id, request.query.get("thumbnail") == "1"
-                )
-            )
+            if frame is None:
+                image = await store.async_image(image_id, thumbnail)
+            elif thumbnail:
+                image = await store.hass.async_add_executor_job(thumbnail_frame, frame)
+            else:
+                image = frame
         except (OSError, ImageError):
             raise web.HTTPNotFound from None
         return web.Response(

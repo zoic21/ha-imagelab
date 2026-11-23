@@ -1,5 +1,6 @@
 import { comparisonStrings as text } from "./translations.js";
 import { actionLabel } from "./action.js";
+import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
 import { numberField } from "./number-field.js";
 import { bindRegionDrawing, paintRegion } from "./region.js";
 const engines = ["pillow", "tarsius"];
@@ -11,7 +12,7 @@ const accept = "image/jpeg,image/png,image/webp";
 const actionIcons = {
     add_state: "plus", cancel: "close", classify: "tag-plus-outline",
     close: "close", correct: "tag-edit-outline", draw: "crop",
-    move: "arrow-right", refreshHistory: "refresh", reload: "refresh", remove: "delete-outline",
+    move: "arrow-right", reload: "refresh", remove: "delete-outline",
     rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
     view_reference: "image-search-outline", whole: "crop-free",
 };
@@ -34,10 +35,8 @@ template.innerHTML = `
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
-    #historySettings { display:grid; align-items:start; gap:8px;
-      grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin-top:8px; }
-    #historySettings .row { grid-column:1 / -1; }
-    #historyMode, #historyLimit { width:100%; }
+    ${historyStyles}
+    #historySettings { border-top:1px solid var(--divider-color); margin:16px 0; padding-top:12px; }
     .comparisonImages { display:grid; align-items:start; gap:12px; margin:12px 0;
       grid-template-columns:repeat(2,minmax(0,1fr)); }
     .comparisonImages:not(.withMatch) { grid-template-columns:minmax(0,1fr); }
@@ -128,11 +127,7 @@ template.innerHTML = `
     <div id="gallery"></div>
   </section>
   <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
-    <div id="historySettings"><ha-select id="historyMode"></ha-select>
-      <ha-input type="number" id="historyLimit" min="1" max="100" required step="1"></ha-input>
-      <div class="row"><ha-button id="saveHistory"></ha-button><ha-button appearance="plain" id="refreshHistory"></ha-button></div>
-    </div>
-    <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
+    ${historyMarkup}
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <h3 id="analysisSettingsTitle"></h3>
@@ -145,6 +140,7 @@ template.innerHTML = `
     </fieldset>
     <ha-button id="save" variant="brand"></ha-button>
     <p id="dirty" class="secondary"></p>
+    <section id="historySettings">${historySettingsMarkup}</section>
     <slot name="profile-settings"></slot>
   </section>
   <div id="dialogSlot"></div>
@@ -169,10 +165,16 @@ export class ImageLabComparison extends HTMLElement {
     thumbnailUrls = [];
     thumbnailObserver;
     matchId;
+    history;
+    historySettings;
     expandedStates = new Set();
     constructor() {
         super();
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+        this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
+        this.historySettings = new HistorySettings(this.get("historySettings"), true, async (value, signal) => {
+            await this.update("history_settings", value, signal);
+        });
         this.get("nav").addEventListener("wa-tab-show", (event) => {
             const tab = event.detail.name;
             if (tab !== this.tab)
@@ -188,17 +190,6 @@ export class ImageLabComparison extends HTMLElement {
                 }
             }
         });
-        this.onClick("refreshHistory", () => this.loadHistory());
-        this.onClick("saveHistory", () => this.task(async (signal) => {
-            const field = this.get("historyLimit");
-            if (!field.reportValidity())
-                return;
-            await this.update("history_settings", {
-                mode: this.get("historyMode").value, limit: Number(field.value),
-            }, signal);
-            this.renderHistory();
-            this.feedback(this.labels.saved);
-        }));
         this.onClick("reload", () => this.load());
         this.onClick("test", () => this.evaluate());
         this.onClick("draw", () => {
@@ -333,9 +324,10 @@ export class ImageLabComparison extends HTMLElement {
         void customElements.whenDefined("ha-file-upload").then(() => loader.remove());
     }
     localize() {
+        this.history.localize(this.client);
+        this.historySettings.localize(this.client?.locale.language);
         const names = {
             analysisSettingsTitle: "analysis",
-            saveHistory: "save", refreshHistory: "refreshHistory",
             test: "test",
             draw: "draw",
             whole: "whole",
@@ -351,7 +343,6 @@ export class ImageLabComparison extends HTMLElement {
             names["tab-" + tab] = tab;
         for (const key of ["max_distance", "min_margin", ...coordinates])
             this.get(key).setAttribute("label", this.labels[key]);
-        this.get("historyLimit").setAttribute("label", this.labels.historyLimit);
         for (const [id, label] of Object.entries(names)) {
             const icon = actionIcons[label];
             if (icon)
@@ -364,11 +355,6 @@ export class ImageLabComparison extends HTMLElement {
         engine.label = this.labels.engine;
         engine.options = engines.map((value) => ({ value, label: engineNames[value] }));
         this.renderEngine();
-        const mode = this.get("historyMode");
-        mode.label = this.labels.historyMode;
-        mode.options = ["off", "changes", "all"].map(value => ({
-            value, label: this.labels[value],
-        }));
         this.get("captureState").label = this.labels.state;
         this.get("frame").alt = this.labels.preview;
         this.get("nav").setAttribute("aria-label", "Image Lab");
@@ -390,7 +376,8 @@ export class ImageLabComparison extends HTMLElement {
         this.setMatch();
         this.clearThumbnails();
         this.get("gallery").replaceChildren();
-        this.get("historyGrid").replaceChildren();
+        this.history.clear();
+        this.historySettings.setValue();
         this.get("stateName").value = "";
         this.feedback();
         this.renderResult();
@@ -406,6 +393,7 @@ export class ImageLabComparison extends HTMLElement {
         this.get("references").setAttribute("aria-busy", String(busy));
         this.get("gallery").inert = busy;
         this.get("history").inert = busy || !this.gallery;
+        this.get("historySettings").inert = busy || !this.gallery;
         this.get("reload").hidden = Boolean(this.gallery) || busy;
         this.get("draw").hidden = !hasFrame;
         const draw = this.drawing ? "stop_draw" : "draw";
@@ -431,14 +419,15 @@ export class ImageLabComparison extends HTMLElement {
         this.get("nav").setAttribute("active", tab);
         for (const key of tabs)
             this.get(key).hidden = tab !== key;
+        if (tab !== "history")
+            this.history.clear();
         if (tab === "references")
             this.renderGallery();
-        else if (tab === "history") {
-            this.renderHistory();
-            void this.loadHistory();
-        }
-        else
+        else {
             this.clearThumbnails();
+            if (tab === "history")
+                void this.loadHistory();
+        }
         this.refresh();
     }
     async load() {
@@ -452,6 +441,7 @@ export class ImageLabComparison extends HTMLElement {
             if (signal.aborted)
                 return;
             this.fillSettings();
+            this.historySettings.setValue(this.gallery.history_settings);
             this.updateSelectors();
             if (this.tab === "references")
                 this.renderGallery();
@@ -614,10 +604,13 @@ export class ImageLabComparison extends HTMLElement {
         return table;
     }
     async fetchImage(id, signal, thumbnail = false) {
-        const suffix = thumbnail ? "?thumbnail=1" : "";
-        const response = await this.client.fetchWithAuth(this.url("/image/" + id + suffix), { signal, cache: "no-store" });
+        const response = await this.imageResponse(id, signal, thumbnail);
         await this.checkResponse(response);
         return response.blob();
+    }
+    imageResponse(id, signal, thumbnail) {
+        const suffix = thumbnail ? "?thumbnail=1" : "";
+        return this.client.fetchWithAuth(this.url("/image/" + id + suffix), { signal, cache: "no-store" });
     }
     setFrame(url) {
         if (this.frameUrl)
@@ -892,50 +885,70 @@ export class ImageLabComparison extends HTMLElement {
         });
     }
     renderHistory() {
-        this.clearThumbnails();
-        const grid = this.get("historyGrid");
-        grid.replaceChildren();
-        if (!this.gallery)
+        if (!this.gallery || this.tab !== "history")
             return;
-        this.get("historyMode").value = this.gallery.history_settings.mode;
-        this.get("historyLimit").value = String(this.gallery.history_settings.limit);
-        this.get("historyMessage").textContent = !this.gallery.history.length
-            ? this.labels.emptyHistory : !this.gallery.states.length ? this.labels.no_states : "";
-        this.observeThumbnails();
-        for (const item of [...this.gallery.history].reverse()) {
-            const card = document.createElement("article");
-            card.className = "reference";
-            const title = document.createElement("strong");
-            title.textContent = item.state_id ? item.state : this.labels.unknown;
-            const stamp = document.createElement("span");
-            stamp.textContent = this.observationLabel(item.time, item.manual) + " · " + engineNames[item.engine];
-            const open = this.imageButton(item.id, stamp.textContent, this.labels.viewCapture);
-            card.append(open, title, stamp);
-            if (item.reason && Object.hasOwn(this.labels, item.reason)) {
-                const reason = document.createElement("span");
-                reason.className = "secondary";
-                reason.textContent = this.labels[item.reason];
-                card.append(reason);
-            }
-            const ref = this.gallery.references.find(r => r.id === item.id);
-            if (this.gallery.states.length) {
-                const state = document.createElement("ha-select");
-                state.label = this.labels.expected;
-                this.stateOptions(state, ref?.state_id ?? item.state_id ?? "");
-                card.append(state, this.button("correct", () => this.task(async (signal) => {
-                    await this.update("correct", { capture_id: item.id, state_id: state.value }, signal);
-                    this.renderHistory();
-                    this.feedback(this.labels.capture_saved);
-                })));
-            }
-            if (ref) {
-                const assigned = document.createElement("span");
-                assigned.textContent = [this.labels.training,
-                    this.gallery.states.find(s => s.id === ref.state_id)?.name].join(" · ");
-                card.append(assigned);
-            }
-            grid.append(card);
+        this.history.localize(this.client);
+        this.history.render(this.gallery.history, {
+            image: (id, signal, thumbnail) => this.imageResponse(id, signal, thumbnail),
+            summary: item => ({ text: item.state_id ? item.state : this.labels.unknown, uncertain: !item.state_id }),
+            details: (item, content, _image, _response, signal) => this.historyDetails(item, content, signal),
+        });
+    }
+    historyDetails(item, content, signal) {
+        const prediction = document.createElement("p");
+        prediction.textContent = `${this.labels.prediction} · ${item.state_id ? item.state : this.labels.unknown}`;
+        const origin = document.createElement("p");
+        origin.className = "history-detail-meta";
+        origin.textContent = engineNames[item.engine];
+        content.append(prediction, origin);
+        if (item.reason && Object.hasOwn(this.labels, item.reason)) {
+            const reason = document.createElement("p");
+            reason.className = "secondary";
+            reason.textContent = this.labels[item.reason];
+            content.append(reason);
         }
+        if (!this.gallery?.states.length)
+            return;
+        const reference = this.gallery.references.find(ref => ref.id === item.id);
+        const state = document.createElement("ha-select");
+        state.label = this.labels.expected;
+        this.stateOptions(state, reference?.state_id ?? item.state_id ?? "", false);
+        const status = document.createElement("p");
+        status.className = "secondary";
+        status.setAttribute("role", "status");
+        if (reference)
+            status.textContent = this.labels.training + " · " +
+                (this.gallery.states.find(entry => entry.id === reference.state_id)?.name ?? "");
+        const action = this.button(reference ? "correct" : "classify", async () => {
+            if (!state.value || action.hasAttribute("loading") || signal.aborted)
+                return;
+            action.setAttribute("loading", "");
+            state.setAttribute("disabled", "");
+            try {
+                await this.update("correct", { capture_id: item.id, state_id: state.value }, signal);
+                actionLabel(action, this.labels.correct, actionIcons.correct);
+                status.textContent = this.labels.capture_saved;
+            }
+            catch (error) {
+                const reason = error instanceof Error ? error.message : "";
+                status.textContent = Object.hasOwn(this.labels, reason)
+                    ? this.labels[reason] : this.labels.failed;
+            }
+            finally {
+                action.removeAttribute("loading");
+                state.removeAttribute("disabled");
+            }
+        });
+        action.setAttribute("appearance", reference ? "plain" : "outlined");
+        action.toggleAttribute("disabled", !state.value);
+        state.addEventListener("selected", event => {
+            state.value = event.detail.value;
+            action.toggleAttribute("disabled", !state.value);
+        });
+        const controls = document.createElement("div");
+        controls.className = "history-correction";
+        controls.append(state, action);
+        content.append(controls, status);
     }
     observationLabel(time, manual) {
         return new Date(time).toLocaleString(this.client?.locale.language, {
@@ -1095,7 +1108,7 @@ export class ImageLabComparison extends HTMLElement {
             return;
         try {
             const blob = await this.fetchImage(image.dataset.reference, signal, true);
-            if (!image.isConnected || signal.aborted || (this.tab !== "references" && this.tab !== "history"))
+            if (!image.isConnected || signal.aborted || this.tab !== "references")
                 return;
             const url = URL.createObjectURL(blob);
             this.thumbnailUrls.push(url);

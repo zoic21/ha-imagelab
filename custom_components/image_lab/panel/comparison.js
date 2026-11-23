@@ -1,6 +1,7 @@
 import { comparisonStrings as text } from "./translations.js";
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
+import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
 import { bindRegionDrawing, paintRegion } from "./region.js";
 const engines = ["pillow", "tarsius"];
@@ -14,7 +15,7 @@ const actionIcons = {
     close: "close", correct: "tag-edit-outline", draw: "crop",
     move: "arrow-right", reload: "refresh", remove: "delete-outline",
     rename: "pencil-outline", save: "content-save-outline", stop_draw: "check", test: "play-outline",
-    view_reference: "image-search-outline", whole: "crop-free",
+    whole: "crop-free",
 };
 const template = document.createElement("template");
 template.innerHTML = `
@@ -42,7 +43,12 @@ template.innerHTML = `
     .comparisonImages:not(.withMatch) { grid-template-columns:minmax(0,1fr); }
     @media(max-width:480px) { .comparisonImages { grid-template-columns:minmax(0,1fr); } }
     .comparisonImages figure { margin:0; min-width:0; }
-    .comparisonImages figcaption { margin:0 0 6px; font-weight:500; }
+    .comparisonImages figcaption {
+      display:flex; align-items:center; min-height:var(--ha-space-8, 32px); margin:0 0 6px; font-weight:500;
+    }
+    #matchLink { --ha-button-height:auto; }
+    #matchLink::part(base) { padding:0; }
+    #matchLink::part(label) { text-decoration:underline; text-underline-offset:2px; }
     .imagebox { position:relative; width:min(100%, calc(52dvh * var(--ratio, 1))); margin:auto; }
     #matchFrame { display:block; width:100%; max-height:52dvh; object-fit:contain;
       border-radius:var(--ha-border-radius-md, 8px); }
@@ -101,7 +107,10 @@ template.innerHTML = `
     <div id="result" aria-live="polite"></div>
     <div class="comparisonImages" id="comparisonImages" hidden>
       <figure id="match" hidden>
-        <figcaption id="matchCaption"></figcaption>
+        <figcaption>
+          <ha-button id="matchLink" appearance="plain" hidden></ha-button>
+          <span id="matchCaption"></span>
+        </figcaption>
         <img id="matchFrame" alt="">
       </figure>
       <figure>
@@ -146,6 +155,7 @@ template.innerHTML = `
   <div id="dialogSlot"></div>
 `;
 export class ImageLabComparison extends HTMLElement {
+    images;
     client;
     profile;
     sourceKey;
@@ -168,8 +178,9 @@ export class ImageLabComparison extends HTMLElement {
     history;
     historySettings;
     expandedStates = new Set();
-    constructor() {
+    constructor(images = new ImageCache()) {
         super();
+        this.images = images;
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
         this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
         this.historySettings = new HistorySettings(this.get("historySettings"), true, async (value, signal) => {
@@ -192,6 +203,7 @@ export class ImageLabComparison extends HTMLElement {
         });
         this.onClick("reload", () => this.load());
         this.onClick("test", () => this.evaluate());
+        this.onClick("matchLink", () => this.openMatch());
         this.onClick("draw", () => {
             this.drawing = !this.drawing;
             this.cancelDrawing();
@@ -335,7 +347,7 @@ export class ImageLabComparison extends HTMLElement {
             addState: "add_state",
             reload: "reload",
             cropLabel: "crop",
-            matchCaption: "closest", captureCaption: "currentCapture",
+            matchLink: "closest", matchCaption: "closest", captureCaption: "currentCapture",
             regionHint: "region_help",
             save: "save",
         };
@@ -412,6 +424,9 @@ export class ImageLabComparison extends HTMLElement {
         this.get("classify").hidden =
             !this.captured || !hasFrame || !this.gallery?.states.length;
         this.get("captureAdd").toggleAttribute("disabled", busy);
+        const canOpenMatch = Boolean(this.gallery?.references.some(ref => ref.id === this.matchId));
+        this.get("matchLink").hidden = !canOpenMatch;
+        this.get("matchCaption").hidden = canOpenMatch;
         this.renderDirty();
     }
     show(tab) {
@@ -604,13 +619,11 @@ export class ImageLabComparison extends HTMLElement {
         return table;
     }
     async fetchImage(id, signal, thumbnail = false) {
-        const response = await this.imageResponse(id, signal, thumbnail);
-        await this.checkResponse(response);
-        return response.blob();
+        return (await this.readImage(id, signal, thumbnail)).blob;
     }
-    imageResponse(id, signal, thumbnail) {
+    readImage(id, signal, thumbnail) {
         const suffix = thumbnail ? "?thumbnail=1" : "";
-        return this.client.fetchWithAuth(this.url("/image/" + id + suffix), { signal, cache: "no-store" });
+        return this.images.get(this.client, this.url("/image/" + id + suffix), signal);
     }
     setFrame(url) {
         if (this.frameUrl)
@@ -675,25 +688,6 @@ export class ImageLabComparison extends HTMLElement {
             engine.textContent = engineNames[result.data.engine];
             panel.append(engine);
         }
-        const reference = this.gallery?.references.find((item) => item.id === result.data.reference_id);
-        if (reference) {
-            const best = document.createElement("p");
-            best.textContent = `${this.labels.closest} · ${result.data.best_state} · ${reference.name}`;
-            if (result.data.margin != null)
-                best.textContent += ` · ${this.labels.gap} ${result.data.margin}`;
-            const view = this.button("view_reference", async () => {
-                const current = this.gallery?.references.find(item => item.id === reference.id);
-                if (!current)
-                    return;
-                this.expandedStates.add(current.state_id);
-                this.show("references");
-                const match = this.get("gallery").querySelector("[data-matched=true]");
-                await match?.closest("ha-expansion-panel")?.updateComplete;
-                match?.scrollIntoView({ block: "nearest" });
-                match?.focus({ preventScroll: true });
-            });
-            panel.append(best, view);
-        }
         if (result.data.scores && Object.keys(result.data.scores).length) {
             const scores = result.data.scores;
             const similarity = result.data.engine === "tarsius";
@@ -708,6 +702,19 @@ export class ImageLabComparison extends HTMLElement {
             ]);
             this.get("scores").append(this.resultTable([this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows));
         }
+    }
+    async openMatch() {
+        const reference = this.gallery?.references.find(item => item.id === this.matchId);
+        if (!reference)
+            return;
+        this.expandedStates.add(reference.state_id);
+        this.show("references");
+        const match = this.get("gallery").querySelector("[data-matched=true]");
+        await match?.closest("ha-expansion-panel")?.updateComplete;
+        if (!match?.isConnected)
+            return;
+        match.scrollIntoView({ block: "nearest" });
+        match.focus({ preventScroll: true });
     }
     renderEngine() {
         const tarsius = this.get("engine").value === "tarsius";
@@ -889,7 +896,7 @@ export class ImageLabComparison extends HTMLElement {
             return;
         this.history.localize(this.client);
         this.history.render(this.gallery.history, {
-            image: (id, signal, thumbnail) => this.imageResponse(id, signal, thumbnail),
+            image: (id, signal, thumbnail) => this.readImage(id, signal, thumbnail),
             summary: item => ({ text: item.state_id ? item.state : this.labels.unknown, uncertain: !item.state_id }),
             details: (item, content, _image, _response, signal) => this.historyDetails(item, content, signal),
         });

@@ -2,6 +2,7 @@ import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
+import { ImageCache } from "./image-cache.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
@@ -255,6 +256,7 @@ class ImageLabPanel extends HTMLElement {
     savingInterval = false;
     zoneScope;
     strings = strings.en;
+    images = new ImageCache();
     comparison;
     constructor() {
         super();
@@ -270,7 +272,7 @@ class ImageLabPanel extends HTMLElement {
             if (!response.ok)
                 throw new Error();
         });
-        this.comparison = new ImageLabComparison();
+        this.comparison = new ImageLabComparison(this.images);
         this.element("comparisonSlot").append(this.comparison);
         this.element("add").addEventListener("click", () => this.openFlow("create"));
         this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
@@ -330,6 +332,8 @@ class ImageLabPanel extends HTMLElement {
     set hass(hass) {
         const previous = this._hass;
         const connectionChanged = previous?.connection !== hass.connection;
+        if (connectionChanged)
+            this.images.clear();
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
         const languageChanged = this.strings !== language;
         this._hass = hass;
@@ -389,6 +393,7 @@ class ImageLabPanel extends HTMLElement {
             void this.loadPreview();
     }
     disconnectedCallback() {
+        this.images.clear();
         this.optionsScope?.abort();
         this.closeModuleSettings();
         this.unsubscribe();
@@ -823,10 +828,10 @@ class ImageLabPanel extends HTMLElement {
             return row;
         });
     }
-    async showObjects(response, stage, overlay, results, hass, signal) {
-        const objects = JSON.parse(response.headers.get("X-Image-Lab-Objects") ?? "null");
-        const width = Number(response.headers.get("X-Image-Lab-Width"));
-        const height = Number(response.headers.get("X-Image-Lab-Height"));
+    async showObjects(headers, stage, overlay, results, hass, signal) {
+        const objects = JSON.parse(headers.get("X-Image-Lab-Objects") ?? "null");
+        const width = Number(headers.get("X-Image-Lab-Width"));
+        const height = Number(headers.get("X-Image-Lab-Height"));
         if (!Array.isArray(objects) || width <= 0 || height <= 0)
             throw new Error("Missing detection result");
         const language = hass.locale.language;
@@ -862,7 +867,7 @@ class ImageLabPanel extends HTMLElement {
         results.replaceChildren(...list);
         results.hidden = !objects.length;
         const summary = this.objectSummary(objects.length);
-        return response.headers.get("X-Image-Lab-Objects-Truncated") === "1" ? `${summary} · ${this.strings.objectLimit}` : summary;
+        return headers.get("X-Image-Lab-Objects-Truncated") === "1" ? `${summary} · ${this.strings.objectLimit}` : summary;
     }
     objectSummary(count) {
         return count === 0 ? this.strings.noObjects :
@@ -909,15 +914,15 @@ class ImageLabPanel extends HTMLElement {
             const items = await response.json();
             signal.throwIfAborted();
             this.captureHistory.render(items, {
-                image: (id, imageSignal, thumbnail) => hass.fetchWithAuth(path + "/" + encodeURIComponent(id) + (thumbnail ? "?thumbnail=1" : ""), { signal: imageSignal }),
+                image: (id, imageSignal, thumbnail) => this.images.get(hass, path + "/" + encodeURIComponent(id) + (thumbnail ? "?thumbnail=1" : ""), imageSignal),
                 summary: item => ({
                     text: item.dominant_hex ?? (item.count == null ? "" :
                         `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
                     color: item.dominant_hex ?? undefined,
                 }),
-                details: async (_item, content, image, response, detailSignal) => {
+                details: async (_item, content, image, headers, detailSignal) => {
                     if (profile.module === "palette") {
-                        const colors = this.readPalette(response);
+                        const colors = this.readPalette(headers);
                         const list = document.createElement("ul");
                         list.className = "swatches";
                         list.append(...this.paletteSwatches(colors));
@@ -933,7 +938,7 @@ class ImageLabPanel extends HTMLElement {
                         stage.append(image, overlay);
                         const results = document.createElement("ul");
                         results.className = "object-list";
-                        const summary = await this.showObjects(response, stage, overlay, results, hass, detailSignal);
+                        const summary = await this.showObjects(headers, stage, overlay, results, hass, detailSignal);
                         const status = document.createElement("p");
                         status.textContent = summary;
                         content.append(status, results);
@@ -948,8 +953,8 @@ class ImageLabPanel extends HTMLElement {
             }
         }
     }
-    readPalette(response) {
-        const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
+    readPalette(headers) {
+        const colors = JSON.parse(headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
         if (!colors?.length)
             throw new Error("Missing palette");
         return colors;
@@ -990,11 +995,11 @@ class ImageLabPanel extends HTMLElement {
             const width = response.headers.get("X-Image-Lab-Width");
             const height = response.headers.get("X-Image-Lab-Height");
             if (isDetection) {
-                summary = await this.showObjects(response, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
+                summary = await this.showObjects(response.headers, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
                 controller.signal.throwIfAborted();
             }
             else {
-                this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response)));
+                this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response.headers)));
                 this.element("palette").hidden = false;
                 summary = this.strings.paletteReady;
             }

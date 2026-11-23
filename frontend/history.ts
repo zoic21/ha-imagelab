@@ -64,7 +64,8 @@ export const historyStyles = `
   .history-time { display: block; font-variant-numeric: tabular-nums; font-weight: 500; }
   .history-trigger, .history-detail-meta { color: var(--secondary-text-color); font-size: .9em; }
   .history-summary {
-    display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow-wrap: anywhere;
+    display: inline-flex; align-items: center; justify-self: end; gap: 5px;
+    max-width: min(100%, 200px); overflow-wrap: anywhere;
     background: var(--secondary-background-color); border-radius: 16px; padding: 3px 8px;
   }
   .history-summary.uncertain {

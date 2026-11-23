@@ -1,3 +1,24 @@
+export const historyStrings = {
+  en: {
+    title: "History", captures: "Captures", capture: "Analyzed capture",
+    refresh: "Refresh", empty: "No saved analyses.", loading: "Loading history…",
+    failed: "Could not load the capture history.", manual: "Manual", automatic: "Automatic",
+    mode: "Automatic captures", all: "Every analysis", off: "Disabled", changes: "State changes and unknown states",
+    limit: "Image limit", help: "Manual captures also count toward this limit.",
+    save: "Save settings", saved: "History settings saved.",
+    settingsFailed: "Could not load or save the history settings.",
+  },
+  fr: {
+    title: "Historique", captures: "Captures", capture: "Capture analysée",
+    refresh: "Actualiser", empty: "Aucune analyse enregistrée.", loading: "Chargement de l’historique…",
+    failed: "Impossible de charger l’historique des captures.", manual: "Manuelle", automatic: "Automatique",
+    mode: "Captures automatiques", all: "Toutes les analyses", off: "Désactivé", changes: "Changements et états indéterminés",
+    limit: "Limite d’images", help: "Les captures manuelles comptent aussi dans cette limite.",
+    save: "Enregistrer les réglages", saved: "Réglages de l’historique enregistrés.",
+    settingsFailed: "Impossible de charger ou d’enregistrer les réglages de l’historique.",
+  },
+};
+
 export const panelStrings = {
   en: {
     zone: "Edit camera zone", drawZone: "Draw a rectangle on the image or enter its bounds as percentages.",
@@ -5,7 +26,6 @@ export const panelStrings = {
     cancel: "Cancel", save: "Save", fullZone: "Use full image", saveZoneError: "Could not save this zone.",
     x: "Left (%)", y: "Top (%)", width: "Width (%)", height: "Height (%)",
     analyses: "Analyses", resultTab: "Result", historyTab: "History", settingsTab: "Settings",
-    refreshHistory: "Refresh", emptyHistory: "No saved analyses.",
     manualAnalysis: "Manual", automaticAnalysis: "Automatic",
     nameColumn: "Name", typeColumn: "Analysis type", sourceColumn: "Source", triggerColumn: "Trigger",
     typeColumnShort: "Type", searchAnalyses: "Search analyses", sortBy: "Sort by", warningsFirst: "Warnings first",
@@ -51,6 +71,8 @@ export const panelStrings = {
     noObjects: "No objects detected.",
     objectFound: "1 object detected",
     objectsFound: "objects detected",
+    historyObject: "object",
+    historyObjects: "objects",
     objectLimit: "Showing the objects with the highest confidence.",
     object_engine_unavailable: "Could not load the ncnn detection engine.",
     object_model_unavailable: "Could not download or load the NanoDet model. Check the connection and try again.",
@@ -75,7 +97,6 @@ export const panelStrings = {
     cancel: "Annuler", save: "Enregistrer", fullZone: "Utiliser toute l’image", saveZoneError: "Impossible d’enregistrer la zone.",
     x: "Gauche (%)", y: "Haut (%)", width: "Largeur (%)", height: "Hauteur (%)",
     analyses: "Analyses", resultTab: "Résultat", historyTab: "Historique", settingsTab: "Réglages",
-    refreshHistory: "Actualiser", emptyHistory: "Aucune analyse enregistrée.",
     manualAnalysis: "Manuelle", automaticAnalysis: "Automatique",
     nameColumn: "Nom", typeColumn: "Type d’analyse", sourceColumn: "Source", triggerColumn: "Déclenchement",
     typeColumnShort: "Type", searchAnalyses: "Rechercher une analyse", sortBy: "Trier par", warningsFirst: "Alertes en premier",
@@ -121,6 +142,8 @@ export const panelStrings = {
     noObjects: "Aucun objet détecté.",
     objectFound: "1 objet détecté",
     objectsFound: "objets détectés",
+    historyObject: "objet",
+    historyObjects: "objets",
     objectLimit: "Seuls les objets les plus fiables sont affichés.",
     object_engine_unavailable: "Impossible de charger le moteur de détection ncnn.",
     object_model_unavailable: "Impossible de télécharger ou de charger le modèle NanoDet. Vérifiez la connexion et réessayez.",
@@ -143,10 +166,8 @@ export const panelStrings = {
 
 export const comparisonStrings = {
   en: {
-    close: "Close", viewCapture: "View original capture",
-    history: "History", historyMode: "Automatic captures", historyLimit: "Image limit",
-    off: "Disabled", changes: "State changes and unknown states", all: "Every analysis",
-    refreshHistory: "Refresh", emptyHistory: "No saved analyses.", correct: "Correct state",
+    close: "Close",
+    history: "History", correct: "Change reference state", prediction: "Detected state",
     preview: "Result", currentCapture: "Analyzed capture",
     manualAnalysis: "Manual", automaticAnalysis: "Automatic",
     notConfirmed: "The result entity kept its previous state because the change was not confirmed.",
@@ -159,6 +180,8 @@ export const comparisonStrings = {
     whole: "Use the full image",
     empty: "No saved result. Test the source to run an analysis.",
     unavailable: "The image source is unavailable.",
+    loadingResult: "Loading the saved result…",
+    analyzing: "Analyzing image…",
     working: "Working…",
     recognized: "Recognized state",
     unknown: "Unknown state",
@@ -231,10 +254,8 @@ export const comparisonStrings = {
     stop_draw: "Finish drawing",
   },
   fr: {
-    close: "Fermer", viewCapture: "Afficher la capture originale",
-    history: "Historique", historyMode: "Captures automatiques", historyLimit: "Limite d’images",
-    off: "Désactivé", changes: "Changements et états indéterminés", all: "Toutes les analyses",
-    refreshHistory: "Actualiser", emptyHistory: "Aucune analyse enregistrée.", correct: "Corriger l’état",
+    close: "Fermer",
+    history: "Historique", correct: "Modifier l’état de référence", prediction: "État détecté",
     preview: "Résultat", currentCapture: "Capture analysée",
     manualAnalysis: "Manuelle", automaticAnalysis: "Automatique",
     notConfirmed: "L’entité conserve son état précédent, car le changement n’a pas été confirmé.",
@@ -247,6 +268,8 @@ export const comparisonStrings = {
     whole: "Utiliser toute l’image",
     empty: "Aucun résultat enregistré. Testez la source pour lancer une analyse.",
     unavailable: "La source d’image est indisponible.",
+    loadingResult: "Chargement du résultat enregistré…",
+    analyzing: "Analyse de l’image…",
     working: "En cours…",
     recognized: "État reconnu",
     unknown: "État indéterminé",

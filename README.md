@@ -72,11 +72,11 @@ Quand plusieurs analyses automatiques de la même caméra arrivent à échéance
 
 ### Revoir et corriger les captures
 
-**Historique** distingue les analyses manuelles des analyses automatiques. Toucher une entrée affiche l’image utilisée. Les profils de palette et de détection conservent les **10 dernières analyses** accompagnées d’une image.
+**Historique** regroupe les captures par jour et distingue les analyses manuelles des analyses automatiques. Chaque ligne affiche une vignette et le résultat principal. Toucher une ligne ouvre l’image avec le résultat détaillé, selon le type d’analyse.
 
-En comparaison, l’historique affiche aussi le moteur et l’état prédit. Le profil conserve **10 captures** par défaut, avec une limite réglable **de 1 à 100**. Les modes **Toutes les analyses**, **Changements et états indéterminés** et **Désactivé** s’appliquent aux captures automatiques. Les tests manuels restent dans l’historique avec la même limite. Le dernier résultat reste consultable quel que soit le mode choisi.
+Dans **Réglages → Historique**, choisir la limite d’images **de 1 à 100** (10 par défaut) et le mode de conservation. **Toutes les analyses** et **Désactivé** s’appliquent aux captures automatiques. La comparaison propose aussi **Changements et états indéterminés**. Les tests manuels comptent dans la limite. Le dernier résultat reste consultable quel que soit le mode choisi.
 
-Pour ajouter une capture de comparaison aux références, choisir son état puis **Corriger l’état**. La galerie conserve l’original après sa sortie de l’historique. La prédiction d’origine reste consultable tant que la capture figure dans l’historique.
+Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter comme référence**. La galerie conserve l’original après sa sortie de l’historique. La prédiction d’origine reste consultable tant que la capture figure dans l’historique.
 
 ### Comparer des images
 

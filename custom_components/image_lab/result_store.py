@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 
 from .const import DOMAIN
-from .images import ImageError, ImageFrame
+from .images import ImageError, ImageFrame, thumbnail_frame
 
 STORAGE_VERSION = 1
 DEFAULT_HISTORY = {"mode": "all", "limit": 10}
@@ -92,7 +92,30 @@ class ResultStore:
                 _LOGGER.exception("Could not remove expired image for %s", self.profile_id)
 
     def _append_history(self, data: dict, observation: Observation) -> None:
-        data["history"].append(observation)
+        if observation["manual"] or data.get("history_settings", DEFAULT_HISTORY)["mode"] != "off":
+            data["history"].append(observation)
+
+    def _set_history_settings(self, data: dict, settings: dict) -> None:
+        data["history_settings"] = settings
+        self._save_history(data)
+
+    async def async_history_settings(self) -> dict:
+        async with self.lock:
+            return await self.hass.async_add_executor_job(
+                lambda: self.load().get("history_settings", DEFAULT_HISTORY)
+            )
+
+    async def async_set_history_settings(self, settings: dict) -> None:
+        def save() -> None:
+            self._set_history_settings(self.load(), settings)
+
+        async def run() -> None:
+            async with self.lock:
+                if self.hass.config_entries.async_get_entry(self.profile_id) is None:
+                    raise ImageError("profile_not_found")
+                await self.hass.async_add_executor_job(save)
+
+        await asyncio.shield(self.hass.async_create_task(run(), "image_lab history settings"))
 
     def _record(self, frame: ImageFrame, response: ServiceResponse, manual: bool) -> Observation:
         data = self.load()
@@ -140,7 +163,7 @@ class ResultStore:
                 ]
             )
 
-    def _read(self, image_id: str | None) -> tuple[Observation, ImageFrame] | None:
+    def _read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
         data = self.load()
         observation = (
             self._latest(data) if image_id is None else
@@ -152,13 +175,14 @@ class ResultStore:
             content = (self.images / observation["id"]).read_bytes()
         except OSError as err:
             raise ImageError("storage_error") from err
-        return observation, ImageFrame(
+        frame = ImageFrame(
             content, observation["content_type"], observation["width"], observation["height"]
         )
+        return observation, thumbnail_frame(frame) if thumbnail else frame
 
-    async def async_read(self, image_id: str | None) -> tuple[Observation, ImageFrame] | None:
+    async def async_read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
         async with self.lock:
-            return await self.hass.async_add_executor_job(self._read, image_id)
+            return await self.hass.async_add_executor_job(self._read, image_id, thumbnail)
 
     async def async_remove(self) -> None:
         async with self.lock:

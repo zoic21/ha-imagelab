@@ -2,6 +2,7 @@ import { panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 
 import { actionLabel } from "./action.js";
+import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
 import { editModuleSettings, runProfileFlow, type ProfileFlowMode } from "./options.js";
 import { editZone } from "./zone.js";
 import type { Region } from "./region.js";
@@ -10,7 +11,7 @@ type Module = "comparison" | "palette" | "object_detection";
 type Source = "camera" | "media_player" | "upload";
 type Rgb = [number, number, number];
 type Detection = [label: string, confidence: number, xMin: number, yMin: number, xMax: number, yMax: number];
-type HistoryItem = { id: string; time: string; manual: boolean; dominant_hex: string | null; count: number | null };
+type HistoryItem = Capture & { dominant_hex: string | null; count: number | null };
 const panelPath = "/image-lab";
 
 interface Profile {
@@ -136,9 +137,7 @@ template.innerHTML = `
       #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
       #profileNav ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
     }
-    #historyList { margin-top: 8px; }
-    #historyList li { border-bottom: 1px solid var(--divider-color); }
-    #historyDialog img { max-height: 65dvh; }
+    ${historyStyles}
     #profileSettings { margin-top: 18px; }
     .moduleSettingsSave, #zone { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
@@ -170,8 +169,8 @@ template.innerHTML = `
     #interval { width: min(100%, 230px); }
 
     figure { margin: 16px 0 0; }
-    #imageStage { position: relative; --preview-height: min(55dvh, 520px); }
-    #imageStage.with-objects {
+    .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
+    .image-stage.with-objects {
       width: min(100%, calc(var(--preview-height) * var(--image-aspect)));
       margin-inline: auto; overflow: hidden; container-type: inline-size;
       border-radius: var(--ha-border-radius-md, 8px);
@@ -180,7 +179,7 @@ template.innerHTML = `
       display: block; width: 100%; max-height: var(--preview-height); object-fit: contain;
       background: var(--secondary-background-color); border-radius: var(--ha-border-radius-md, 8px);
     }
-    #objectsOverlay { position: absolute; inset: 0; pointer-events: none; }
+    .objects-overlay { position: absolute; inset: 0; pointer-events: none; }
     .object-box {
       position: absolute; box-sizing: border-box; border: 2px solid white;
       box-shadow: 0 0 0 1px #131a22, inset 0 0 0 1px #131a22;
@@ -191,15 +190,16 @@ template.innerHTML = `
       transform: translateX(min(0px, calc(100cqw - var(--label-left) - 2px - 100%)));
       font-size: 11px; line-height: 1.5; color: white; background: #131a22;
     }
-    #objectList {
+    .object-list {
       display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px;
     }
-    #objectList li { margin: 0; }
+    .object-list li { margin: 0; }
     figcaption, ha-alert { margin-top: 8px; }
     #palette { margin-top: 16px; }
     #paletteTitle { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
-    #swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
-    #swatches li { min-width: 0; margin: 0; }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
+    .swatches li { min-width: 0; margin: 0; }
+    .history-detail .swatches { margin-top: 12px; }
     .swatch {
       height: 32px; margin-bottom: 4px; border: 1px solid var(--divider-color);
       border-radius: var(--ha-border-radius-md, 8px);
@@ -252,22 +252,19 @@ template.innerHTML = `
             <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
             <section id="palette" aria-labelledby="paletteTitle" hidden>
               <h3 id="paletteTitle"></h3>
-              <ul id="swatches"></ul>
+              <ul id="swatches" class="swatches"></ul>
           </section>
           <figure id="preview" hidden>
-            <div id="imageStage">
+            <div id="imageStage" class="image-stage">
               <img id="image" />
-              <div id="objectsOverlay" aria-hidden="true"></div>
+              <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
             </div>
             <figcaption id="dimensions" class="secondary"></figcaption>
           </figure>
-          <ul id="objectList" hidden></ul>
+          <ul id="objectList" class="object-list" hidden></ul>
           </section>
           <section id="historyPane" role="tabpanel" aria-labelledby="historyTab" hidden>
-            <ha-button id="refreshHistory" appearance="plain"></ha-button>
-            <p id="historyStatus" class="secondary" role="status"></p>
-            <ul id="historyList"></ul>
-            <div id="historyDialog"></div>
+            ${historyMarkup}
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
@@ -276,6 +273,7 @@ template.innerHTML = `
               <div id="moduleSettings"></div>
               <ha-button id="zone" appearance="plain" hidden></ha-button>
             </section>
+            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
@@ -336,6 +334,8 @@ class ImageLabPanel extends HTMLElement {
   private failed = false;
   private activeTest?: AbortController;
   private historyScope?: AbortController;
+  private readonly captureHistory: CaptureHistory<HistoryItem>;
+  private readonly historySettings: HistorySettings;
   private previewUrl?: string;
   private optionsScope?: AbortController;
   private moduleSettingsScope?: AbortController;
@@ -348,6 +348,15 @@ class ImageLabPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+    this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
+    this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
+      const profile = this.selected;
+      if (!profile || !this._hass) return;
+      const response = await this._hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value), signal,
+      });
+      if (!response.ok) throw new Error();
+    });
     this.comparison = new ImageLabComparison();
     this.element("comparisonSlot").append(this.comparison);
     this.element("add").addEventListener("click", () => this.openFlow("create"));
@@ -391,7 +400,6 @@ class ImageLabPanel extends HTMLElement {
       }));
     });
     this.element("test").addEventListener("click", () => void this.loadPreview(true));
-    this.element("refreshHistory").addEventListener("click", () => void this.loadHistory());
     this.element("zone").addEventListener("click", () => {
       const profile = this.selected;
       if (!profile || !this._hass) return;
@@ -514,6 +522,7 @@ class ImageLabPanel extends HTMLElement {
     this.moduleSettingsScope = new AbortController();
     editModuleSettings(this.element("moduleSettings"), hass, profile.profile_id,
       this.strings, this.moduleSettingsScope.signal);
+    void this.loadHistorySettings(profile, hass, this.moduleSettingsScope.signal);
   }
 
   private subscribe() {
@@ -578,6 +587,10 @@ class ImageLabPanel extends HTMLElement {
     this.element("settingsPane").hidden = tab !== "settings";
     if (tab === "settings") this.showModuleSettings();
     if (tab === "history") void this.loadHistory();
+    else {
+      this.historyScope?.abort();
+      this.captureHistory.clear();
+    }
   }
 
   private clearTest() {
@@ -585,8 +598,8 @@ class ImageLabPanel extends HTMLElement {
     this.activeTest?.abort();
     this.activeTest = undefined;
     this.historyScope?.abort();
-    this.element("historyList").replaceChildren();
-    this.element("historyStatus").textContent = "";
+    this.captureHistory.clear();
+    this.historySettings.setValue();
     this.element("test").removeAttribute("loading");
     this.element("status").textContent = "";
     this.element("error").hidden = true;
@@ -716,7 +729,6 @@ class ImageLabPanel extends HTMLElement {
       editSource: [labels.editSource, "pencil-outline"],
       saveInterval: [labels.saveFrequency, "content-save-outline"],
       test: [labels.test, "play-outline"],
-      refreshHistory: [labels.refreshHistory, "refresh"],
       zone: [labels.zone, "crop"],
     };
     for (const [id, [label, icon]] of Object.entries(actions))
@@ -885,8 +897,8 @@ class ImageLabPanel extends HTMLElement {
     }
   }
 
-  private showPalette(colors: Rgb[]) {
-    const swatches = colors.map((rgb, index) => {
+  private paletteSwatches(colors: Rgb[]) {
+    return colors.map((rgb, index) => {
       const row = document.createElement("li");
       const swatch = document.createElement("div");
       const code = document.createElement("code");
@@ -903,11 +915,25 @@ class ImageLabPanel extends HTMLElement {
       }
       return row;
     });
-    this.element("swatches").replaceChildren(...swatches);
-    this.element("palette").hidden = false;
   }
 
-  private showObjects(objects: Detection[], truncated: boolean, resources: Record<string, string>, language: string) {
+  private async showObjects(
+    response: Response, stage: HTMLElement, overlay: HTMLElement, results: HTMLElement,
+    hass: HomeAssistant, signal: AbortSignal,
+  ) {
+    const objects = JSON.parse(response.headers.get("X-Image-Lab-Objects") ?? "null") as Detection[] | null;
+    const width = Number(response.headers.get("X-Image-Lab-Width"));
+    const height = Number(response.headers.get("X-Image-Lab-Height"));
+    if (!Array.isArray(objects) || width <= 0 || height <= 0) throw new Error("Missing detection result");
+    const language = hass.locale.language;
+    const { resources }: { resources: Record<string, string> } = objects.length
+      ? await hass.connection.sendMessagePromise<{ resources: Record<string, string> }>({
+          type: "frontend/get_translations", language, category: "selector", integration: ["image_lab"],
+        }).catch(() => ({ resources: {} }))
+      : { resources: {} };
+    signal.throwIfAborted();
+    stage.style.setProperty("--image-aspect", String(width / height));
+    stage.classList.add("with-objects");
     const list: HTMLLIElement[] = [];
     const boxes = objects.map(([label, score, xMin, yMin, xMax, yMax]) => {
       const name = resources[`component.image_lab.selector.object_labels.options.${label}`]
@@ -928,13 +954,12 @@ class ImageLabPanel extends HTMLElement {
       list.push(item);
       return box;
     });
-    this.element("objectsOverlay").replaceChildren(...boxes);
-    const results = this.element("objectList");
+    overlay.replaceChildren(...boxes);
     results.replaceChildren(...list);
     results.hidden = !objects.length;
 
     const summary = this.objectSummary(objects.length);
-    return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
+    return response.headers.get("X-Image-Lab-Objects-Truncated") === "1" ? `${summary} · ${this.strings.objectLimit}` : summary;
   }
 
   private objectSummary(count: number) {
@@ -952,69 +977,79 @@ class ImageLabPanel extends HTMLElement {
     }) + " · " + this.strings[manual ? "manualAnalysis" : "automaticAnalysis"];
   }
 
+  private async loadHistorySettings(profile: Profile, hass: HomeAssistant, signal: AbortSignal) {
+    this.historySettings.localize(hass.locale.language);
+    try {
+      const response = await hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", { signal });
+      if (!response.ok) throw new Error();
+      const settings: HistorySettingsValue = await response.json();
+      signal.throwIfAborted();
+      this.historySettings.setValue(settings);
+    } catch {
+      if (!signal.aborted) this.historySettings.failed();
+    }
+  }
+
   private async loadHistory() {
     const profile = this.selected;
     const hass = this._hass;
     if (!profile || profile.module === "comparison" || !hass) return;
     this.historyScope?.abort();
     const { signal } = this.historyScope = new AbortController();
-    const list = this.element("historyList");
-    const status = this.element("historyStatus");
-    list.replaceChildren();
-    status.textContent = this.strings.loadingResult;
+    const path = this.previewPath(profile);
+    const plurals = new Intl.PluralRules(hass.locale.language);
+    this.captureHistory.localize(hass);
+    this.captureHistory.loading(true);
     try {
-      const response = await hass.fetchWithAuth(this.previewPath(profile) + "/history", { signal });
+      const response = await hass.fetchWithAuth(path + "/history", { signal });
       if (!response.ok) throw new Error();
       const items: HistoryItem[] = await response.json();
       signal.throwIfAborted();
-      status.textContent = items.length ? "" : this.strings.emptyHistory;
-      for (const item of items) {
-        const row = document.createElement("li");
-        const button = document.createElement("ha-button");
-        button.setAttribute("appearance", "plain");
-        const summary = item.dominant_hex ?? (item.count === null ? "" : this.objectSummary(item.count));
-        const label = [this.observationLabel(item.time, item.manual), summary].filter(Boolean).join(" · ");
-        actionLabel(button, label, "image-outline");
-        button.onclick = async () => {
-          button.setAttribute("loading", "");
-          try {
-            const path = this.previewPath(profile) + "/" + encodeURIComponent(item.id);
-            const response = await hass.fetchWithAuth(path, { signal });
-            if (!response.ok) throw new Error();
-            const blob = await response.blob();
-            signal.throwIfAborted();
-            this.showHistoryImage(label, blob, signal);
-          } catch {
-            if (!signal.aborted) status.textContent = this.strings.resultError;
-          } finally {
-            button.removeAttribute("loading");
+      this.captureHistory.render(items, {
+        image: (id, imageSignal, thumbnail) => hass.fetchWithAuth(
+          path + "/" + encodeURIComponent(id) + (thumbnail ? "?thumbnail=1" : ""), { signal: imageSignal },
+        ),
+        summary: item => ({
+          text: item.dominant_hex ?? (item.count == null ? "" :
+            `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
+          color: item.dominant_hex ?? undefined,
+        }),
+        details: async (_item, content, image, response, detailSignal) => {
+          if (profile.module === "palette") {
+            const colors = this.readPalette(response);
+            const list = document.createElement("ul");
+            list.className = "swatches";
+            list.append(...this.paletteSwatches(colors));
+            content.append(list);
+          } else {
+            const stage = document.createElement("div");
+            stage.className = "image-stage";
+            const overlay = document.createElement("div");
+            overlay.className = "objects-overlay";
+            overlay.setAttribute("aria-hidden", "true");
+            content.prepend(stage);
+            stage.append(image, overlay);
+            const results = document.createElement("ul");
+            results.className = "object-list";
+            const summary = await this.showObjects(response, stage, overlay, results, hass, detailSignal);
+            const status = document.createElement("p");
+            status.textContent = summary;
+            content.append(status, results);
           }
-        };
-        row.append(button);
-        list.append(row);
-      }
+        },
+      });
     } catch {
-      if (!signal.aborted) status.textContent = this.strings.resultError;
+      if (!signal.aborted) {
+        this.captureHistory.loading(false);
+        this.captureHistory.failed();
+      }
     }
   }
 
-  private showHistoryImage(title: string, blob: Blob, signal: AbortSignal) {
-    const url = URL.createObjectURL(blob);
-    const dialog = document.createElement("ha-dialog");
-    dialog.setAttribute("header-title", title);
-    const image = document.createElement("img");
-    image.src = url;
-    image.alt = this.strings.preview;
-    dialog.append(image);
-    const release = () => {
-      URL.revokeObjectURL(url);
-      signal.removeEventListener("abort", release);
-      dialog.remove();
-    };
-    signal.addEventListener("abort", release, { once: true });
-    dialog.addEventListener("closed", release, { once: true });
-    this.element("historyDialog").append(dialog);
-    dialog.setAttribute("open", "");
+  private readPalette(response: Response): Rgb[] {
+    const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null") as Rgb[] | null;
+    if (!colors?.length) throw new Error("Missing palette");
+    return colors;
   }
 
   private async loadPreview(manual = false) {
@@ -1057,28 +1092,12 @@ class ImageLabPanel extends HTMLElement {
       const width = response.headers.get("X-Image-Lab-Width");
       const height = response.headers.get("X-Image-Lab-Height");
       if (isDetection) {
-        const objects = JSON.parse(response.headers.get("X-Image-Lab-Objects") ?? "null") as Detection[] | null;
-        if (!Array.isArray(objects) || Number(width) <= 0 || Number(height) <= 0) {
-          throw new Error("Preview response had no detection result");
-        }
-        const language = hass.locale.language;
-        const { resources } = objects.length
-          ? await hass.connection.sendMessagePromise<{ resources: Record<string, string> }>({
-              type: "frontend/get_translations", language, category: "selector",
-              integration: ["image_lab"],
-            }).catch(() => ({ resources: {} }))
-          : { resources: {} };
-        if (controller.signal.aborted) return;
-        const stage = this.element("imageStage");
-        stage.style.setProperty("--image-aspect", String(Number(width) / Number(height)));
-        stage.classList.add("with-objects");
-        summary = this.showObjects(
-          objects, response.headers.get("X-Image-Lab-Objects-Truncated") === "1", resources, language,
-        );
+        summary = await this.showObjects(response, this.element("imageStage"), this.element("objectsOverlay"),
+          this.element("objectList"), hass, controller.signal);
+        controller.signal.throwIfAborted();
       } else {
-        const colors = JSON.parse(response.headers.get("X-Image-Lab-Palette-Rgb") ?? "null") as Rgb[] | null;
-        if (!colors?.length) throw new Error("Preview response had no palette");
-        this.showPalette(colors);
+        this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response)));
+        this.element("palette").hidden = false;
         summary = this.strings.paletteReady;
       }
       if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);

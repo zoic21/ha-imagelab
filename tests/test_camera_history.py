@@ -139,6 +139,24 @@ def test_latest_result_is_restored_and_history_is_bounded(tmp_path):
     assert len(list(restored.images.iterdir())) == 10
 
 
+def test_disabling_automatic_history_keeps_the_latest_and_manual_frames(tmp_path):
+    hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
+    store = ResultStore(hass, "objects")
+    frame = two_colors()
+    response = {"status": "ok", "data": {"count": 0}}
+    expired = store._record(frame, response, manual=False)
+    manual = store._record(frame, response, manual=True)
+    store._set_history_settings(store.load(), {"mode": "off", "limit": 1})
+    automatic = store._record(frame, response, manual=False)
+
+    assert store._read(expired["id"]) is None
+    assert store._read(automatic["id"]) is None
+    assert store._read(None) == (automatic, frame)
+    assert store._read(manual["id"]) == (manual, frame)
+    _, thumbnail = store._read(manual["id"], thumbnail=True)
+    assert thumbnail.content_type == "image/jpeg"
+
+
 def test_latest_comparison_can_use_an_older_history_format(tmp_path):
     hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
     store = ComparisonStore(hass, "camera")

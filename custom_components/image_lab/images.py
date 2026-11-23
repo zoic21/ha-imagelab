@@ -75,6 +75,16 @@ def crop_frame(frame: ImageFrame, region: Region) -> ImageFrame:
     return ImageFrame(buffer.getvalue(), "image/png", *cropped.size)
 
 
+def thumbnail_frame(frame: ImageFrame) -> ImageFrame:
+    """Render a small, oriented image for lists and galleries."""
+    with Image.open(BytesIO(frame.content)) as source:
+        image = ImageOps.exif_transpose(source).convert("RGB")
+        image.thumbnail((240, 144))
+        buffer = BytesIO()
+        image.save(buffer, "JPEG", quality=80)
+    return ImageFrame(buffer.getvalue(), "image/jpeg", *image.size)
+
+
 def validate_image(content: bytes) -> ImageFrame:
     """Check the format and size and decode the image off the event loop."""
     if not content:

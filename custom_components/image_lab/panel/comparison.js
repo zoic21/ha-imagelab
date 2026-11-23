@@ -157,6 +157,7 @@ export class ImageLabComparison extends HTMLElement {
     scope;
     gallery;
     result;
+    previewRequested = false;
     captured = false;
     busy = false;
     drawing = false;
@@ -380,6 +381,7 @@ export class ImageLabComparison extends HTMLElement {
         this.scope = undefined;
         this.gallery = undefined;
         this.result = undefined;
+        this.previewRequested = false;
         this.captured = false;
         this.busy = false;
         this.drawing = false;
@@ -412,7 +414,7 @@ export class ImageLabComparison extends HTMLElement {
             ? this.labels.drawing
             : !this.available
                 ? this.labels.unavailable
-                : this.frameUrl
+                : this.frameUrl || this.result
                     ? ""
                     : this.labels.empty;
         this.get("classify").hidden =
@@ -434,6 +436,12 @@ export class ImageLabComparison extends HTMLElement {
         else
             this.clearThumbnails();
         this.refresh();
+        this.startInitialPreview();
+    }
+    startInitialPreview() {
+        if (this.tab === "preview" && !this.previewRequested && this.gallery &&
+            this.available && !this.busy)
+            void this.evaluate();
     }
     async load() {
         if (!this.profile || !this.client)
@@ -483,6 +491,7 @@ export class ImageLabComparison extends HTMLElement {
                 this.busy = false;
                 this.progress();
                 this.refresh();
+                this.startInitialPreview();
             }
         }
     }
@@ -535,6 +544,7 @@ export class ImageLabComparison extends HTMLElement {
     }
     async evaluate() {
         await this.task(async (signal) => {
+            this.previewRequested = true;
             const settings = this.readSettings();
             this.setFrame();
             this.setMatch();
@@ -544,7 +554,6 @@ export class ImageLabComparison extends HTMLElement {
             this.drawing = false;
             this.cancelDrawing();
             this.renderResult();
-            this.show("preview");
             const result = await this.request("/test", signal, {
                 settings,
             });

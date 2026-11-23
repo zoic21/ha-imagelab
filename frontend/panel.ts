@@ -132,10 +132,6 @@ template.innerHTML = `
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-top: 18px; }
     .moduleSettingsSave, #zone { margin-top: 12px; }
-    #technicalInfo {
-      --expansion-panel-summary-padding: 0 12px;
-      --expansion-panel-content-padding: 0 12px;
-    }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
@@ -153,8 +149,11 @@ template.innerHTML = `
       white-space: normal; overflow-wrap: anywhere; text-align: start;
     }
     #outputEntity::part(base) { padding-inline: 0; }
-    #outputId, #profileId { display: block; margin: 4px 0; }
-    #technicalInfo .settingsRow { padding: 4px 0 12px; }
+    #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
+    #outputId { display: block; text-align: start; }
+    #analysisId { margin-bottom: 0; }
+    #analysisId .settingsRow { gap: 0 8px; }
+    #profileId { min-width: 0; }
     #copyStatus { margin-top: 0; }
     #cameraSchedule { margin-top: 8px; }
     #intervalControls { align-items: flex-start; }
@@ -283,25 +282,24 @@ template.innerHTML = `
                 <h3 id="outputTitle" class="settingsTitle"></h3>
                 <div class="settingsRow">
                   <div class="metadata">
-                    <div id="output" hidden>
-                      <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
-                      <code id="outputId" class="secondary"></code>
-                    </div>
+                    <ha-button id="outputEntity" appearance="plain" size="s" hidden>
+                      <code id="outputId"></code>
+                    </ha-button>
                     <p id="noOutput" class="secondary"></p>
                   </div>
                   <ha-button id="settings" appearance="plain"></ha-button>
                 </div>
               </section>
-              <ha-expansion-panel id="technicalInfo" outlined>
+              <div id="analysisId" class="settingsSection">
                 <div class="settingsRow">
-                  <div class="metadata">
-                    <span id="idLabel" class="secondary"></span>
-                    <code id="profileId"></code>
-                  </div>
-                  <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
+                  <span id="idLabel" class="secondary"></span>
+                  <code id="profileId"></code>
+                  <ha-icon-button id="copy">
+                    <ha-icon icon="mdi:content-copy" aria-hidden="true"></ha-icon>
+                  </ha-icon-button>
                 </div>
                 <p id="copyStatus" role="status" hidden></p>
-              </ha-expansion-panel>
+              </div>
             </div>
           </section>
         </div>
@@ -395,7 +393,6 @@ class ImageLabPanel extends HTMLElement {
     const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
     const languageChanged = this.strings !== language;
     this._hass = hass;
-    this.renderOutputName();
     if (languageChanged) {
       this.strings = language;
       this.closeModuleSettings();
@@ -434,7 +431,6 @@ class ImageLabPanel extends HTMLElement {
     if (!previous && scroller) this.listScrollTop = scroller.scrollTop;
     this.optionsScope?.abort();
     this.closeModuleSettings();
-    this.element("technicalInfo").removeAttribute("expanded");
     this.clearTest();
     this.selectedId = id;
     this.showTab("result");
@@ -693,7 +689,6 @@ class ImageLabPanel extends HTMLElement {
     const actions = {
       add: [labels.add, "plus"],
       retry: [labels.retry, "refresh"],
-      copy: [labels.copy, "content-copy"],
       settings: [labels.configure, "cog-outline"],
       editSource: [labels.editSource, "pencil-outline"],
       saveInterval: [labels.saveFrequency, "content-save-outline"],
@@ -702,7 +697,7 @@ class ImageLabPanel extends HTMLElement {
     };
     for (const [id, [label, icon]] of Object.entries(actions))
       actionLabel(this.element(id), label, icon);
-    this.element("technicalInfo").setAttribute("header", labels.technicalInfo);
+    this.element("copy").setAttribute("label", labels.copy);
     this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
 
     const profile = this.selected;
@@ -786,9 +781,9 @@ class ImageLabPanel extends HTMLElement {
       }
     }
     this.element("profileId").textContent = profile.profile_id;
-    this.element("output").hidden = !profile.output_entity_id;
+    this.element("outputEntity").hidden = !profile.output_entity_id;
     this.element("noOutput").hidden = Boolean(profile.output_entity_id);
-    this.renderOutputName();
+    this.element("outputId").textContent = profile.output_entity_id ?? "";
     this.element("source").textContent = labels[profile.module];
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
     if (opened) {
@@ -825,17 +820,6 @@ class ImageLabPanel extends HTMLElement {
       button.removeAttribute("loading");
       field.removeAttribute("disabled");
     }
-  }
-
-  private renderOutputName() {
-    const id = this.selected?.output_entity_id;
-    if (!id) return;
-    const name = this._hass?.states[id]?.attributes.friendly_name;
-    const button = this.element("outputEntity");
-    if (button.textContent !== (name || id)) button.textContent = name || id;
-    const identifier = this.element("outputId");
-    identifier.hidden = !name || name === id;
-    if (identifier.textContent !== id) identifier.textContent = id;
   }
 
   private showError(message: Message) {

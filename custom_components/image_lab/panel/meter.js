@@ -67,7 +67,10 @@ export const meterStyles = `
   .meter-dials ha-button::part(base) { width:100%; justify-content:flex-start; }
   .meter-dials ha-button::part(label) { white-space:normal; text-align:start; }
   .meter-settings ha-select { display:block; }
-  .meter-coordinates .zoneFields { padding:0 8px 4px; }
+  .meter-coordinates { margin-top:6px; }
+  .meter-coordinate-content { display:grid; gap:8px; padding:8px; }
+  .meter-coordinate-group p { margin:0 0 4px; }
+  .meter-coordinate-content ha-button { justify-self:start; }
   .meter-rebase-content { padding:0 8px 4px; }
   .meter-rebase-content ha-input { display:block; }
   .meter-dialog .meter-footer { flex-direction:column; align-items:stretch; gap:8px; }
@@ -198,9 +201,23 @@ export async function editMeter(host, language, url, request, signal, saved) {
             <ha-button data-cancel-dial appearance="plain" size="s" hidden></ha-button>
             <ha-button data-remove appearance="plain" size="s" hidden></ha-button>
           </div>
-          <div data-direction hidden><ha-select></ha-select></div>
+          <div class="meter-grid" data-dial-settings hidden>
+            <ha-select data-multiplier></ha-select>
+            <ha-select data-direction></ha-select>
+          </div>
           <ha-expansion-panel class="meter-coordinates" data-fine-tune>
-            <div class="zoneFields" data-coordinates></div>
+            <div class="meter-coordinate-content">
+              <div class="meter-coordinate-group" role="group" data-position-group>
+                <p class="secondary" data-position-label></p>
+                <div class="meter-grid" data-position></div>
+              </div>
+              <div class="meter-coordinate-group" role="group" data-size-group>
+                <p class="secondary" data-size-label></p>
+                <div class="meter-grid" data-size></div>
+              </div>
+              <ha-alert alert-type="error" data-coordinate-error hidden></ha-alert>
+              <ha-button appearance="plain" size="s" data-restore-zone hidden></ha-button>
+            </div>
           </ha-expansion-panel>
         </section>
         <section class="meter-section">
@@ -257,6 +274,12 @@ export async function editMeter(host, language, url, request, signal, saved) {
     el("zones-title").textContent = labels.zonesTitle;
     el("index-title").textContent = labels.indexTitle;
     el("fine-tune").setAttribute("header", labels.fineTune);
+    for (const [group, label] of [["position", labels.zonePosition], ["size", labels.zoneSize]]) {
+        el(`${group}-group`).setAttribute("aria-label", label);
+        el(`${group}-label`).textContent = label;
+    }
+    el("coordinate-error").textContent = labels.zoneInvalid;
+    actionLabel(el("restore-zone"), labels.restoreZone, "undo");
     el("rebase").setAttribute("header", labels.rebase);
     el("rebase-help").textContent = labels.rebaseHelp;
     actionLabel(el("apply-rebase"), labels.confirmRebase, "check");
@@ -290,6 +313,7 @@ export async function editMeter(host, language, url, request, signal, saved) {
         let busy = false;
         let selected = 0;
         let suggestedInitial = false;
+        let invalidCoordinates = false;
         const select = (field, label, options, value) => {
             field.label = label;
             field.options = options;
@@ -320,13 +344,16 @@ export async function editMeter(host, language, url, request, signal, saved) {
             : undefined;
         el("rebase").hidden = !initialized;
         el("help").textContent = initialized ? labels.fixedScale : labels.initialHelp;
-        const direction = el("direction").querySelector("ha-select");
+        const direction = el("direction");
+        const multiplier = el("multiplier");
         select(direction, labels.direction, [
             { value: "cw", label: labels.clockwise }, { value: "ccw", label: labels.counterclockwise },
         ], "cw");
-        const coords = ["x", "y", "width", "height"].map(key => [key, field(common[key], 0, 100, "any", "", el("coordinates"))]);
-        for (const [, input] of coords)
-            input.toggleAttribute("required", false);
+        const coords = ["x", "y", "width", "height"].map(key => {
+            const isPosition = key === "x" || key === "y";
+            const input = field(common[key], isPosition ? 0 : 0.01, 100, "0.01", "", el(isPosition ? "position" : "size"), false);
+            return [key, input];
+        });
         const addingDial = () => selected > layout.dials.length;
         const region = () => selected === 0 ? layout.digits : layout.dials[selected - 1]?.region ?? null;
         const factor = new Intl.NumberFormat(language, { maximumFractionDigits: 19 });
@@ -337,10 +364,8 @@ export async function editMeter(host, language, url, request, signal, saved) {
         const setRegion = (rect) => {
             if (selected === 0)
                 layout.digits = rect;
-            else if (addingDial()) {
-                if (rect)
-                    layout.dials.push({ region: rect, counterclockwise: false });
-            }
+            else if (addingDial())
+                layout.dials.push({ region: rect, counterclockwise: false });
             else
                 layout.dials[selected - 1].region = rect;
         };
@@ -350,7 +375,7 @@ export async function editMeter(host, language, url, request, signal, saved) {
         const validIndex = (input) => input.value !== "" && input.checkValidity() && Number(input.value) < indexLimit();
         const refreshButtons = () => {
             el("wheel-limit").hidden = wheelCount() <= 12;
-            const ready = !busy && !!captureId && !addingDial() && !!layout.digits &&
+            const ready = !busy && !!captureId && !addingDial() && !invalidCoordinates && !!layout.digits &&
                 layout.dials.every(dial => dial.region) && validNumbers();
             el("save").toggleAttribute("disabled", !ready || !!(initial?.value && !validIndex(initial)));
             el("test").toggleAttribute("disabled", !ready);
@@ -391,10 +416,16 @@ export async function editMeter(host, language, url, request, signal, saved) {
             refreshButtons();
             paint();
         };
+        const showCoordinateError = (invalid) => {
+            invalidCoordinates = invalid;
+            el("coordinate-error").hidden = !invalid;
+            el("restore-zone").hidden = !invalid || !region();
+        };
         const fillCoordinates = () => {
             const rect = region();
             for (const [key, input] of coords)
                 input.value = rect ? String(Math.round(rect[key] * 10000) / 100) : "";
+            showCoordinateError(false);
         };
         const markZone = (button, current) => {
             button.setAttribute("aria-pressed", String(current));
@@ -406,6 +437,9 @@ export async function editMeter(host, language, url, request, signal, saved) {
             const dials = el("dials");
             const places = decimals.value !== "" && decimals.checkValidity()
                 ? Number(decimals.value) : layout.decimal_wheels;
+            const multipliers = layout.dials.map((_, index) => ({
+                value: String(index), label: "×" + factor.format(10 ** -(places + index + 1)),
+            }));
             layout.dials.forEach((dial, index) => {
                 let button = dials.children.item(index);
                 if (!button) {
@@ -415,9 +449,8 @@ export async function editMeter(host, language, url, request, signal, saved) {
                     dials.append(button);
                 }
                 markZone(button, selected === index + 1);
-                const multiplier = factor.format(10 ** -(places + index + 1));
                 const sense = dial.counterclockwise ? labels.counterclockwise : labels.clockwise;
-                actionLabel(button, `${labels.dial} ×${multiplier} · ${sense}`, "gauge");
+                actionLabel(button, `${labels.dial} ${multipliers[index].label} · ${sense}`, "gauge");
             });
             while (dials.children.length > layout.dials.length)
                 dials.lastElementChild.remove();
@@ -429,9 +462,12 @@ export async function editMeter(host, language, url, request, signal, saved) {
                 guide.textContent = instruction;
             el("add").hidden = addingDial();
             el("cancel-dial").hidden = !addingDial();
-            el("direction").hidden = el("remove").hidden = !dial;
-            if (dial)
+            el("dial-settings").hidden = el("remove").hidden = !dial;
+            if (dial) {
+                select(multiplier, labels.multiplier, multipliers, String(selected - 1));
+                multiplier.toggleAttribute("disabled", multipliers.length < 2);
                 direction.value = dial.counterclockwise ? "ccw" : "cw";
+            }
         };
         const selectZone = (index) => {
             cancelDrawing();
@@ -462,6 +498,17 @@ export async function editMeter(host, language, url, request, signal, saved) {
                 changed();
             }
         });
+        onSelect(multiplier, value => {
+            const current = selected - 1;
+            const next = Number(value);
+            if (next === current || !layout.dials[current] || !layout.dials[next])
+                return;
+            // The reader takes dials in descending order of significance.
+            cancelDrawing();
+            [layout.dials[current], layout.dials[next]] = [layout.dials[next], layout.dials[current]];
+            selected = next + 1;
+            changed();
+        });
         el("wheels-zone").onclick = () => selectZone(0);
         el("add").onclick = () => {
             selectZone(layout.dials.length + 1);
@@ -487,12 +534,22 @@ export async function editMeter(host, language, url, request, signal, saved) {
                 layout.rotation = Number(rotation.value);
             changed();
         });
+        el("restore-zone").onclick = () => {
+            fillCoordinates();
+            refreshButtons();
+            coords[0][1].focus();
+        };
         for (const [, input] of coords)
             input.addEventListener("input", () => {
                 const rect = Object.fromEntries(coords.map(([key, f]) => [key, Number(f.value) / 100]));
                 const valid = coords.every(([, f]) => f.value !== "" && f.checkValidity()) &&
                     rect.width > 0 && rect.height > 0 && rect.x + rect.width <= 1 + 1e-9 && rect.y + rect.height <= 1 + 1e-9;
-                setRegion(valid ? rect : null);
+                showCoordinateError(!valid);
+                if (!valid) {
+                    refreshButtons();
+                    return;
+                }
+                setRegion(rect);
                 changed();
             });
         const cancelDrawing = bindRegionDrawing(stage, () => !busy && !preview.isPanning(), paint, rect => {

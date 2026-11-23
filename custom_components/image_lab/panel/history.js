@@ -9,25 +9,32 @@ export const historyMarkup = `
   <p class="secondary" data-history-status role="status" hidden></p>
   <div data-history-entries></div>
   <div data-history-dialog></div>`;
-export const historySettingsMarkup = `
+export const historySettingsMarkup = (standalone = true) => `
   <h3 data-history-settings-title></h3>
   <div class="history-fields">
     <ha-select data-history-mode></ha-select>
-    <ha-input data-history-limit type="number" min="1" max="100" step="1" required></ha-input>
-    <div class="history-actions"><ha-button data-history-save variant="brand"></ha-button></div>
+    <div class="history-limit-row">
+      <p class="secondary" data-history-help></p>
+      <ha-input data-history-limit type="number" min="1" max="100" step="1" required></ha-input>
+    </div>
   </div>
-  <p class="secondary" data-history-help></p>
+  ${standalone ? '<div class="history-actions"><ha-button data-history-save variant="brand" size="s"></ha-button></div>' : ''}
   <p class="secondary" data-history-save-status role="status" hidden></p>`;
 export const historyStyles = `
-  .history-toolbar, .history-fields, .history-actions {
+  .history-toolbar, .history-actions {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   }
   .history-toolbar { justify-content: space-between; }
   .history-toolbar h3, [data-history-settings-title] { margin: 0; font-size: 1rem; }
-  .history-fields { margin-top: 8px; align-items: flex-start; }
-  .history-fields ha-select { flex: 1 1 220px; min-width: 0; }
-  .history-fields ha-input { flex: 1 1 130px; min-width: 0; }
-  .history-actions { min-height: var(--ha-space-14, 56px); }
+  .history-fields { display: grid; gap: var(--ha-space-2, 8px); margin-top: var(--ha-space-2, 8px); }
+  .history-limit-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 112px); align-items: center;
+    gap: var(--ha-space-2, 8px);
+  }
+  .history-fields ha-select, .history-fields ha-input { min-width: 0; }
+  .history-limit-row ha-input { --ha-input-padding-bottom: 0; }
+  .history-limit-row p { margin: 0; font-size: var(--ha-font-size-s, 12px); }
+  .history-actions { justify-content: flex-end; margin-top: var(--ha-space-2, 8px); }
   .history-day { margin: 12px 0 2px; color: var(--secondary-text-color); font-size: .95em; font-weight: 500; }
   .history-list { margin: 0; padding: 0; list-style: none; }
   .history-list li + li { border-top: 1px solid var(--divider-color); }
@@ -282,13 +289,13 @@ export class HistorySettings {
         this.save = save;
         this.mode = element(root, "mode");
         this.limit = element(root, "limit");
-        this.button = element(root, "save");
+        this.button = root.querySelector("[data-history-save]");
         this.mode.addEventListener("selected", event => {
             this.mode.value = event.detail.value;
             this.refresh();
         });
         this.limit.addEventListener("input", () => this.refresh());
-        this.button.onclick = () => void this.submit();
+        this.button?.addEventListener("click", () => void this.submit());
         this.localize();
         this.refresh();
     }
@@ -300,7 +307,8 @@ export class HistorySettings {
         this.mode.label = this.labels.mode;
         const options = this.comparison ? ["all", "changes", "off"] : ["all", "off"];
         this.mode.options = options.map(value => ({ value, label: this.labels[value] }));
-        actionLabel(this.button, this.labels.save, "content-save-outline");
+        if (this.button)
+            actionLabel(this.button, this.labels.save, "content-save-outline");
     }
     setValue(value) {
         this.scope?.abort();
@@ -314,6 +322,15 @@ export class HistorySettings {
     failed() {
         this.status(this.labels.settingsFailed);
     }
+    get changed() {
+        return Boolean(this.value && (this.mode.value !== this.value.mode || Number(this.limit.value) !== this.value.limit));
+    }
+    get draft() {
+        const limit = Number(this.limit.value);
+        if (!this.value || !this.limit.checkValidity() || !Number.isInteger(limit) || limit < 1 || limit > 100)
+            return;
+        return { mode: this.mode.value, limit };
+    }
     status(message = "") {
         const status = element(this.root, "save-status");
         status.hidden = !message;
@@ -323,14 +340,15 @@ export class HistorySettings {
         const disabled = this.pending || !this.value;
         this.mode.toggleAttribute("disabled", disabled);
         this.limit.toggleAttribute("disabled", disabled);
-        const changed = this.mode.value !== this.value?.mode || Number(this.limit.value) !== this.value?.limit;
-        this.button.toggleAttribute("disabled", disabled || !changed);
-        this.button.toggleAttribute("loading", this.pending);
+        this.button?.toggleAttribute("disabled", disabled || !this.changed);
+        this.button?.toggleAttribute("loading", this.pending);
     }
     async submit() {
-        if (this.pending || !this.value || !this.limit.reportValidity())
+        if (this.pending || !this.save || !this.limit.reportValidity())
             return;
-        const value = { mode: this.mode.value, limit: Number(this.limit.value) };
+        const value = this.draft;
+        if (!value)
+            return;
         const { signal } = this.scope = new AbortController();
         this.pending = true;
         this.status();

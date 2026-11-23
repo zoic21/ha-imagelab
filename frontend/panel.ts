@@ -1,11 +1,12 @@
 import { meterStrings, panelStrings as strings } from "./translations.js";
-import { ImageLabComparison } from "./comparison.js";
+import { ImageLabComparison, type HaSelect } from "./comparison.js";
 
 import { actionLabel } from "./action.js";
 import { AnalysisList, analysisListStyles, type AnalysisModule, type AnalysisRow, type CaptureUpdate } from "./analysis-list.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
 import { ImageCache } from "./image-cache.js";
 import { editMeter, meterStyles, meterText, type MeterResult } from "./meter.js";
+import type { NumberField } from "./number-field.js";
 import { editModuleSettings, runProfileFlow, type ProfileFlowMode } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
@@ -17,6 +18,10 @@ type Rgb = [number, number, number];
 type Detection = [label: string, confidence: number, xMin: number, yMin: number, xMax: number, yMax: number];
 type HistoryItem = Capture & { dominant_hex: string | null; count: number | null; meter?: MeterResult; reason?: string | null };
 const panelPath = "/image-lab";
+const intervalPresets = [5, 15, 30, 60];
+// Match the backend limit for Python timedelta.
+const maxIntervalMinutes = 999_999_999 * 1440 - 1;
+const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
 
 interface Profile {
   profile_id: string;
@@ -128,20 +133,34 @@ template.innerHTML = `
     #profile > [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ${historyStyles}
     ${meterStyles}
-    #profileSettings { margin-top: 18px; }
+    #profileHistorySettings { margin-top: var(--ha-space-3, 12px); }
     .moduleSettingsSave, #zone, #meterSettings { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
     .settingsSection {
       border-top: 1px solid var(--divider-color);
-      padding-top: 12px;
-      margin-bottom: 16px;
+      padding-block: var(--ha-space-3, 12px);
     }
     .settingsTitle { font-size: 1rem; margin: 0 0 8px; }
-    .settingsRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-    .settingsRow > .metadata { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
-    .settingsRow p { margin: 0; }
+    .settingsInfo {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+      gap: var(--ha-space-2, 8px);
+    }
+    .settingsInfo p { margin: 0; }
+    #editSource { display: block; width: 100%; --ha-button-height: auto; }
+    #editSource::part(base) { padding: 0; border-radius: var(--ha-border-radius-md, 8px); }
+    #editSource::part(label) { width: 100%; padding: 0; }
+    .sourceRow {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+      gap: var(--ha-space-2, 8px); padding: var(--ha-space-2, 8px); min-height: var(--ha-space-12, 48px);
+      box-sizing: border-box; border-radius: var(--ha-border-radius-md, 8px);
+      background: var(--secondary-background-color); color: var(--primary-text-color);
+      text-align: start; white-space: normal; overflow-wrap: anywhere;
+    }
+    .sourceRow ha-icon { --mdc-icon-size: 20px; }
+    .sourceRow ha-icon:last-child { color: var(--primary-color); }
+    #sourceKind { display: block; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-normal, 400); }
     #outputEntity {
       max-width: 100%; --ha-button-label-overflow: visible;
       white-space: normal; overflow-wrap: anywhere; text-align: start;
@@ -149,14 +168,13 @@ template.innerHTML = `
     #outputEntity::part(base) { padding-inline: var(--ha-space-2, 8px); }
     #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
     #outputId { display: block; text-align: start; }
-    #analysisId { margin-bottom: 0; }
-    #analysisId .settingsRow { gap: 0 8px; }
-    #profileId { min-width: 0; }
+    #analysisId { padding-block-end: 0; }
+    #profileId { display: block; color: var(--secondary-text-color); }
     #copyStatus { margin-top: 0; }
-    #cameraSchedule { margin-top: 8px; }
-    #intervalControls { align-items: flex-start; }
-    #intervalAction { min-height: var(--ha-space-14, 56px); }
-    #interval { width: min(100%, 230px); }
+    #cameraSchedule { display: grid; gap: var(--ha-space-2, 8px); margin-top: var(--ha-space-2, 8px); }
+    #interval { --ha-input-padding-bottom: 0; }
+    #saveInterval { justify-self: end; }
+    #frequencyStatus:empty { display: none; }
 
     figure { margin: 16px 0 0; }
     .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
@@ -263,40 +281,42 @@ template.innerHTML = `
               <ha-button id="meterSettings" appearance="plain" hidden></ha-button>
               <p class="secondary" id="meterSettingsStatus" role="status" hidden></p>
             </section>
-            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
+            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup()}</section>
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
-                <div class="settingsRow">
-                  <p id="sourceSummary" class="metadata"></p>
-                  <ha-button id="editSource" appearance="plain"></ha-button>
-                </div>
-                <p id="schedule" class="secondary" hidden></p>
+                <ha-button id="editSource" appearance="plain" variant="neutral">
+                  <span class="sourceRow">
+                    <ha-icon id="sourceIcon" class="secondary" aria-hidden="true"></ha-icon>
+                    <span><span id="sourceKind" class="secondary"></span><span id="sourceSummary"></span></span>
+                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
+                  </span>
+                </ha-button>
+                <p id="scheduleHint" class="secondary" hidden></p>
                 <div id="cameraSchedule" hidden>
-                  <div id="intervalControls" class="toolbar">
-                    <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
-                    <div id="intervalAction" class="toolbar"><ha-button id="saveInterval" variant="brand"></ha-button></div>
-                  </div>
-                  <p id="frequencyHelp" class="secondary"></p>
+                  <ha-select id="intervalMode"></ha-select>
+                  <ha-input id="interval" type="number" min="1" max="${maxIntervalMinutes}" step="1" required hidden></ha-input>
+                  <ha-button id="saveInterval" size="s" variant="brand"></ha-button>
                   <p id="frequencyStatus" role="status"></p>
                 </div>
               </section>
               <section class="settingsSection" aria-labelledby="outputTitle">
-                <h3 id="outputTitle" class="settingsTitle"></h3>
-                <div class="settingsRow">
-                  <div class="metadata">
+                <div class="settingsInfo">
+                  <div>
+                    <h3 id="outputTitle" class="settingsTitle"></h3>
                     <ha-button id="outputEntity" appearance="plain" size="s" hidden>
                       <code id="outputId"></code>
                     </ha-button>
                     <p id="noOutput" class="secondary"></p>
                   </div>
-                  <ha-button id="settings" appearance="plain"></ha-button>
+                  <ha-icon-button id="settings">
+                    <ha-icon icon="mdi:cog-outline" aria-hidden="true"></ha-icon>
+                  </ha-icon-button>
                 </div>
               </section>
               <div id="analysisId" class="settingsSection">
-                <div class="settingsRow">
-                  <span id="idLabel" class="secondary"></span>
-                  <code id="profileId"></code>
+                <div class="settingsInfo">
+                  <span><span id="idLabel"></span><code id="profileId"></code></span>
                   <ha-icon-button id="copy">
                     <ha-icon icon="mdi:content-copy" aria-hidden="true"></ha-icon>
                   </ha-icon-button>
@@ -352,16 +372,26 @@ class ImageLabPanel extends HTMLElement {
       });
       if (!response.ok) throw new Error();
     });
-    this.comparison = new ImageLabComparison(this.images);
+    this.comparison = new ImageLabComparison(this.images, {
+      draft: profile => this.intervalDraft(profile),
+      save: (profile, minutes) => this.saveSchedule(profile, minutes),
+    });
     this.element("comparisonSlot").append(this.comparison);
     this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
     this.element("add").addEventListener("click", () => this.openFlow("create"));
     this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
     this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
     this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
-    this.element("interval").addEventListener("input", () => {
+    const scheduleChanged = () => {
       this.element("frequencyStatus").textContent = "";
+      this.refreshSchedule();
+    };
+    const intervalMode = this.element<HaSelect>("intervalMode");
+    intervalMode.addEventListener("selected", event => {
+      intervalMode.value = (event as CustomEvent<{ value: string }>).detail.value;
+      scheduleChanged();
     });
+    this.element("interval").addEventListener("input", scheduleChanged);
     this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element("back").addEventListener("click", () => {
@@ -812,15 +842,12 @@ class ImageLabPanel extends HTMLElement {
       "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
       analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
       outputTitle: labels.settings, noOutput: labels.noResultEntity, renameAction: labels.rename,
-      frequencyHelp: labels.frequencyHelp,
     })) {
       this.element(id).textContent = message;
     }
     const actions = {
       add: [labels.add, "plus"],
       retry: [labels.retry, "refresh"],
-      settings: [labels.configure, "cog-outline"],
-      editSource: [labels.editSource, "pencil-outline"],
       saveInterval: [labels.saveFrequency, "content-save-outline"],
       test: [labels.test, "play-outline"],
       zone: [labels.zone, "crop"],
@@ -828,6 +855,8 @@ class ImageLabPanel extends HTMLElement {
     };
     for (const [id, [label, icon]] of Object.entries(actions))
       actionLabel(this.element(id), label, icon);
+    this.element("settings").setAttribute("label", labels.configure);
+    this.element("editSource").title = labels.editSource;
     this.element("copy").setAttribute("label", labels.copy);
     this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
 
@@ -877,17 +906,32 @@ class ImageLabPanel extends HTMLElement {
     if (!isComparison && tab === "settings") this.showModuleSettings();
     if (!profile) return;
     const camera = profile.source_type === "camera";
-    const interval = this.element<HTMLElement & {value: string}>("interval");
+    const interval = this.element<NumberField>("interval");
+    const intervalMode = this.element<HaSelect>("intervalMode");
     this.element("cameraSchedule").hidden = !camera;
-    const schedule = this.element("schedule");
+    this.element("saveInterval").hidden = isComparison;
+    const schedule = this.element("scheduleHint");
     schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
     schedule.textContent = labels.frequencyMediaInactive;
     if (camera) {
       interval.setAttribute("label", labels.intervalLabel);
+      if (intervalMode.label !== labels.triggerColumn) {
+        intervalMode.label = labels.triggerColumn;
+        intervalMode.options = [
+          { value: "0", label: labels.manualTrigger },
+          ...intervalPresets.map(minutes => ({
+            value: String(minutes), label: minutes === 60 ? labels.everyHour :
+              labels.everyMinutes.replace("{minutes}", String(minutes)),
+          })),
+          { value: "custom", label: labels.customInterval },
+        ];
+      }
       const key = `${profile.profile_id}/${profile.interval_minutes}`;
       if (key !== this.intervalKey) {
         this.intervalKey = key;
-        interval.value = String(profile.interval_minutes);
+        intervalMode.value = profile.interval_minutes === 0 || intervalPresets.includes(profile.interval_minutes)
+          ? String(profile.interval_minutes) : "custom";
+        interval.value = profile.interval_minutes > 0 ? String(profile.interval_minutes) : "";
         this.element("frequencyStatus").textContent = "";
       }
     } else {
@@ -898,8 +942,11 @@ class ImageLabPanel extends HTMLElement {
       : undefined;
     const trigger = camera ? undefined : profile.output_entity_id && profile.source_type === "media_player"
       ? labels.artworkTrigger : labels.onDemand;
+    this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[profile.source_type]}`);
+    this.element("sourceKind").textContent = camera ? labels.cameraLabel : labels[profile.source_type];
     this.element("sourceSummary").textContent =
-      [labels[profile.source_type], sourceName, trigger].filter(Boolean).join(" · ");
+      [sourceName ?? (profile.source_type !== "upload" ? labels.missingSource : undefined), trigger].filter(Boolean).join(" · ");
+    this.refreshSchedule();
     this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
     this.element("meterSettings").hidden = profile.module !== "meter";
     this.element("meterSettings").toggleAttribute("disabled", !profile.available);
@@ -917,32 +964,69 @@ class ImageLabPanel extends HTMLElement {
     }
   }
 
-  private async saveInterval() {
+  private intervalDraft(profileId: string): number | undefined {
+    const profile = this.selected;
+    if (profile?.profile_id !== profileId || profile.source_type !== "camera") return;
+    const mode = this.element<HaSelect>("intervalMode").value;
+    if (!mode) return;
+    const custom = mode === "custom";
+    const field = this.element<NumberField>("interval");
+    const minutes = Number(custom ? field.value : mode);
+    if (custom && (!field.checkValidity() || !Number.isSafeInteger(minutes) || minutes < 1 || minutes > maxIntervalMinutes))
+      return NaN;
+    return minutes === profile.interval_minutes ? undefined : minutes;
+  }
+
+  private refreshSchedule() {
+    const mode = this.element<HaSelect>("intervalMode");
+    const field = this.element<NumberField>("interval");
+    field.hidden = mode.value !== "custom";
+    const profile = this.selected;
+    const draft = profile ? this.intervalDraft(profile.profile_id) : undefined;
+    this.element("saveInterval").toggleAttribute("disabled", this.savingInterval || draft === undefined);
+    this.element("saveInterval").toggleAttribute("loading", this.savingInterval);
+    mode.toggleAttribute("disabled", this.savingInterval);
+    field.toggleAttribute("disabled", this.savingInterval);
+    this.comparison.refreshSettings();
+  }
+
+  private async saveSchedule(profileId: string, minutes: number) {
     const profile = this.selected;
     const hass = this._hass;
-    if (!hass || profile?.source_type !== "camera" || this.savingInterval) return;
-    const field = this.element<HTMLElement & {value: string; reportValidity(): boolean}>("interval");
-    const minutes = Number(field.value);
+    if (!hass || profile?.profile_id !== profileId || profile.source_type !== "camera")
+      throw new Error("profile_not_found");
+    await hass.connection.sendMessagePromise({
+      type: "image_lab/set_schedule", profile_id: profileId, interval_minutes: minutes,
+    });
+    // A profile update normally arrives over the subscription before the command replies.
+    if (this.selected === profile) {
+      this.profiles = this.profiles?.map(item => item === profile ? { ...item, interval_minutes: minutes } : item);
+      this.renderAnalysisRows();
+      this.render();
+    }
+  }
+
+  private async saveInterval() {
+    const profile = this.selected;
+    if (!profile || this.savingInterval) return;
+    const minutes = this.intervalDraft(profile.profile_id);
+    if (minutes === undefined) return;
     const status = this.element("frequencyStatus");
-    if (!field.reportValidity() || !Number.isSafeInteger(minutes) || minutes < 0) {
+    if (!Number.isSafeInteger(minutes)) {
+      this.element<NumberField>("interval").reportValidity();
       status.textContent = this.strings.invalidFrequency;
       return;
     }
-    const button = this.element("saveInterval");
     this.savingInterval = true;
-    button.setAttribute("loading", "");
-    field.setAttribute("disabled", "");
+    this.refreshSchedule();
     try {
-      await hass.connection.sendMessagePromise({
-        type: "image_lab/set_schedule", profile_id: profile.profile_id, interval_minutes: minutes,
-      });
+      await this.saveSchedule(profile.profile_id, minutes);
       if (this.selectedId === profile.profile_id) status.textContent = this.strings.frequencySaved;
     } catch {
       if (this.selectedId === profile.profile_id) status.textContent = this.strings.optionsError;
     } finally {
       this.savingInterval = false;
-      button.removeAttribute("loading");
-      field.removeAttribute("disabled");
+      this.refreshSchedule();
     }
   }
 

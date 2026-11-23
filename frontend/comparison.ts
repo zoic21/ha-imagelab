@@ -15,7 +15,7 @@ type Settings = {
   max_distance: number;
   min_margin: number;
 };
-interface HaSelect extends HTMLElement {
+export interface HaSelect extends HTMLElement {
   options: { value: string; label: string }[];
   value: string;
   label: string;
@@ -61,6 +61,11 @@ export interface ComparisonClient {
   fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
 }
 
+interface ComparisonSchedule {
+  draft(profile: string): number | undefined;
+  save(profile: string, minutes: number): Promise<void>;
+}
+
 type Label = keyof typeof text.en;
 type TextField = Pick<NumberField, "value" | "reportValidity"> & HTMLElement;
 type Tab = "preview" | "references" | "history" | "settings";
@@ -87,19 +92,26 @@ template.innerHTML = `
     [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
-    #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }
-    .analysisActions {
+    #analysisSettingsTitle { font-size:1rem; margin:0; }
+    .analysisHeading, .settingsActions {
       display:flex; align-items:center; justify-content:space-between;
-      gap:var(--ha-space-1, 4px); container-type:inline-size;
+      gap:var(--ha-space-2, 8px);
     }
-    @container (max-width: 280px) {
-      .analysisActions ha-button::part(base) { padding-inline:var(--ha-space-1, 4px); }
-    }
+    .analysisHeading { margin-block-end:var(--ha-space-2, 8px); }
+    #engine { width:100%; }
+    #thresholdFields ha-input { --ha-input-padding-bottom:0; }
+    #thresholdsHint, #dirty { font-size:var(--ha-font-size-s, 12px); }
+    .settingsActions { margin-block-start:var(--ha-space-2, 8px); }
+    #save { flex:none; margin-inline-start:auto; }
+    #dirty { margin:0; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
     ${historyStyles}
-    #historySettings { border-top:1px solid var(--divider-color); margin:16px 0; padding-top:12px; }
+    #historySettings {
+      border-top:1px solid var(--divider-color); margin-top:var(--ha-space-3, 12px);
+      padding-block:var(--ha-space-3, 12px);
+    }
     #preview { display:grid; gap:var(--ha-space-3, 12px); }
     .resultHeader {
       display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start;
@@ -261,17 +273,21 @@ template.innerHTML = `
     ${historyMarkup}
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <h3 id="analysisSettingsTitle"></h3>
-    <ha-select id="engine"></ha-select>
-    <p id="thresholdsHint" class="secondary"></p>
-    <div id="thresholdFields" class="fields"></div>
-    <div class="analysisActions">
-      <ha-button id="editZone" appearance="plain" size="s"></ha-button>
+    <div id="settingsFields">
+      <div class="analysisHeading">
+        <h3 id="analysisSettingsTitle"></h3>
+        <ha-button id="editZone" appearance="plain" size="s"></ha-button>
+      </div>
+      <ha-select id="engine"></ha-select>
+      <p id="thresholdsHint" class="secondary"></p>
+      <div id="thresholdFields" class="fields"></div>
+      <section id="historySettings">${historySettingsMarkup(false)}</section>
+      <slot name="profile-settings"></slot>
+    </div>
+    <div class="settingsActions">
+      <p id="dirty" class="secondary" role="status" hidden></p>
       <ha-button id="save" variant="brand" size="s"></ha-button>
     </div>
-    <p id="dirty" class="secondary"></p>
-    <section id="historySettings">${historySettingsMarkup}</section>
-    <slot name="profile-settings"></slot>
   </section>
   <ha-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">
@@ -308,15 +324,16 @@ export class ImageLabComparison extends HTMLElement {
   private readonly historySettings: HistorySettings;
   private readonly expandedStates = new Set<string>();
 
-  constructor(private readonly images = new ImageCache()) {
+  constructor(private readonly images = new ImageCache(), private readonly schedule?: ComparisonSchedule) {
     super();
     this.attachShadow({ mode: "open" }).append(
       template.content.cloneNode(true),
     );
     this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
-    this.historySettings = new HistorySettings(this.get("historySettings"), true, async (value, signal) => {
-      await this.update("history_settings", value, signal);
-    });
+    const historySettings = this.get("historySettings");
+    this.historySettings = new HistorySettings(historySettings, true);
+    historySettings.addEventListener("selected", () => this.refreshSettings());
+    historySettings.addEventListener("input", () => this.refreshSettings());
     this.get("nav").addEventListener("wa-tab-show", (event) => {
       const tab = (event as CustomEvent<{ name: Tab }>).detail.name;
       if (tab !== this.tab) {
@@ -330,7 +347,7 @@ export class ImageLabComparison extends HTMLElement {
         (select as HaSelect).value = (event as CustomEvent<{ value: string }>).detail.value;
         if (select.id === "engine") {
           this.renderEngine();
-          this.renderDirty();
+          this.refreshSettings();
         }
         if (select.id === "captureState") this.refresh();
       }
@@ -353,13 +370,7 @@ export class ImageLabComparison extends HTMLElement {
           this.feedback(this.labels.saved);
         });
     });
-    this.onClick("save", () =>
-      this.task(async (signal) => {
-        await this.update("settings", this.readSettings(), signal);
-        this.fillSettings();
-        this.feedback(this.labels.saved);
-      }),
-    );
+    this.onClick("save", () => this.saveSettings());
     this.onClick("captureAdd", () =>
       this.task(async (signal) => {
         if (!this.result?.image_id || !this.captured) return;
@@ -395,7 +406,7 @@ export class ImageLabComparison extends HTMLElement {
     for (const field of ["max_distance", "min_margin"]) {
       const input = numberField(255);
       input.id = field;
-      input.addEventListener("input", () => this.renderDirty());
+      input.addEventListener("input", () => this.refreshSettings());
       this.get("thresholdFields").append(input);
     }
     this.localize();
@@ -536,7 +547,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get("references").setAttribute("aria-busy", String(busy));
     this.get("gallery").inert = busy;
     this.get("history").inert = busy || !this.gallery;
-    this.get("historySettings").inert = busy || !this.gallery;
+    this.get("settingsFields").inert = busy;
     this.get("reload").hidden = Boolean(this.gallery) || busy;
     this.get("editZone").toggleAttribute("disabled", !this.gallery || busy || !this.available);
     this.get("previewHint").textContent = this.activity
@@ -551,7 +562,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get("matchLink").hidden = !reference;
     this.get("matchMeta").hidden = !state;
     this.get("matchMeta").textContent = state ? `${this.labels.state} ${state.name}` : "";
-    this.renderDirty();
+    this.refreshSettings();
   }
 
   private show(tab: Tab) {
@@ -934,22 +945,55 @@ export class ImageLabComparison extends HTMLElement {
     };
   }
 
-  private renderDirty() {
+  private settingsDraft(saved: Gallery) {
+    const analysis = this.readSettings();
+    const { engine, max_distance, min_margin } = saved.settings;
+    const changed = analysis.engine !== engine || analysis.max_distance !== max_distance || analysis.min_margin !== min_margin;
+    const historyChanged = this.historySettings.changed;
+    const history = historyChanged ? this.historySettings.draft : undefined;
+    if (historyChanged && !history) throw new Error("invalid_history_limit");
+    const minutes = this.profile ? this.schedule?.draft(this.profile) : undefined;
+    if (minutes !== undefined && !Number.isSafeInteger(minutes)) throw new Error("invalid_frequency");
+    return { analysis: changed ? analysis : undefined, history, minutes };
+  }
+
+  private saveSettings() {
+    const gallery = this.gallery;
+    const profile = this.profile;
+    if (!gallery || !profile) return;
+    return this.task(async signal => {
+      const { analysis, history, minutes } = this.settingsDraft(gallery);
+      if (analysis) {
+        await this.update("settings", analysis, signal);
+        this.fillSettings();
+      }
+      if (history) {
+        await this.update("history_settings", history, signal);
+        this.historySettings.setValue(this.gallery!.history_settings);
+      }
+      if (minutes !== undefined) await this.schedule?.save(profile, minutes);
+      if (!signal.aborted) this.feedback(this.labels.saved);
+    });
+  }
+
+  refreshSettings() {
     const status = this.get("dirty");
     status.textContent = "";
     let changed = false;
     if (this.gallery) {
       try {
-        const draft = this.readSettings();
-        const saved = this.gallery.settings;
-        changed = draft.engine !== saved.engine || draft.max_distance !== saved.max_distance ||
-          draft.min_margin !== saved.min_margin;
+        const { analysis, history, minutes } = this.settingsDraft(this.gallery);
+        changed = Boolean(analysis || history || minutes !== undefined);
         if (changed) status.textContent = this.labels.dirty;
-      } catch {
-        status.textContent = this.labels.invalid_settings;
+      } catch (error) {
+        const key = error instanceof Error ? error.message : "";
+        status.textContent = Object.hasOwn(this.labels, key) ? this.labels[key as Label] : this.labels.invalid_settings;
       }
     }
-    this.get("save").toggleAttribute("disabled", Boolean(this.activity) || !changed);
+    status.hidden = !status.textContent;
+    const save = this.get("save");
+    save.toggleAttribute("disabled", Boolean(this.activity) || !changed);
+    save.toggleAttribute("loading", this.activity === "working" && this.tab === "settings");
     const hint = this.get("testHint");
     hint.hidden = !status.textContent;
     hint.textContent = this.labels.testSavedSettings;

@@ -34,15 +34,139 @@ export function meterText(result: MeterResult, language: string, compact = false
 }
 
 export const meterStyles = `
-  .meter-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr)); gap:8px; }
-  .meter-grid > * { min-width:0; }
-  .meter-tools { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
-  .meter-tools ha-select { flex:1 1 190px; min-width:0; }
-  .meter-frame { overflow:hidden; background:#111; }
-  .meter-frame img { display:block; }
+  .meter-editor { display:grid; gap:16px; }
+  .meter-editor > *, .meter-grid > * { min-width:0; }
+  @media (min-width: 760px) {
+    .meter-editor { grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:24px; }
+    .meter-preview { position:sticky; top:0; align-self:start; background:var(--card-background-color); }
+  }
+  .meter-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-bottom:6px; }
+  .meter-toolbar ha-icon-button {
+    --ha-icon-button-size:var(--ha-space-10,40px);
+    --ha-icon-button-padding-inline:0;
+  }
+  .meter-toolbar [data-pan][aria-pressed="true"] {
+    border-radius:50%; background:var(--ha-color-fill-neutral-normal-active);
+  }
+  .meter-toolbar [data-capture] { margin-inline-start:auto; }
+  .meter-toolbar [data-reset-zoom] {
+    min-width:58px; font-variant-numeric:tabular-nums;
+  }
+  .meter-viewport {
+    position:relative; height:clamp(200px,38dvh,400px); overflow:auto; scrollbar-width:none;
+    border-radius:var(--ha-border-radius-md,8px);
+    background:var(--ha-color-surface-lowered,var(--secondary-background-color));
+  }
+  @media (min-width: 760px) {
+    .meter-viewport { height:clamp(220px,calc(100dvh - 330px),620px); }
+  }
+  .meter-viewport[data-zoomed] { overscroll-behavior:contain; }
+  .meter-extent { position:relative; min-width:100%; min-height:100%; display:grid; place-items:center; }
+  .meter-frame { position:relative; overflow:hidden; background:#111; touch-action:none; user-select:none; cursor:crosshair; }
+  .meter-viewport[data-panning] .meter-frame { cursor:grab; }
+  .meter-viewport[data-panning] .meter-frame:active { cursor:grabbing; }
+  .meter-frame img { display:block; width:100%; height:100%; max-height:none; }
   .meter-frame .selection:not(.active) { border-style:dashed; background:transparent; opacity:.65; }
+  .meter-section + .meter-section { border-top:1px solid var(--divider-color); margin-top:12px; padding-top:12px; }
+  .meter-section h3 { margin:0 0 8px; font-size:1rem; }
+  .meter-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .meter-grid > :only-child { grid-column:1 / -1; }
+  .meter-tools { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+  .meter-dials { display:grid; gap:4px; }
+  .meter-dials ha-button { min-width:0; }
+  .meter-dials ha-button::part(base) { width:100%; justify-content:flex-start; }
+  .meter-dials ha-button::part(label) { white-space:normal; text-align:start; }
+  .meter-settings ha-select { display:block; }
+  .meter-coordinates .zoneFields { padding:0 8px 4px; }
+  .meter-dialog .meter-footer { flex-direction:column; align-items:stretch; gap:8px; }
+  .meter-footer p, .meter-footer ha-alert { margin:0; }
   .meter-status { font-variant-numeric:tabular-nums; }
 `;
+
+function bindMeterPreview(
+  viewport: HTMLElement, canvas: HTMLElement, stage: HTMLElement, image: HTMLImageElement,
+  region: () => Region | null, blocked: () => boolean,
+  buttons: { out: HTMLElement; reset: HTMLElement; in: HTMLElement; pan: HTMLElement },
+  labels: typeof meterStrings.en, language: string, signal: AbortSignal,
+) {
+  const levels = [1, 1.5, 2, 3, 4];
+  const percentage = new Intl.NumberFormat(language, { style: "percent" });
+  let level = 0;
+  let panning = false;
+  let drag: { pointer: number; x: number; y: number } | undefined;
+
+  const viewportCenter = () => ({
+    x: (viewport.scrollLeft + viewport.clientWidth / 2 - stage.offsetLeft) / stage.offsetWidth,
+    y: (viewport.scrollTop + viewport.clientHeight / 2 - stage.offsetTop) / stage.offsetHeight,
+  });
+  const resize = (center: { x: number; y: number }) => {
+    if (!image.naturalWidth || !viewport.clientWidth || !viewport.clientHeight) return;
+    const ratio = image.naturalWidth / image.naturalHeight;
+    const width = Math.min(viewport.clientWidth, viewport.clientHeight * ratio) * levels[level];
+    const height = width / ratio;
+    stage.style.width = width + "px";
+    stage.style.height = height + "px";
+    canvas.style.width = Math.max(width, viewport.clientWidth) + "px";
+    canvas.style.height = Math.max(height, viewport.clientHeight) + "px";
+    viewport.scrollLeft = stage.offsetLeft + center.x * width - viewport.clientWidth / 2;
+    viewport.scrollTop = stage.offsetTop + center.y * height - viewport.clientHeight / 2;
+  };
+  const updatePan = (active: boolean) => {
+    panning = active;
+    viewport.toggleAttribute("data-panning", panning);
+    buttons.pan.setAttribute("aria-pressed", String(panning));
+    const label = panning ? labels.drawMode : labels.panMode;
+    buttons.pan.setAttribute("label", label);
+    buttons.pan.setAttribute("title", label);
+  };
+  const updateTools = () => {
+    buttons.out.toggleAttribute("disabled", level === 0);
+    buttons.in.toggleAttribute("disabled", level === levels.length - 1);
+    buttons.pan.toggleAttribute("disabled", level === 0);
+    buttons.reset.textContent = percentage.format(levels[level]);
+    viewport.toggleAttribute("data-zoomed", level > 0);
+  };
+  const pickCenter = () => {
+    const rect = region();
+    return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : { x: 0.5, y: 0.5 };
+  };
+  const zoom = (next: number) => {
+    const center = level > 0 ? viewportCenter() : pickCenter();
+    level = Math.max(0, Math.min(next, levels.length - 1));
+    if (!level) updatePan(false);
+    updateTools();
+    resize(center);
+  };
+  buttons.out.onclick = () => zoom(level - 1);
+  buttons.reset.onclick = () => zoom(0);
+  buttons.in.onclick = () => zoom(level + 1);
+  buttons.pan.onclick = () => updatePan(!panning);
+  stage.addEventListener("pointerdown", event => {
+    if (!panning || blocked() || drag || event.button !== 0) return;
+    event.preventDefault();
+    drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY };
+    stage.setPointerCapture(event.pointerId);
+  });
+  stage.addEventListener("pointermove", event => {
+    if (!drag || drag.pointer !== event.pointerId) return;
+    viewport.scrollLeft += drag.x - event.clientX;
+    viewport.scrollTop += drag.y - event.clientY;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+  });
+  stage.addEventListener("lostpointercapture", () => { drag = undefined; });
+  const observer = new ResizeObserver(() => resize(stage.offsetWidth ? viewportCenter() : pickCenter()));
+  observer.observe(viewport);
+  signal.addEventListener("abort", () => observer.disconnect(), { once: true });
+  image.addEventListener("load", () => resize(pickCenter()));
+  updateTools();
+  updatePan(false);
+  return {
+    isPanning: () => panning,
+    startDrawing: () => updatePan(false),
+    focusRegion: () => { if (level) resize(pickCenter()); },
+  };
+}
 
 export async function editMeter(
   host: HTMLElement, language: string, url: string,
@@ -52,36 +176,69 @@ export async function editMeter(
   const labels = language.startsWith("fr") ? meterStrings.fr : meterStrings.en;
   const common = language.startsWith("fr") ? panelStrings.fr : panelStrings.en;
   const dialog = document.createElement("ha-dialog");
+  dialog.className = "meter-dialog";
+  dialog.setAttribute("width", "large");
   dialog.setAttribute("header-title", labels.configure);
   dialog.setAttribute("prevent-scrim-close", "");
   dialog.innerHTML = `
-    <div data-editor hidden>
-      <div class="meter-grid" data-format><ha-select data-kind></ha-select></div>
-      <p class="secondary" data-guide></p>
-      <div class="meter-tools">
-        <ha-select data-target></ha-select><ha-button data-add appearance="plain"></ha-button>
-        <ha-button data-remove appearance="plain"></ha-button>
+    <div class="meter-editor" data-editor hidden>
+      <div class="meter-preview">
+        <div class="meter-toolbar">
+          <ha-icon-button data-zoom-out><ha-icon icon="mdi:magnify-minus-outline"></ha-icon></ha-icon-button>
+          <ha-button data-reset-zoom appearance="plain" size="s"></ha-button>
+          <ha-icon-button data-zoom-in><ha-icon icon="mdi:magnify-plus-outline"></ha-icon></ha-icon-button>
+          <ha-icon-button data-pan><ha-icon icon="mdi:hand-back-right-outline"></ha-icon></ha-icon-button>
+          <ha-icon-button data-capture><ha-icon icon="mdi:camera-retake-outline"></ha-icon></ha-icon-button>
+        </div>
+        <div class="meter-viewport" data-viewport role="region" tabindex="0" hidden>
+          <div class="meter-extent" data-extent>
+            <div class="meter-frame" data-frame><img draggable="false"><div data-overlay aria-hidden="true"></div></div>
+          </div>
+        </div>
+        <p class="secondary" data-guide role="status"></p>
       </div>
-      <div class="meter-tools" data-direction hidden>
-        <ha-select></ha-select>
+      <div class="meter-settings">
+        <section class="meter-section">
+          <h3 data-format-title></h3>
+          <div class="meter-grid" data-format><ha-select data-kind></ha-select></div>
+        </section>
+        <section class="meter-section">
+          <h3 data-zones-title></h3>
+          <div class="meter-tools"><ha-button data-wheels-zone size="s"></ha-button></div>
+          <div class="meter-grid" data-wheel-counts></div>
+          <p class="secondary" data-wheel-limit role="status" hidden></p>
+          <div class="meter-dials" data-dials role="group" hidden></div>
+          <div class="meter-tools">
+            <ha-button data-add appearance="plain" size="s" disabled></ha-button>
+            <ha-button data-cancel-dial appearance="plain" size="s" hidden></ha-button>
+            <ha-button data-remove appearance="plain" size="s" hidden></ha-button>
+          </div>
+          <div data-direction hidden><ha-select></ha-select></div>
+          <ha-expansion-panel class="meter-coordinates" data-fine-tune>
+            <div class="zoneFields" data-coordinates></div>
+          </ha-expansion-panel>
+        </section>
+        <section class="meter-section">
+          <h3 data-index-title></h3>
+          <div class="meter-grid" data-limits></div>
+          <p class="secondary" data-help></p>
+        </section>
       </div>
-      <div class="zoneFrame meter-frame" data-frame hidden><img draggable="false"><div data-overlay aria-hidden="true"></div></div>
-      <div class="zoneFields" data-coordinates></div>
-      <div class="meter-tools"><ha-button data-capture appearance="plain"></ha-button>
-        <ha-button data-test appearance="plain"></ha-button></div>
-      <p class="secondary meter-status" data-result role="status" hidden></p>
-      <div class="meter-grid" data-limits></div>
-      <p class="secondary" data-help></p>
     </div>
-    <ha-alert data-alert alert-type="error" hidden></ha-alert>
-    <ha-dialog-footer slot="footer">
-      <ha-button data-close slot="secondaryAction" appearance="plain"></ha-button>
-      <ha-button data-save slot="primaryAction" variant="brand" disabled></ha-button>
-    </ha-dialog-footer>`;
+    <div class="meter-footer" slot="footer">
+      <ha-alert data-alert alert-type="error" hidden></ha-alert>
+      <p class="secondary meter-status" data-result role="status" hidden></p>
+      <ha-dialog-footer>
+        <ha-button data-close slot="secondaryAction" appearance="plain"></ha-button>
+        <ha-button data-test slot="secondaryAction" appearance="plain" disabled></ha-button>
+        <ha-button data-save slot="primaryAction" variant="brand" disabled></ha-button>
+      </ha-dialog-footer>
+    </div>`;
   const el = <T extends HTMLElement = HTMLElement>(name: string) => dialog.querySelector<T>(`[data-${name}]`)!;
   const stage = el("frame");
   const image = stage.querySelector("img")!;
   image.alt = common.preview;
+  el("viewport").setAttribute("aria-label", common.preview);
   const scope = new AbortController();
   let imageUrl: string | undefined;
   const close = () => {
@@ -95,11 +252,24 @@ export async function editMeter(
   el("close").onclick = close;
   actionLabel(el("close"), common.cancel, "close");
   actionLabel(el("save"), common.save, "content-save-outline");
-  actionLabel(el("capture"), labels.refresh, "camera");
-  actionLabel(el("test"), labels.tryLayout, "play-outline");
+  el("test").textContent = labels.tryLayout;
+  for (const [key, label] of [
+    ["zoom-out", labels.zoomOut], ["reset-zoom", labels.resetZoom],
+    ["zoom-in", labels.zoomIn], ["capture", labels.refresh],
+  ]) {
+    el(key).setAttribute("label", label);
+    el(key).setAttribute("title", label);
+  }
+  el("format-title").textContent = labels.formatTitle;
+  el("zones-title").textContent = labels.zonesTitle;
+  el("index-title").textContent = labels.indexTitle;
+  el("fine-tune").setAttribute("header", labels.fineTune);
+  actionLabel(el("wheels-zone"), labels.digits, "crop");
+  el("dials").setAttribute("aria-label", labels.dials);
+  el("wheel-limit").textContent = labels.wheelLimit;
   actionLabel(el("add"), labels.addDial, "plus");
+  actionLabel(el("cancel-dial"), labels.cancelDial, "close");
   actionLabel(el("remove"), labels.removeDial, "minus");
-  el("guide").textContent = labels.guide;
   host.append(dialog);
   dialog.setAttribute("open", "");
 
@@ -143,14 +313,14 @@ export async function editMeter(
     const kind = el<Select>("kind");
     select(kind, labels.kind, kinds.map(value => ({ value, label: labels[value] })), layout.kind);
     kind.toggleAttribute("disabled", initialized);
-    const wheels = field(labels.wheels, 1, 12, "1", layout.wheels, el("format"));
-    const decimals = field(labels.decimals, 0, 11, "1", layout.decimal_wheels, el("format"));
     const rotation = field(labels.rotation, -180, 180, "any", layout.rotation, el("format"));
+    const whole = field(labels.wholeDigits, 1, 12, "1", layout.wheels - layout.decimal_wheels, el("wheel-counts"));
+    whole.toggleAttribute("disabled", initialized);
+    const decimals = field(labels.decimalDigits, 0, 11, "1", layout.decimal_wheels, el("wheel-counts"));
     const rate = field(labels.maxRate, 0.000001, 1_000_000, "any", layout.max_rate, el("limits"));
     const initial = initialized ? undefined :
       field(labels.initial, 0, 10 ** 12, "any", "", el("limits"), false);
     el("help").textContent = initialized ? labels.fixedScale : labels.initialHelp;
-    const target = el<Select>("target");
     const direction = el("direction").querySelector<Select>("ha-select")!;
     select(direction, labels.direction, [
       { value: "cw", label: labels.clockwise }, { value: "ccw", label: labels.counterclockwise },
@@ -158,27 +328,41 @@ export async function editMeter(
     const coords = (["x", "y", "width", "height"] as const).map(key =>
       [key, field(common[key], 0, 100, "any", "", el("coordinates"))] as const);
     for (const [, input] of coords) input.toggleAttribute("required", false);
-    const region = () => selected === 0 ? layout.digits : layout.dials[selected - 1].region;
+    const addingDial = () => selected > layout.dials.length;
+    const region = () => selected === 0 ? layout.digits : layout.dials[selected - 1]?.region ?? null;
+    const factor = new Intl.NumberFormat(language, { maximumFractionDigits: 19 });
+    const viewport = el("viewport");
+    const preview = bindMeterPreview(viewport, el("extent"), stage, image, region, () => busy, {
+      out: el("zoom-out"), reset: el("reset-zoom"), in: el("zoom-in"), pan: el("pan"),
+    }, labels, language, editorSignal);
     const setRegion = (rect: Region | null) => {
       if (selected === 0) layout.digits = rect;
-      else layout.dials[selected - 1].region = rect;
+      else if (addingDial()) {
+        if (rect) layout.dials.push({ region: rect, counterclockwise: false });
+      } else layout.dials[selected - 1].region = rect;
     };
-    const validNumbers = () => [wheels, decimals, rotation, rate].every(f => f.value !== "" && f.checkValidity()) &&
-      Number(decimals.value) < Number(wheels.value) &&
-      (!initial?.value || (initial.checkValidity() && Number(initial.value) < 10 ** (Number(wheels.value) - Number(decimals.value))));
+    const wheelCount = () => Number(whole.value) + Number(decimals.value);
+    const validNumbers = () => [whole, decimals, rotation, rate].every(f => f.value !== "" && f.checkValidity()) &&
+      wheelCount() <= 12 &&
+      (!initial?.value || (initial.checkValidity() && Number(initial.value) < 10 ** Number(whole.value)));
     const refreshButtons = () => {
-      const ready = !busy && !!captureId && !!layout.digits &&
+      el("wheel-limit").hidden = wheelCount() <= 12;
+      const ready = !busy && !!captureId && !addingDial() && !!layout.digits &&
         layout.dials.every(dial => dial.region) && validNumbers();
       el("save").toggleAttribute("disabled", !ready);
       el("test").toggleAttribute("disabled", !ready);
+      el("add").toggleAttribute("disabled", busy || !captureId || layout.dials.length >= 8);
     };
     const paint = (draft?: Region) => {
       const overlay = el("overlay");
       overlay.replaceChildren();
-      [layout.digits, ...layout.dials.map(dial => dial.region)].forEach((rect, index) => {
+      const regions = [layout.digits, ...layout.dials.map(dial => dial.region)];
+      if (draft) regions[selected] = draft;
+      regions.forEach((rect, index) => {
+        if (!rect) return;
         const selection = document.createElement("div");
         selection.className = index === selected ? "selection active" : "selection";
-        paintRegion(selection, index === selected && draft ? draft : rect);
+        paintRegion(selection, rect);
         overlay.append(selection);
       });
       image.style.transform = `rotate(${-layout.rotation}deg)`;
@@ -191,6 +375,7 @@ export async function editMeter(
     const changed = () => {
       fail();
       showResult();
+      updateZones();
       refreshButtons();
       paint();
     };
@@ -198,18 +383,48 @@ export async function editMeter(
       const rect = region();
       for (const [key, input] of coords) input.value = rect ? String(Math.round(rect[key] * 10000) / 100) : "";
     };
-    const updateTargets = () => {
-      select(target, labels.region, [
-        { value: "0", label: labels.digits },
-        ...layout.dials.map((_, index) => ({ value: String(index + 1), label: labels.dial + " " + (index + 1) })),
-      ], String(selected));
-      el("direction").hidden = selected === 0;
-      el("remove").hidden = selected === 0;
-      el("add").toggleAttribute("disabled", layout.dials.length === 8);
-      direction.value = layout.dials[selected - 1]?.counterclockwise ? "ccw" : "cw";
+    const markZone = (button: HTMLElement, current: boolean) => {
+      button.setAttribute("aria-pressed", String(current));
+      button.setAttribute("appearance", current ? "outlined" : "plain");
+    };
+    const updateZones = () => {
+      markZone(el("wheels-zone"), selected === 0);
+      const dials = el("dials");
+      const places = decimals.value !== "" && decimals.checkValidity()
+        ? Number(decimals.value) : layout.decimal_wheels;
+      layout.dials.forEach((dial, index) => {
+        let button = dials.children.item(index) as HTMLElement | null;
+        if (!button) {
+          button = document.createElement("ha-button");
+          button.setAttribute("size", "s");
+          button.onclick = () => selectZone(index + 1);
+          dials.append(button);
+        }
+        markZone(button, selected === index + 1);
+        const multiplier = factor.format(10 ** -(places + index + 1));
+        const sense = dial.counterclockwise ? labels.counterclockwise : labels.clockwise;
+        actionLabel(button, `${labels.dial} ×${multiplier} · ${sense}`, "gauge");
+      });
+      while (dials.children.length > layout.dials.length) dials.lastElementChild!.remove();
+      dials.hidden = layout.dials.length === 0;
+      const dial = layout.dials[selected - 1];
+      const guide = el("guide");
+      const instruction = selected === 0 ? labels.guideWheels : addingDial() ? labels.guideAddDial : labels.guideDial;
+      if (guide.textContent !== instruction) guide.textContent = instruction;
+      el("add").hidden = addingDial();
+      el("cancel-dial").hidden = !addingDial();
+      el("direction").hidden = el("remove").hidden = !dial;
+      if (dial) direction.value = dial.counterclockwise ? "ccw" : "cw";
+    };
+    const selectZone = (index: number) => {
+      cancelDrawing();
+      selected = index;
+      preview.startDrawing();
       fillCoordinates();
-      paint();
+      updateZones();
       refreshButtons();
+      paint();
+      if (region()) preview.focusRegion();
     };
     const onSelect = (input: Select, change: (value: string) => void) => {
       input.addEventListener("selected", event => {
@@ -222,24 +437,26 @@ export async function editMeter(
       rate.value = String(defaultRates[layout.kind]);
       changed();
     });
-    onSelect(target, value => { selected = Number(value); updateTargets(); });
     onSelect(direction, value => {
-      layout.dials[selected - 1].counterclockwise = value === "ccw";
-      changed();
+      const dial = layout.dials[selected - 1];
+      if (dial) {
+        dial.counterclockwise = value === "ccw";
+        changed();
+      }
     });
+    el("wheels-zone").onclick = () => selectZone(0);
     el("add").onclick = () => {
-      layout.dials.push({ region: null, counterclockwise: false });
-      selected = layout.dials.length;
-      updateTargets();
-      changed();
+      selectZone(layout.dials.length + 1);
+      viewport.scrollIntoView({ block: "nearest" });
+      viewport.focus({ preventScroll: true });
     };
+    el("cancel-dial").onclick = () => selectZone(0);
     el("remove").onclick = () => {
       layout.dials.splice(selected - 1, 1);
-      selected = 0;
-      updateTargets();
+      selectZone(0);
       changed();
     };
-    for (const input of [wheels, decimals, rate, initial]) input?.addEventListener("input", changed);
+    for (const input of [whole, decimals, rate, initial]) input?.addEventListener("input", changed);
     rotation.addEventListener("input", () => {
       if (rotation.value !== "" && rotation.checkValidity()) layout.rotation = Number(rotation.value);
       changed();
@@ -251,7 +468,7 @@ export async function editMeter(
       setRegion(valid ? rect : null);
       changed();
     });
-    bindRegionDrawing(stage, () => !busy, paint, rect => {
+    const cancelDrawing = bindRegionDrawing(stage, () => !busy && !preview.isPanning(), paint, rect => {
       setRegion(rect);
       fillCoordinates();
       changed();
@@ -280,12 +497,21 @@ export async function editMeter(
       if (response.headers.get("X-Image-Lab-Revision") !== revision) throw new Error("meter_settings_changed");
       const blob = await response.blob();
       editorSignal.throwIfAborted();
-      captureId = response.headers.get("X-Image-Lab-Capture");
+      const nextImageUrl = URL.createObjectURL(blob);
+      const decoded = new Image();
+      decoded.src = nextImageUrl;
+      try {
+        await decoded.decode();
+        editorSignal.throwIfAborted();
+      } catch (error) {
+        URL.revokeObjectURL(nextImageUrl);
+        throw error;
+      }
       if (imageUrl) URL.revokeObjectURL(imageUrl);
-      imageUrl = URL.createObjectURL(blob);
-      image.onload = () => stage.style.setProperty("--ratio", String(image.naturalWidth / image.naturalHeight));
-      image.src = imageUrl;
-      stage.hidden = false;
+      imageUrl = nextImageUrl;
+      captureId = response.headers.get("X-Image-Lab-Capture");
+      viewport.hidden = false;
+      image.src = nextImageUrl;
       showResult();
     });
     const submit = (operation: "test" | "save") => working(el(operation), async () => {
@@ -293,7 +519,7 @@ export async function editMeter(
         method: "POST", headers: { "Content-Type": "application/json" }, signal: editorSignal,
         body: JSON.stringify({
           capture_id: captureId, revision,
-          settings: { ...layout, wheels: Number(wheels.value), decimal_wheels: Number(decimals.value), max_rate: Number(rate.value) },
+          settings: { ...layout, wheels: wheelCount(), decimal_wheels: Number(decimals.value), max_rate: Number(rate.value) },
           initial_value: operation === "save" && initial?.value ? Number(initial.value) : undefined,
         }),
       });
@@ -307,7 +533,7 @@ export async function editMeter(
     el("test").onclick = () => void submit("test");
     el("save").onclick = () => void submit("save");
     el("editor").hidden = false;
-    updateTargets();
+    selectZone(0);
     await capture();
   } catch (error) {
     if (!scope.signal.aborted) fail(error instanceof Error ? error.message : "meter_request_failed");

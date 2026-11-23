@@ -31,7 +31,13 @@ template.innerHTML = `
     ul { list-style: none; margin: 0; padding: 0; }
     ha-data-table { display: block; width: 100%; }
     #profileNav { margin: 14px 0; }
-    #profileSettings { margin-bottom: 18px; }
+    #profileSettings { margin-top: 18px; }
+    #profileConfiguration {
+      --expansion-panel-summary-padding: 0 12px;
+      --expansion-panel-content-padding: 0 12px;
+    }
+    #profileFlow { padding-block: 4px 12px; }
+    #profileFlow .toolbar { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     .id { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
@@ -42,6 +48,8 @@ template.innerHTML = `
     #schedule { margin: 8px 0; }
     #cameraSchedule { margin: 16px 0; }
     #cameraSchedule h3 { font-size: 1rem; margin: 0 0 8px; }
+    #intervalControls { align-items: flex-start; }
+    #intervalAction { min-height: var(--ha-space-14, 56px); }
     #interval { width: min(100%, 230px); }
 
     figure { margin: 16px 0 0; }
@@ -126,15 +134,12 @@ template.innerHTML = `
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
             <div id="profileSettings" slot="profile-settings">
-              <div class="toolbar">
-                <ha-button id="configure" appearance="outlined"></ha-button>
-                <ha-button id="zone" appearance="outlined" hidden></ha-button>
-              </div>
+              <ha-button id="zone" appearance="outlined" hidden></ha-button>
               <section id="cameraSchedule" aria-labelledby="frequencyTitle" hidden>
                 <h3 id="frequencyTitle"></h3>
-                <div class="toolbar">
+                <div id="intervalControls" class="toolbar">
                   <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
-                  <ha-button id="saveInterval" variant="brand"></ha-button>
+                  <div id="intervalAction" class="toolbar"><ha-button id="saveInterval" variant="brand"></ha-button></div>
                 </div>
                 <p id="frequencyHelp" class="secondary"></p>
                 <p id="frequencyStatus" role="status"></p>
@@ -153,6 +158,9 @@ template.innerHTML = `
                 <code id="profileId"></code>
                 <ha-button id="copy" appearance="plain" variant="neutral" size="s"></ha-button>
               </div>
+              <ha-expansion-panel id="profileConfiguration" outlined>
+                <div id="profileFlow"></div>
+              </ha-expansion-panel>
             </div>
           </section>
         </div>
@@ -173,6 +181,7 @@ class ImageLabPanel extends HTMLElement {
     activeTest;
     previewUrl;
     optionsScope;
+    profileFlowScope;
     intervalKey;
     savingInterval = false;
     zoneScope;
@@ -184,7 +193,15 @@ class ImageLabPanel extends HTMLElement {
         this.comparison = new ImageLabComparison();
         this.element("comparisonSlot").append(this.comparison);
         this.element("add").addEventListener("click", () => this.openFlow("create"));
-        this.element("configure").addEventListener("click", () => this.openFlow("configure"));
+        const configuration = this.element("profileConfiguration");
+        configuration.addEventListener("expanded-changed", event => {
+            if (event.target !== configuration)
+                return;
+            if (event.detail.expanded)
+                this.editProfile();
+            else
+                this.closeProfileFlow();
+        });
         this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
         this.element("interval").addEventListener("input", () => {
             this.element("frequencyStatus").textContent = "";
@@ -270,6 +287,7 @@ class ImageLabPanel extends HTMLElement {
         if (!previous && scroller)
             this.listScrollTop = scroller.scrollTop;
         this.optionsScope?.abort();
+        this.closeProfileFlow();
         this.clearTest();
         this.selectedId = id;
         this.showTab("result");
@@ -284,6 +302,7 @@ class ImageLabPanel extends HTMLElement {
     }
     disconnectedCallback() {
         this.optionsScope?.abort();
+        this.closeProfileFlow();
         this.unsubscribe();
         this.clearTest();
     }
@@ -306,7 +325,23 @@ class ImageLabPanel extends HTMLElement {
             return;
         this.optionsScope?.abort();
         this.optionsScope = new AbortController();
-        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, id => this.select(id));
+        void runProfileFlow(this.element("dialogs"), this._hass, mode, entry, this.strings, this.optionsScope.signal, { onCreated: id => this.select(id) });
+    }
+    editProfile() {
+        const profile = this.selected;
+        const hass = this._hass;
+        if (!profile || !hass)
+            return;
+        const scope = new AbortController();
+        this.profileFlowScope?.abort();
+        this.profileFlowScope = scope;
+        void runProfileFlow(this.element("profileFlow"), hass, "configure", profile.profile_id, this.strings, scope.signal, { onClosed: () => this.closeProfileFlow() });
+    }
+    closeProfileFlow() {
+        const scope = this.profileFlowScope;
+        this.profileFlowScope = undefined;
+        scope?.abort();
+        this.element("profileConfiguration").removeAttribute("expanded");
     }
     subscribe() {
         if (!this.isConnected || !this._hass || this.subscription)
@@ -483,7 +518,6 @@ class ImageLabPanel extends HTMLElement {
             add: [labels.add, "plus"],
             retry: [labels.retry, "refresh"],
             copy: [labels.copy, "content-copy"],
-            configure: [labels.configure, "tune-variant"],
             settings: [labels.settings, "chart-box-outline"],
             saveInterval: [labels.save, "content-save-outline"],
             test: [labels.test, "play-outline"],
@@ -491,6 +525,7 @@ class ImageLabPanel extends HTMLElement {
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
+        this.element("profileConfiguration").setAttribute("header", labels.profileConfiguration);
         const profile = this.selected;
         const detail = this.element("detailCard");
         const opened = detail.hidden || moveFocus;

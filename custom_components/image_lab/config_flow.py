@@ -4,12 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 import probatio
-from homeassistant.config_entries import (
-    SOURCE_RECONFIGURE,
-    ConfigEntry,
-    ConfigFlow,
-    ConfigFlowResult,
-)
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ENTITY_ID, CONF_NAME
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
@@ -77,8 +72,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Choose the name and module from the Image Lab panel."""
-        settings = self._entry.data if self._entry else {}
-        suggested = {**settings, CONF_NAME: self._entry.title} if self._entry else {}
         errors = {}
         if user_input is not None:
             title = user_input[CONF_NAME].strip()
@@ -88,14 +81,14 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._title = title
                 self._settings = {
                     CONF_MODULE: user_input[CONF_MODULE],
-                    CONF_IMAGE_KEY: settings.get(CONF_IMAGE_KEY) or uuid4().hex,
+                    CONF_IMAGE_KEY: uuid4().hex,
                 }
                 return await self.async_step_source()
 
         return self.async_show_form(
-            step_id=self.source if self.source == SOURCE_RECONFIGURE else SOURCE_ANALYSIS,
+            step_id=SOURCE_ANALYSIS,
             data_schema=self.add_suggested_values_to_schema(
-                PROFILE_SCHEMA, user_input or suggested
+                PROFILE_SCHEMA, user_input or {}
             ),
             errors=errors,
         )
@@ -103,11 +96,15 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Edit an existing analysis without changing its ID."""
+        """Edit an existing analysis while keeping its ID and module."""
         self._entry = self._get_reconfigure_entry()
         if CONF_MODULE not in self._entry.data:
             return self.async_abort(reason="profile_not_found")
-        return await self.async_step_analysis(user_input)
+        self._settings = {
+            CONF_MODULE: self._entry.data[CONF_MODULE],
+            CONF_IMAGE_KEY: self._entry.data.get(CONF_IMAGE_KEY) or uuid4().hex,
+        }
+        return await self.async_step_source(user_input)
 
     async def async_step_source(
         self, user_input: dict[str, Any] | None = None
@@ -119,12 +116,19 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
         default_source = previous.get(CONF_SOURCE_TYPE)
         if default_source not in sources:
             default_source = sources[0]
-        fields: dict[probatio.Required, selector.Selector[Any]] = {
-            probatio.Required(CONF_SOURCE_TYPE, default=default_source): select_options(
-                list(sources), CONF_SOURCE_TYPE
-            )
-        }
+        fields: dict[probatio.Required, selector.Selector[Any]] = {}
         errors = {}
+        if self._entry:
+            fields[probatio.Required(CONF_NAME, default=self._entry.title)] = (
+                selector.TextSelector()
+            )
+            if user_input is not None:
+                self._title = user_input[CONF_NAME].strip()
+                if not self._title:
+                    errors[CONF_NAME] = "name_required"
+        fields[probatio.Required(CONF_SOURCE_TYPE, default=default_source)] = (
+            select_options(list(sources), CONF_SOURCE_TYPE)
+        )
         if module == "palette":
             default_size = previous.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
             if user_input is not None:
@@ -220,7 +224,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
 
             if not errors:
-                module = self._settings[CONF_MODULE]
                 if self._entry is None:
                     return self.async_create_entry(
                         title=self._title, data=self._settings
@@ -239,8 +242,6 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 ):
                     self._settings["region"] = self._entry.data["region"]
                 options = dict(self._entry.options)
-                if self._entry.data[CONF_MODULE] != module:
-                    options = {"interval_minutes": options.get("interval_minutes", 0)}
                 if options and source is not SourceType.CAMERA:
                     options["interval_minutes"] = 0
                     options.pop("confirmation_seconds", None)

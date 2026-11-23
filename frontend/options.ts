@@ -17,24 +17,28 @@ interface Client {
 // Reuse Home Assistant's flow schemas and native selectors without leaving the panel.
 export async function runProfileFlow(host: HTMLElement, hass: Client,
   mode: "create" | "configure" | "options", entry: string | undefined,
-  labels: typeof panelStrings.en, signal: AbortSignal, created: (entry: string) => void) {
+  labels: typeof panelStrings.en, signal: AbortSignal,
+  callbacks: { onCreated?: (entry: string) => void; onClosed?: () => void }) {
   const isOptions = mode === "options";
+  const inline = mode === "configure";
   const category = isOptions ? "options" : "config";
   const path = `config/config_entries/${isOptions ? "options/" : ""}flow`;
   const start = isOptions ? { handler: entry } : { handler: "image_lab", ...(entry && { entry_id: entry }) };
-  const dialog = document.createElement("ha-dialog");
-  dialog.setAttribute("header-title", labels[mode === "create" ? "add" : mode === "configure" ? "configure" : "settings"]);
-  dialog.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
+  const container = document.createElement(inline ? "div" : "ha-dialog");
+  const dialog = inline ? undefined : container;
+  const footer = inline ? 'div class="toolbar"' : 'ha-dialog-footer slot="footer"';
+  dialog?.setAttribute("header-title", mode === "create" ? labels.add : labels.settings);
+  container.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
     <ha-form hidden></ha-form>
-    <ha-dialog-footer slot="footer"><ha-button slot="secondaryAction" appearance="plain"></ha-button>
-    <ha-button slot="primaryAction" variant="brand" disabled></ha-button></ha-dialog-footer>`;
-  const form = dialog.querySelector("ha-form")! as HTMLElement & { data: Values; schema: Field[] };
+    <${footer}><ha-button slot="primaryAction" variant="brand" disabled></ha-button>
+    <ha-button slot="secondaryAction" appearance="plain"></ha-button></${inline ? "div" : "ha-dialog-footer"}>`;
+  const form = container.querySelector("ha-form")! as HTMLElement & { data: Values; schema: Field[] };
   // Hidden HA forms still render while the first schema is being fetched.
   Object.assign(form, { hass, data: {}, schema: [] });
-  const description = dialog.querySelector("p")!;
-  const error = dialog.querySelector<HTMLElement>("ha-alert")!;
-  const cancel = dialog.querySelector<HTMLElement>('[slot="secondaryAction"]')!;
-  const submit = dialog.querySelector<HTMLElement>('[slot="primaryAction"]')!;
+  const description = container.querySelector("p")!;
+  const error = container.querySelector<HTMLElement>("ha-alert")!;
+  const cancel = container.querySelector<HTMLElement>('[slot="secondaryAction"]')!;
+  const submit = container.querySelector<HTMLElement>('[slot="primaryAction"]')!;
   let flowId: string | undefined;
   let step: Extract<Step, {type: "form"}> | undefined;
   let closed = false;
@@ -45,28 +49,29 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
   const close = () => {
     if (closed) return;
     closed = true;
-    dialog.remove();
+    container.remove();
     signal.removeEventListener("abort", close);
     if (flowId && !busy) discard(flowId);
+    if (!signal.aborted) callbacks.onClosed?.();
   };
   actionLabel(cancel, labels.cancel, "close");
   cancel.onclick = close;
   actionLabel(submit, labels.save, "content-save-outline");
-  dialog.addEventListener("closed", close, { once: true });
+  dialog?.addEventListener("closed", close, { once: true });
   signal.addEventListener("abort", close, { once: true });
   form.addEventListener("value-changed", event => {
     form.data = (event as CustomEvent<{value: Values}>).detail.value;
     dirty = true;
-    dialog.setAttribute("prevent-scrim-close", "");
+    dialog?.setAttribute("prevent-scrim-close", "");
   });
-  host.append(dialog);
-  dialog.setAttribute("open", "");
+  host.append(container);
+  dialog?.setAttribute("open", "");
 
   let resources: Record<string, string> | undefined;
   async function advance() {
     if (closed || busy) return;
     busy = true;
-    dialog.setAttribute("prevent-scrim-close", "");
+    dialog?.setAttribute("prevent-scrim-close", "");
     error.hidden = true;
     submit.setAttribute("loading", "");
     form.inert = true;
@@ -89,7 +94,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
         next.reason === "reconfigure_successful")) {
         close();
         if (mode === "create" && next.type === "create_entry" && next.result?.entry_id)
-          created(next.result.entry_id);
+          callbacks.onCreated?.(next.result.entry_id);
         return;
       }
       if (next.type === "abort") {
@@ -105,7 +110,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
         if (!(field.name in data) && value !== undefined) data[field.name] = value;
       }
       step = next;
-      dialog.setAttribute("header-title", translate(prefix + ".title") || labels.settings);
+      dialog?.setAttribute("header-title", translate(prefix + ".title") || labels.settings);
       description.textContent = translate(prefix + ".description");
       description.hidden = !description.textContent;
       Object.assign(form, {
@@ -131,7 +136,7 @@ export async function runProfileFlow(host: HTMLElement, hass: Client,
     } finally {
       busy = false;
       form.inert = false;
-      dialog.toggleAttribute("prevent-scrim-close", dirty);
+      dialog?.toggleAttribute("prevent-scrim-close", dirty);
       submit.removeAttribute("loading");
       submit.removeAttribute("disabled");
       if (closed && flowId) discard(flowId);

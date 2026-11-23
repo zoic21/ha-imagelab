@@ -36,7 +36,7 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. Les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. Les onglets donnent accès au résultat et aux réglages. Pour la comparaison, **États et images** et **Historique** sont également disponibles. La création et la reconfiguration des analyses utilisent les formulaires et sélecteurs natifs de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. Les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. Dans **Réglages**, déplier **Nom et source** pour modifier le nom, la source et les options propres à l’analyse. Le type est fixé à la création. Pour la comparaison, **Références** et **Historique** sont également disponibles. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
 ### Publier le résultat dans une entité
 
@@ -48,7 +48,7 @@ La publication dans Home Assistant se configure dans **Image Lab → Réglages �
 | Détection d’objets | Occupation ou nombre d’objets parmi les catégories sélectionnées, au seuil de confiance du profil |
 | Palette | Couleur dominante au format hexadécimal |
 
-Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **États et images**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
 Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex` et `palette_rgb`. Les deux entités de détection d’objets exposent `objects` (catégorie, confiance et cadre normalisé pour chaque objet), `counts` (nombre par catégorie), `count` et `truncated`.
 
@@ -76,7 +76,7 @@ Pour ajouter une capture de l’historique aux références, choisir son état p
 
 ### Comparer des images
 
-1. Dans **États et images**, créer un état par situation à reconnaître et importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
+1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
 2. Dans **Résultat**, sélectionner **Tester la source** pour afficher la capture et sa référence la plus proche côte à côte. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture testée à l’état choisi.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Les tests peuvent utiliser les réglages en cours d’édition. L’action utilise les réglages enregistrés.
 
@@ -84,7 +84,7 @@ Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (n
 
 Pillow mesure une distance (la plus petite gagne) et utilise les deux seuils du profil. Tarsius mesure une similarité (la plus grande gagne) avec son propre critère de décision. Il utilise la même zone et la même galerie, avec au moins deux états et une référence exploitable par état. Home Assistant installe Tarsius à sa première utilisation. Une analyse indécise donne `unknown`.
 
-Pour migrer les références Pyscript, choisir **Importer les dossiers par état** dans un navigateur qui prend en charge la sélection de dossiers. Sélectionner le dossier `references` qui contient un sous-dossier par état. Les images sont importées comme références et les états correspondants sont créés. Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s’applique à chaque image lors du calcul.
+Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s’applique à chaque image lors du calcul.
 
 ### Extraire une palette
 

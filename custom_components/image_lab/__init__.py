@@ -57,6 +57,8 @@ from .const import (
     SourceType,
 )
 from .images import ImageError, ImageFrame, async_get_frame, get_image_storage
+from .meter import METER, METER_SEED
+from .meter_api import MeterView
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
 from .result_store import Observation, async_remove_results, get_result_store
@@ -91,6 +93,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
     hass.http.register_view(CameraZoneView)
+    hass.http.register_view(MeterView)
     hass.http.register_view(ComparisonView)
     hass.http.register_view(ComparisonImageView)
 
@@ -208,6 +211,7 @@ def async_subscribe_profiles(
                 CONF_PROFILE_ID: entry.entry_id,
                 CONF_IMAGE_REVISION: entry.data.get(CONF_IMAGE_REVISION),
                 "region": entry.data.get("region"),
+                "meter_initialized": METER_SEED in entry.data,
                 "modified_at": entry.modified_at.isoformat(),
                 "title": entry.title,
                 "output_entity_id": (
@@ -393,7 +397,11 @@ class ImageLabPreviewView(HomeAssistantView):
         )
         if result.get("confirmation") == "disagreed":
             headers["X-Image-Lab-Confirmation"] = "disagreed"
-        if result.get(CONF_MODULE) == "palette":
+        if result.get(CONF_MODULE) == METER:
+            headers["X-Image-Lab-Meter"] = dumps(
+                {**result["data"], "reason": result.get("reason")}, separators=(",", ":")
+            )
+        elif result.get(CONF_MODULE) == "palette":
             # Send the small palette alongside the exact image used for the analysis.
             headers["X-Image-Lab-Palette-Rgb"] = dumps(
                 result["data"]["palette_rgb"], separators=(",", ":")
@@ -438,7 +446,7 @@ class CameraZoneView(HomeAssistantView):
             entry is None
             or entry.domain != DOMAIN
             or entry.data.get(CONF_SOURCE_TYPE) != "camera"
-            or entry.data[CONF_MODULE] == "comparison"
+            or entry.data[CONF_MODULE] not in ("palette", "object_detection")
         ):
             raise web.HTTPNotFound
         return entry

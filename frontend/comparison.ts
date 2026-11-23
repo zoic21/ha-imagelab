@@ -60,6 +60,7 @@ export interface ComparisonClient {
 type Label = keyof typeof text.en;
 type TextField = Pick<NumberField, "value" | "reportValidity"> & HTMLElement;
 type Tab = "preview" | "references" | "history" | "settings";
+type Activity = "working" | "loadingResult" | "analyzing";
 const tabs: Tab[] = ["preview", "references", "history", "settings"];
 const coordinates = ["x", "y", "width", "height"] as const;
 const sameRegion = (first: Region | null, second: Region | null) =>
@@ -219,7 +220,7 @@ export class ImageLabComparison extends HTMLElement {
   private gallery?: Gallery;
   private result?: Result;
   private captured = false;
-  private busy = false;
+  private activity?: Activity;
   private drawing = false;
   private cancelDrawing: () => void;
   private draftRegion: Region | null = null;
@@ -452,7 +453,7 @@ export class ImageLabComparison extends HTMLElement {
     this.gallery = undefined;
     this.result = undefined;
     this.captured = false;
-    this.busy = false;
+    this.activity = undefined;
     this.drawing = false;
     this.cancelDrawing();
     this.draftRegion = null;
@@ -469,25 +470,27 @@ export class ImageLabComparison extends HTMLElement {
 
   private refresh() {
     const hasFrame = !this.get("comparisonImages").hidden;
-    this.get("preview").setAttribute("aria-busy", String(this.busy));
-    this.get("test").toggleAttribute(
-      "disabled",
-      !this.gallery || this.busy || !this.available,
-    );
+    const busy = Boolean(this.activity);
+    this.get("preview").setAttribute("aria-busy", String(busy));
+    const test = this.get("test");
+    test.toggleAttribute("disabled", !this.gallery || busy || !this.available);
+    test.toggleAttribute("loading", this.activity === "analyzing");
     this.get("addState").toggleAttribute(
       "disabled",
-      !this.gallery || this.busy,
+      !this.gallery || busy,
     );
-    this.get("references").setAttribute("aria-busy", String(this.busy));
-    this.get("gallery").inert = this.busy;
-    this.get("history").inert = this.busy || !this.gallery;
-    this.get("reload").hidden = Boolean(this.gallery) || this.busy;
+    this.get("references").setAttribute("aria-busy", String(busy));
+    this.get("gallery").inert = busy;
+    this.get("history").inert = busy || !this.gallery;
+    this.get("reload").hidden = Boolean(this.gallery) || busy;
     this.get("draw").hidden = !hasFrame;
     const draw = this.drawing ? "stop_draw" : "draw";
     actionLabel(this.get("draw"), this.labels[draw], actionIcons[draw]!);
     this.get("whole").hidden = !this.draftRegion;
     this.get("imagebox").classList.toggle("drawing", this.drawing);
-    this.get("previewHint").textContent = this.busy ? "" : this.drawing
+    this.get("previewHint").textContent = this.activity
+      ? this.activity === "working" ? "" : this.labels[this.activity]
+      : this.drawing
         ? this.labels.drawing
         : !this.available
           ? this.labels.unavailable
@@ -496,7 +499,7 @@ export class ImageLabComparison extends HTMLElement {
             : this.labels.empty;
     this.get("classify").hidden =
       !this.captured || !hasFrame || !this.gallery?.states.length;
-    this.get("captureAdd").toggleAttribute("disabled", this.busy);
+    this.get("captureAdd").toggleAttribute("disabled", busy);
     this.renderDirty();
   }
 
@@ -524,7 +527,7 @@ export class ImageLabComparison extends HTMLElement {
       if (this.tab === "history") this.renderHistory();
       const latest = await this.request<Result | null>("/latest", signal);
       if (latest) await this.displayObservation(latest, signal);
-    });
+    }, "loadingResult");
   }
 
   private feedback(message = "", error = false) {
@@ -534,11 +537,11 @@ export class ImageLabComparison extends HTMLElement {
     notice.setAttribute("alert-type", error ? "error" : "info");
   }
 
-  private async task(run: (signal: AbortSignal) => Promise<void>) {
+  private async task(run: (signal: AbortSignal) => Promise<void>, activity: Activity = "working") {
     const signal = this.scope?.signal;
-    if (this.busy || !signal || signal.aborted) return;
-    this.busy = true;
-    this.progress(this.labels.working);
+    if (this.activity || !signal || signal.aborted) return;
+    this.activity = activity;
+    if (activity === "working") this.progress(this.labels.working);
     this.feedback();
     this.refresh();
     try {
@@ -555,7 +558,7 @@ export class ImageLabComparison extends HTMLElement {
       }
     } finally {
       if (!signal.aborted) {
-        this.busy = false;
+        this.activity = undefined;
         this.progress();
         this.refresh();
       }
@@ -631,7 +634,7 @@ export class ImageLabComparison extends HTMLElement {
       } else if (this.tab === "references") {
         this.renderGallery();
       }
-    });
+    }, "analyzing");
   }
 
   private async displayObservation(result: Result, signal: AbortSignal) {
@@ -869,7 +872,7 @@ export class ImageLabComparison extends HTMLElement {
         status.textContent = this.labels.invalid_settings;
       }
     }
-    this.get("save").toggleAttribute("disabled", this.busy || !changed);
+    this.get("save").toggleAttribute("disabled", Boolean(this.activity) || !changed);
     const hint = this.get("testHint");
     hint.hidden = !status.textContent;
     hint.textContent = this.labels.testSavedSettings;

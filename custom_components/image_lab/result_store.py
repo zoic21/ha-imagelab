@@ -10,6 +10,7 @@ from typing import TypedDict
 from uuid import uuid4
 
 from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 
 from .const import DOMAIN
@@ -17,6 +18,7 @@ from .images import ImageError, ImageFrame, read_thumbnail
 
 STORAGE_VERSION = 1
 DEFAULT_HISTORY = {"mode": "all", "limit": 10}
+SIGNAL_CAPTURE_SAVED = f"{DOMAIN}_capture_saved"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -146,9 +148,11 @@ class ResultStore:
         meter_state: dict | None = None,
     ) -> Observation:
         async with self.lock:
-            return await self.hass.async_add_executor_job(
+            observation = await self.hass.async_add_executor_job(
                 self._record, frame, response, manual, meter_state
             )
+            async_dispatcher_send(self.hass, SIGNAL_CAPTURE_SAVED, self.profile_id, observation["id"])
+            return observation
 
     async def async_meter_state(self) -> dict | None:
         async with self.lock:

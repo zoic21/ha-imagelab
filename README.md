@@ -109,9 +109,9 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 ### Lire un compteur mécanique
 
 1. Créer une analyse **Lecture de compteur** avec une caméra fixe ou une image importée.
-2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Tracer un rectangle serré autour de tous les rouleaux, puis indiquer le nombre total de rouleaux et le nombre de rouleaux décimaux.
+2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Tracer un rectangle serré autour de tous les rouleaux, puis indiquer le nombre total de rouleaux et le nombre de rouleaux décimaux.
 3. Pour un compteur à rouleaux et aiguilles, ajouter un rectangle centré sur chaque aiguille, de la plus significative à la moins significative. Choisir le sens de rotation de chaque cadran.
-4. Essayer **Tester le cadrage**. Cette lecture reste dans la fenêtre de calibration. Saisir l’index affiché sur le compteur et une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
+4. Sélectionner **Tester** en bas de la fenêtre. Le résultat s’affiche au-dessus des boutons. Saisir l’index affiché sur le compteur et une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
 5. Lancer **Tester la source** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 
 Le moteur local [Tarsius](https://github.com/RaHehl/tarsius), également utilisé par [Local Vision](https://github.com/RaHehl/local-vision), est installé lors du premier test. Une hausse incohérente, une baisse ou une lecture douteuse conserve le dernier index validé, y compris après un redémarrage. L’historique affiche la lecture et son éventuel motif de rejet. Recalibrer si la position de la caméra change. Utiliser une nouvelle analyse pour un nouveau compteur, une autre unité ou un autre nombre de chiffres avant la virgule.

@@ -26,6 +26,7 @@ from .const import (
     SourceType,
 )
 from .images import ImageError, get_image_storage
+from .meter import METER, METER_OUTPUT
 from .module_settings import module_settings_fields, normalize_module_settings
 from .options_flow import ImageLabOptionsFlow, select_options
 
@@ -175,7 +176,8 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
             if not errors:
                 if self._entry is None:
                     return self.async_create_entry(
-                        title=self._title, data=self._settings
+                        title=self._title, data=self._settings,
+                        options={"output": METER_OUTPUT} if self._settings[CONF_MODULE] == METER else None,
                     )
                 if (
                     self.hass.config_entries.async_get_entry(self._entry.entry_id)

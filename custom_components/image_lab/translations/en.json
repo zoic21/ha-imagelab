@@ -54,7 +54,7 @@
           "module": "Module"
         },
         "data_description": {
-          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors. Object detection identifies categories of objects."
+          "module": "Image comparison recognizes labelled states. Color palette extracts the dominant colors. Object detection identifies categories of objects. Meter reading reads an index from wheels and dials."
         }
       }
     },
@@ -81,7 +81,8 @@
       "options": {
         "comparison": "Image comparison",
         "palette": "Color palette",
-        "object_detection": "Object detection"
+        "object_detection": "Object detection",
+        "meter": "Meter reading"
       }
     },
     "source_type": {
@@ -182,7 +183,8 @@
         "binary": "Binary sensor",
         "occupancy": "Occupancy (detected objects)",
         "count": "Detected object count",
-        "color": "Dominant color"
+        "color": "Dominant color",
+        "meter_index": "Meter index sensor"
       }
     },
     "binary_class": {

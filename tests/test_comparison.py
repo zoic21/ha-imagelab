@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageOps
 from custom_components.image_lab.comparison import compare
 from custom_components.image_lab.comparison_store import ComparisonStore
 from custom_components.image_lab.comparison_tarsius import (
-    _tarsius_image,
+    oriented_for_tarsius,
     compare_tarsius,
     detector_for,
 )
@@ -52,14 +52,14 @@ def test_tarsius_uses_displayed_coordinates():
     image = Image.new("RGB", (8, 12))
     image.putpixel((2, 3), (255, 0, 0))
     original = png(image)
-    assert _tarsius_image(original, 1024) is original
+    assert oriented_for_tarsius(original, 1024) is original
     for orientation in range(2, 9):
         exif = Image.Exif()
         exif[274] = orientation
         encoded = png(image, exif=exif)
         with Image.open(BytesIO(encoded)) as source:
             expected = ImageOps.exif_transpose(source)
-        with Image.open(BytesIO(_tarsius_image(encoded, 1024))) as actual:
+        with Image.open(BytesIO(oriented_for_tarsius(encoded, 1024))) as actual:
             assert actual.size == expected.size
             assert actual.tobytes() == expected.tobytes()
 

@@ -26,6 +26,7 @@ from .analysis import AnalysisResult, async_analyze, resolve_entity_id
 from .comparison_store import get_comparison_store
 from .const import CONF_MODULE, CONF_PROFILE_ID, CONF_SOURCE_TYPE, DOMAIN, SourceType
 from .images import ImageError, ImageFrame, async_get_frame
+from .meter import METER, METER_OUTPUT, METER_SEED
 from .result_store import Observation, get_result_store
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ OUTPUTS = {
     "comparison": ("enum", "binary"),
     "object_detection": ("occupancy", "count"),
     "palette": ("color",),
+    METER: (METER_OUTPUT,),
 }
 BINARY_CLASSES = (
     "opening",
@@ -91,6 +93,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str | None) -> None:
         self.kind = kind
+        self.is_meter = entry.data[CONF_MODULE] == METER
         self.platform = (
             Platform.BINARY_SENSOR
             if kind in ("binary", "occupancy")
@@ -122,11 +125,26 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     async def async_initialize(self) -> None:
         """Publish a first observation without delaying setup or replacing a newer one."""
         async with self.analysis_lock:
-            if self._unloaded.is_set() or self.data is not None:
+            if self._unloaded.is_set():
                 return
-            result, _ = await self._observe()
-            if not self._unloaded.is_set():
-                self.async_set_updated_data(result.response)
+            if self.is_meter:
+                if self._retained is not None:
+                    return
+                try:
+                    state = await self.store.async_meter_state()
+                except (ImageError, OSError):
+                    _LOGGER.exception("Could not restore the meter index for %s", self.name)
+                    return
+                if state := state or self.config_entry.data.get(METER_SEED):
+                    self._retained = {"status": "ok", "data": {"meter_value": state["value"]}}
+                response = self._retained
+            elif self.data is None:
+                result, _ = await self._observe()
+                response = result.response
+            else:
+                return
+            if not self._unloaded.is_set() and response is not None:
+                self.async_set_updated_data(response)
 
     @callback
     def async_watch_artwork(self) -> None:
@@ -184,6 +202,8 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     ) -> AnalysisResult:
         entry = self.config_entry
         first = await async_analyze(self.hass, entry.entry_id, scheduled_capture=frame)
+        if self.is_meter:
+            return first
         delay = entry.options.get("confirmation_seconds", 0)
         previous = self.entity_response
         candidate = self._state_key(first.response)
@@ -235,6 +255,10 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
     ) -> Observation | None:
         if result.frame is not None and not self._unloaded.is_set():
             try:
+                if self.is_meter:
+                    return await self.store.async_record(
+                        result.frame, result.response, manual, meter_state=result.meter_state
+                    )
                 return await self.store.async_record(result.frame, result.response, manual)
             except (ImageError, OSError, WriteError):
                 _LOGGER.exception("Could not save analysis for %s", self.name)
@@ -244,7 +268,25 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         self, frame: asyncio.Task[ImageFrame] | None = None, *, manual: bool = False
     ) -> tuple[AnalysisResult, Observation | None]:
         result = await self._measure(frame)
-        return result, await self._save_observation(result, manual)
+        observation = await self._save_observation(result, manual)
+        if self.is_meter:
+            value = (self._retained or {}).get("data", {}).get("meter_value")
+            if observation is not None and result.meter_state is not None:
+                value = result.meter_state["value"]
+            if value is not None:
+                data = {
+                    **result.response["data"],
+                    "meter_value": value,
+                    "reading_status": result.response.get("reason", "accepted"),
+                }
+                if result.frame is not None and observation is None:
+                    data = {"meter_value": value, "reading_status": "storage_error"}
+                self._retained = {"status": "ok", "data": data}
+            if result.frame is not None and observation is None:
+                return AnalysisResult({
+                    **result.response, "status": "error", "data": {}, "reason": "storage_error",
+                }), None
+        return result, observation
 
     async def _async_update_data(self) -> ServiceResponse:
         async with self.analysis_lock:
@@ -374,6 +416,8 @@ class OutputEntity(CoordinatorEntity[OutputCoordinator]):
             keys = ("objects", "counts", "count", "truncated")
         elif self.coordinator.kind == "color":
             keys = ("palette_hex", "palette_rgb", "dominant_rgb", "extracted_count", "repeated_count")
+        elif self.coordinator.kind == METER_OUTPUT:
+            keys = ("candidate", "confidence", "reading_status")
         else:
             return None
         return {key: result[key] for key in keys if key in result}

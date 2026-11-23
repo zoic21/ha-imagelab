@@ -5,10 +5,15 @@
       "user": "Set up Image Lab"
     },
     "step": {
+      "rename": {
+        "title": "Rename analysis",
+        "data": {
+          "name": "Name"
+        }
+      },
       "source": {
         "title": "Image source",
         "data": {
-          "name": "Name",
           "source_type": "Source",
           "palette_size": "Number of colors",
           "object_confidence": "Confidence threshold",
@@ -64,6 +69,7 @@
       "invalid_object_confidence": "Enter a whole percentage from 5 to 100."
     },
     "abort": {
+      "rename_successful": "Analysis renamed.",
       "profile_not_found": "This analysis has been removed."
     },
     "create_entry": {

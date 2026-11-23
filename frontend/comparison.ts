@@ -82,6 +82,7 @@ template.innerHTML = `
     }
     ha-input, ha-select { min-width:0; max-width:100%; }
     .secondary { color:var(--secondary-text-color); font-size:.95em; }
+    #analysisSettingsTitle { font-size:1rem; margin:0 0 8px; }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -185,6 +186,7 @@ template.innerHTML = `
     <p id="historyMessage" class="secondary"></p><div class="grid" id="historyGrid"></div>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <h3 id="analysisSettingsTitle"></h3>
     <ha-select id="engine"></ha-select>
     <p id="thresholdsHint" class="secondary"></p>
     <div id="thresholdFields" class="fields"></div>
@@ -405,6 +407,7 @@ export class ImageLabComparison extends HTMLElement {
 
   private localize() {
     const names: Record<string, Label> = {
+      analysisSettingsTitle: "analysis",
       saveHistory: "save", refreshHistory: "refreshHistory",
       test: "test",
       draw: "draw",

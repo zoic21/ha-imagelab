@@ -94,27 +94,28 @@ export function editModuleSettings(host, hass, entry, labels, signal) {
     void update();
 }
 // Reuse Home Assistant's flow schemas and native selectors without leaving the panel.
-export async function runProfileFlow(host, hass, mode, entry, labels, signal, callbacks) {
+export async function runProfileFlow(host, hass, mode, entry, labels, signal, onCreated) {
     const isOptions = mode === "options";
-    const inline = mode === "configure";
     const category = isOptions ? "options" : "config";
     const path = `config/config_entries/${isOptions ? "options/" : ""}flow`;
+    const startPath = mode === "create" || mode === "rename" ? "image_lab/analysis_flow" : path;
     const start = isOptions ? { handler: entry } : { handler: "image_lab", ...(entry && { entry_id: entry }) };
-    const container = document.createElement(inline ? "div" : "ha-dialog");
-    const dialog = inline ? undefined : container;
-    const footer = inline ? 'div class="toolbar"' : 'ha-dialog-footer slot="footer"';
-    dialog?.setAttribute("header-title", mode === "create" ? labels.add : labels.settings);
-    container.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
+    const successReason = mode === "configure" ? "reconfigure_successful" :
+        mode === "rename" ? "rename_successful" : undefined;
+    const dialog = document.createElement("ha-dialog");
+    const title = { create: labels.add, configure: labels.editSource, rename: labels.rename, options: labels.settings }[mode];
+    dialog.setAttribute("header-title", title);
+    dialog.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
     <ha-form hidden></ha-form>
-    <${footer}><ha-button slot="primaryAction" variant="brand" disabled></ha-button>
-    <ha-button slot="secondaryAction" appearance="plain"></ha-button></${inline ? "div" : "ha-dialog-footer"}>`;
-    const form = container.querySelector("ha-form");
+    <ha-dialog-footer slot="footer"><ha-button slot="primaryAction" variant="brand" disabled></ha-button>
+    <ha-button slot="secondaryAction" appearance="plain"></ha-button></ha-dialog-footer>`;
+    const form = dialog.querySelector("ha-form");
     // Hidden HA forms still render while the first schema is being fetched.
     Object.assign(form, { hass, data: {}, schema: [] });
-    const description = container.querySelector("p");
-    const error = container.querySelector("ha-alert");
-    const cancel = container.querySelector('[slot="secondaryAction"]');
-    const submit = container.querySelector('[slot="primaryAction"]');
+    const description = dialog.querySelector("p");
+    const error = dialog.querySelector("ha-alert");
+    const cancel = dialog.querySelector('[slot="secondaryAction"]');
+    const submit = dialog.querySelector('[slot="primaryAction"]');
     let flowId;
     let step;
     let closed = false;
@@ -125,31 +126,29 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, ca
         if (closed)
             return;
         closed = true;
-        container.remove();
+        dialog.remove();
         signal.removeEventListener("abort", close);
         if (flowId && !busy)
             discard(flowId);
-        if (!signal.aborted)
-            callbacks.onClosed?.();
     };
     actionLabel(cancel, labels.cancel, "close");
     cancel.onclick = close;
     actionLabel(submit, labels.save, "content-save-outline");
-    dialog?.addEventListener("closed", close, { once: true });
+    dialog.addEventListener("closed", close, { once: true });
     signal.addEventListener("abort", close, { once: true });
     form.addEventListener("value-changed", event => {
         form.data = event.detail.value;
         dirty = true;
-        dialog?.setAttribute("prevent-scrim-close", "");
+        dialog.setAttribute("prevent-scrim-close", "");
     });
-    host.append(container);
-    dialog?.setAttribute("open", "");
+    host.append(dialog);
+    dialog.setAttribute("open", "");
     let translate;
     async function advance() {
         if (closed || busy)
             return;
         busy = true;
-        dialog?.setAttribute("prevent-scrim-close", "");
+        dialog.setAttribute("prevent-scrim-close", "");
         error.hidden = true;
         submit.setAttribute("loading", "");
         form.inert = true;
@@ -157,15 +156,14 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, ca
             translate ??= await profileTranslations(hass, category);
             if (closed)
                 return;
-            const next = await hass.callApi("POST", flowId ? path + "/" + flowId : mode === "create" ? "image_lab/analysis_flow" : path, flowId ? form.data : start);
+            const next = await hass.callApi("POST", flowId ? path + "/" + flowId : startPath, flowId ? form.data : start);
             flowId = next.type === "form" ? next.flow_id : undefined;
             if (closed)
                 return;
-            if (next.type === "create_entry" || (mode === "configure" && next.type === "abort" &&
-                next.reason === "reconfigure_successful")) {
+            if (next.type === "create_entry" || (next.type === "abort" && next.reason === successReason)) {
                 close();
                 if (mode === "create" && next.type === "create_entry" && next.result?.entry_id)
-                    callbacks.onCreated?.(next.result.entry_id);
+                    onCreated(next.result.entry_id);
                 return;
             }
             if (next.type === "abort") {
@@ -177,7 +175,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, ca
             const prefix = category + ".step." + next.step_id;
             const data = step?.step_id === next.step_id ? { ...form.data } : {};
             step = next;
-            dialog?.setAttribute("header-title", translate(prefix + ".title") || labels.settings);
+            dialog.setAttribute("header-title", translate(prefix + ".title") || title);
             description.textContent = translate(prefix + ".description");
             description.hidden = !description.textContent;
             showForm(form, hass, next.data_schema, data, next.errors, translate, category, next.step_id);
@@ -198,7 +196,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, ca
         finally {
             busy = false;
             form.inert = false;
-            dialog?.toggleAttribute("prevent-scrim-close", dirty);
+            dialog.toggleAttribute("prevent-scrim-close", dirty);
             submit.removeAttribute("loading");
             submit.removeAttribute("disabled");
             if (closed && flowId)
@@ -213,5 +211,12 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, ca
         }
         void advance();
     };
+    if (mode === "rename")
+        form.addEventListener("keydown", event => {
+            if (event.key !== "Enter" || event.isComposing || event.defaultPrevented)
+                return;
+            event.preventDefault();
+            submit.click();
+        });
     await advance();
 }

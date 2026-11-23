@@ -59,9 +59,12 @@ template.innerHTML = `
     #outputEntity { max-width: 100%; }
     #outputEntity { --ha-button-label-overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: start; }
     #outputId { display: block; margin: 4px 0; }
-    #schedule { margin: 8px 0; }
-    #cameraSchedule { margin: 16px 0; }
-    #cameraSchedule h3 { font-size: 1rem; margin: 0 0 8px; }
+    #analysisSchedule {
+      border-top: 1px solid var(--divider-color);
+      padding-top: 12px;
+      margin-bottom: 16px;
+    }
+    #frequencyTitle { font-size: 1rem; margin: 0 0 8px; }
     #intervalControls { align-items: flex-start; }
     #intervalAction { min-height: var(--ha-space-14, 56px); }
     #interval { width: min(100%, 230px); }
@@ -154,16 +157,19 @@ template.innerHTML = `
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
             <div id="moduleSettings"></div>
             <div id="profileSettings" slot="profile-settings">
-              <ha-button id="zone" appearance="outlined" hidden></ha-button>
-              <section id="cameraSchedule" aria-labelledby="frequencyTitle" hidden>
+              <section id="analysisSchedule" aria-labelledby="frequencyTitle">
                 <h3 id="frequencyTitle"></h3>
-                <div id="intervalControls" class="toolbar">
-                  <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
-                  <div id="intervalAction" class="toolbar"><ha-button id="saveInterval" variant="brand"></ha-button></div>
+                <div id="cameraSchedule" hidden>
+                  <div id="intervalControls" class="toolbar">
+                    <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
+                    <div id="intervalAction" class="toolbar"><ha-button id="saveInterval" variant="brand"></ha-button></div>
+                  </div>
+                  <p id="frequencyHelp" class="secondary"></p>
+                  <p id="frequencyStatus" role="status"></p>
                 </div>
-                <p id="frequencyHelp" class="secondary"></p>
-                <p id="frequencyStatus" role="status"></p>
+                <p id="schedule" class="secondary" hidden></p>
               </section>
+              <ha-button id="zone" appearance="outlined" hidden></ha-button>
               <div id="output" class="row" hidden>
                 <ha-button id="outputEntity" appearance="plain" size="s"></ha-button>
                 <code id="outputId" class="secondary"></code>
@@ -171,7 +177,6 @@ template.innerHTML = `
               <div class="toolbar">
                 <ha-button id="settings" appearance="plain" variant="neutral"></ha-button>
               </div>
-              <p id="schedule" class="secondary" hidden></p>
               <p class="secondary" id="cameraZones" hidden></p>
               <div class="id">
                 <span id="idLabel" class="secondary"></span>
@@ -480,13 +485,13 @@ class ImageLabPanel extends HTMLElement {
         this.previewUrl = undefined;
         actionLabel(this.element("copy"), this.strings.copy, "content-copy");
     }
-    schedule(profile, compact = false) {
+    analysisTrigger(profile) {
         const labels = this.strings;
         if (profile.source_type === "media_player" && profile.output_entity_id)
-            return compact ? labels.artworkTrigger : labels.onArtworkChange;
+            return labels.artworkTrigger;
         if (profile.source_type === "camera" && profile.interval_minutes)
             return labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes));
-        return compact ? labels.manualTrigger : labels.manual;
+        return labels.manualTrigger;
     }
     renderAnalysisRows() {
         const labels = this.strings;
@@ -500,7 +505,7 @@ class ImageLabPanel extends HTMLElement {
             const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable : "";
             return {
                 id: profile.profile_id, name: profile.title, type: labels[profile.module], source, warning,
-                trigger: this.schedule(profile, true),
+                trigger: this.analysisTrigger(profile),
             };
         });
         rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
@@ -584,7 +589,7 @@ class ImageLabPanel extends HTMLElement {
             retry: [labels.retry, "refresh"],
             copy: [labels.copy, "content-copy"],
             settings: [labels.settings, "chart-box-outline"],
-            saveInterval: [labels.save, "content-save-outline"],
+            saveInterval: [labels.saveFrequency, "content-save-outline"],
             test: [labels.test, "play-outline"],
             zone: [labels.zone, "crop"],
         };
@@ -630,6 +635,8 @@ class ImageLabPanel extends HTMLElement {
         const camera = profile.source_type === "camera";
         const interval = this.element("interval");
         this.element("cameraSchedule").hidden = !camera;
+        const schedule = this.element("schedule");
+        schedule.hidden = camera;
         if (camera) {
             interval.setAttribute("label", labels.intervalLabel);
             const key = `${profile.profile_id}/${profile.interval_minutes}`;
@@ -641,6 +648,8 @@ class ImageLabPanel extends HTMLElement {
         }
         else {
             this.intervalKey = undefined;
+            schedule.textContent = profile.source_type === "upload" ? labels.frequencyUpload :
+                profile.output_entity_id ? labels.onArtworkChange : labels.frequencyMediaInactive;
         }
         this.element("zone").hidden = !camera || isComparison;
         const cameraZones = this.element("cameraZones");
@@ -661,9 +670,6 @@ class ImageLabPanel extends HTMLElement {
         this.element("profileId").textContent = profile.profile_id;
         this.element("output").hidden = !profile.output_entity_id;
         this.renderOutputName();
-        const schedule = this.element("schedule");
-        schedule.hidden = profile.source_type === "upload";
-        schedule.textContent = this.schedule(profile);
         const source = [labels[profile.module], labels[profile.source_type], profile.entity_id];
         this.element("source").textContent = source.filter(Boolean).join(" · ");
         this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));

@@ -54,7 +54,7 @@ Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Avec une caméra, ouvrir **Image Lab → Réglages → Analyse automatique** et indiquer par exemple **5 minutes**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les mises à jour suivent une horloge commune aux profils caméra. **0** conserve le fonctionnement manuel. L’action `image_lab.analyze` actualise aussi l’entité. Les aperçus et les essais de cadrage servent au réglage. Le panneau affiche le lien vers l’entité créée.
+Dans la fiche de l’analyse, ouvrir **Réglages → Fréquence d’analyse**. Avec une caméra, saisir par exemple **5** dans **Intervalle (minutes)** puis sélectionner **Enregistrer la fréquence**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. **0** lance les analyses à la demande. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
 Dans les options d’un profil caméra, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible. Les aperçus restent des essais indépendants.
 
@@ -90,13 +90,13 @@ Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s
 
 1. Créer une analyse **Palette de couleurs** et choisir un lecteur multimédia, une caméra ou une image importée. Régler le nombre de couleurs de 1 à 10. Les analyses existantes utilisent cinq couleurs par défaut.
 2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
-3. Pour modifier le nombre de couleurs, ouvrir **Fiche de l’intégration**, puis sélectionner **Reconfigurer** dans le menu de l’analyse surlignée.
+3. Pour modifier le nombre de couleurs, ouvrir **Réglages** dans la fiche de l’analyse.
 
 ### Détecter des objets
 
 1. Créer une analyse **Détection d’objets** et choisir une caméra ou importer une image.
 2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
-3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Fiche de l’intégration**, puis sélectionner **Reconfigurer** dans le menu de l’analyse surlignée.
+3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Réglages** dans la fiche de l’analyse.
 
 NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
 

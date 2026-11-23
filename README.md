@@ -207,4 +207,4 @@ npx --yes --package typescript@6.0.3 tsc -p frontend
 
 ## Publier une version
 
-Mettre à jour `version` dans `custom_components/image_lab/manifest.json`. Après fusion sur `main`, ouvrir **Actions → Validate integration → Run workflow**, choisir `main` et activer **Publish the version declared in manifest.json**. Après les validations, GitHub crée la release et le tag au numéro du manifeste. HACS récupère le répertoire de l’intégration depuis ce tag.
+Pour une stable, renseigner la nouvelle `version` dans `custom_components/image_lab/manifest.json` et ajouter ses notes sous un titre `## X.Y.Z` dans `CHANGELOG.md`. Une fois ces changements sur `main`, GitHub Actions exécute les validations puis publie la version avec ses notes. Sur `dev`, une version de la forme `X.Y.Z-dev.N` est publiée en préversion.

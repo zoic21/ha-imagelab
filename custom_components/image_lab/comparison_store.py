@@ -10,7 +10,7 @@ from .comparison import ComparisonData, Settings, compare
 from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
 from .const import CONF_MODULE, DOMAIN
 from .images import (
-    ImageError, ImageFrame, read_image_file, read_upload, thumbnail_frame, validate_image,
+    ImageError, ImageFrame, read_image_file, read_thumbnail, read_upload, validate_image,
 )
 from .models import ModuleResult
 from .result_store import DEFAULT_HISTORY, Observation, ResultStore
@@ -51,6 +51,15 @@ class ComparisonStore(ResultStore):
         for reference in data["references"]:
             reference.pop("validation", None)
         return data
+
+    def load_with_latest(self) -> tuple[ComparisonData, Observation | ImageError | None]:
+        """Read the gallery and latest observation from the same snapshot."""
+        data = self.load()
+        try:
+            return data, self._latest(data)
+        except ImageError as err:
+            # A missing legacy capture should not prevent editing the gallery.
+            return data, err
 
     def _apply(
         self, operation: str, values: dict, capture: ImageFrame | None
@@ -253,8 +262,7 @@ class ComparisonStore(ResultStore):
             ref["id"] == ref_id for ref in data["references"]
         ):
             self._history_item(data, ref_id)
-        frame = self._frame(ref_id)
-        return thumbnail_frame(frame) if thumbnail else frame
+        return read_thumbnail(self.images / ref_id) if thumbnail else self._frame(ref_id)
 
     async def async_image(self, ref_id: str, thumbnail: bool) -> ImageFrame:
         """Read a validated image or render a small thumbnail."""

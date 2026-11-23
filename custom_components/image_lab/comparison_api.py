@@ -201,6 +201,19 @@ class ComparisonView(HomeAssistantView):
                 )
             if operation is not None:
                 raise web.HTTPNotFound
+            if request.query.get("include_latest") == "1":
+                async with store.lock:
+                    data, latest = await store.hass.async_add_executor_job(
+                        store.load_with_latest
+                    )
+                response: dict[str, object] = {
+                    "gallery": _gallery_response(data), "latest": None,
+                }
+                if isinstance(latest, ImageError):
+                    response["latest_error"] = latest.reason
+                elif latest is not None:
+                    response["latest"] = _preview_response(latest)
+                return self.json(response, headers=RESPONSE_HEADERS)
             async with store.lock:
                 data = await store.hass.async_add_executor_job(store.load)
         except ImageError as err:

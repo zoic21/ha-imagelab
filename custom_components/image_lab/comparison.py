@@ -14,8 +14,8 @@ from .images import (
     ImageFrame,
     Region,
     crop_image,
+    open_validated_image,
     read_image_file,
-    validate_image,
 )
 from .models import ModuleResult
 from .result_store import Observation
@@ -72,8 +72,7 @@ def _reference_features(
     path: Path, bounds: Bounds | None, size: tuple[int, int]
 ) -> Image.Image:
     """Reuse small grayscale images when the same immutable reference is tested."""
-    original = validate_image(read_image_file(path))
-    with Image.open(BytesIO(original.content)) as image:
+    with open_validated_image(read_image_file(path)) as image:
         return _preprocess(crop_image(image, bounds), size)
 
 

@@ -75,6 +75,14 @@ template.innerHTML = `
       --expansion-panel-content-padding: 0 12px;
     }
     .stateContent { padding-block: 4px 12px; }
+    .stateEditor {
+      display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:start;
+      gap:var(--ha-space-1, 4px);
+    }
+    .stateActions {
+      display:flex; align-items:center; min-height:var(--ha-space-14, 56px);
+    }
+    .stateActions .removeState { color:var(--error-color); }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr)); gap:8px; }
     .reference { display:grid; gap:6px; min-width:0; padding:8px; border-radius:var(--ha-border-radius-md, 8px);
       background:var(--secondary-background-color); overflow-wrap:anywhere; }
@@ -753,6 +761,16 @@ export class ImageLabComparison extends HTMLElement {
         button.addEventListener("click", () => void action());
         return button;
     }
+    stateAction(label, action) {
+        const button = document.createElement("ha-icon-button");
+        button.setAttribute("label", this.labels[label]);
+        const icon = document.createElement("ha-icon");
+        icon.setAttribute("icon", `mdi:${actionIcons[label]}`);
+        icon.setAttribute("aria-hidden", "true");
+        button.append(icon);
+        button.addEventListener("click", () => void action());
+        return button;
+    }
     confirmRemoval(question, name, remove) {
         const dialog = document.createElement("ha-dialog");
         dialog.setAttribute("type", "alert");
@@ -943,16 +961,17 @@ export class ImageLabComparison extends HTMLElement {
             const section = document.createElement("div");
             section.className = "stateContent";
             const controls = document.createElement("div");
-            controls.className = "row fieldRow";
+            controls.className = "stateEditor";
             const name = document.createElement("ha-input");
             name.value = state.name;
             name.setAttribute("maxlength", "120");
             name.setAttribute("required", "");
             name.setAttribute("label", this.labels.state);
-            const rename = this.button("rename", () => this.saveState(name, state.id));
-            const remove = this.button("remove", () => this.confirmRemoval("confirm_state", state.name, () => this.galleryMutation("delete_state", { state_id: state.id })));
+            const rename = this.stateAction("rename", () => this.saveState(name, state.id));
+            const remove = this.stateAction("remove", () => this.confirmRemoval("confirm_state", state.name, () => this.galleryMutation("delete_state", { state_id: state.id })));
+            remove.className = "removeState";
             const actions = document.createElement("div");
-            actions.className = "row fieldActions";
+            actions.className = "stateActions";
             actions.append(rename, remove);
             controls.append(name, actions);
             section.append(controls);

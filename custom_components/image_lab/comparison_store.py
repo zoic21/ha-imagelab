@@ -1,28 +1,19 @@
 """Store comparison settings and originals privately in the HA configuration."""
 
 import asyncio
-from dataclasses import dataclass
-from io import BytesIO
 from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
-from PIL import Image, ImageOps
 
 from .comparison import ComparisonData, Settings, compare
 from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
 from .const import CONF_MODULE, DOMAIN
-from .images import ImageError, ImageFrame, read_image_file, read_upload, validate_image
+from .images import (
+    ImageError, ImageFrame, read_image_file, read_upload, thumbnail_frame, validate_image,
+)
 from .models import ModuleResult
 from .result_store import DEFAULT_HISTORY, Observation, ResultStore
-
-
-@dataclass(frozen=True)
-class GalleryImage:
-    """An image returned by the gallery API."""
-
-    content: bytes
-    content_type: str
 
 
 class ComparisonStore(ResultStore):
@@ -66,8 +57,7 @@ class ComparisonStore(ResultStore):
     ) -> ComparisonData:
         data = self.load()
         if operation == "history_settings":
-            data["history_settings"] = values
-            self._save_history(data)
+            self._set_history_settings(data, values)
             return data
         if operation == "correct":
             item = self._history_item(data, values["capture_id"])
@@ -257,23 +247,16 @@ class ComparisonStore(ResultStore):
         except FileNotFoundError as err:
             raise ImageError("reference_not_found") from err
 
-    def _image(self, ref_id: str, thumbnail: bool) -> GalleryImage:
+    def _image(self, ref_id: str, thumbnail: bool) -> ImageFrame:
         data = self.load()
         if ref_id != data.get("latest", {}).get("id") and not any(
             ref["id"] == ref_id for ref in data["references"]
         ):
             self._history_item(data, ref_id)
         frame = self._frame(ref_id)
-        if not thumbnail:
-            return GalleryImage(frame.content, frame.content_type)
-        with Image.open(BytesIO(frame.content)) as source:
-            image = ImageOps.exif_transpose(source).convert("RGB")
-            image.thumbnail((200, 144))
-            buffer = BytesIO()
-            image.save(buffer, "JPEG", quality=80)
-        return GalleryImage(buffer.getvalue(), "image/jpeg")
+        return thumbnail_frame(frame) if thumbnail else frame
 
-    async def async_image(self, ref_id: str, thumbnail: bool) -> GalleryImage:
+    async def async_image(self, ref_id: str, thumbnail: bool) -> ImageFrame:
         """Read a validated image or render a small thumbnail."""
         async with self.lock:
             return await self.hass.async_add_executor_job(

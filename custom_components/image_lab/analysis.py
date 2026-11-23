@@ -153,39 +153,50 @@ async def async_analyze(
     if module_id != "comparison" and settings_override is not None:
         return AnalysisResult({**response, "reason": "profile_unavailable"})
 
+    def is_loaded() -> bool:
+        return (
+            entry.state is ConfigEntryState.LOADED
+            and entry.disabled_by is None
+            and hass.config_entries.async_get_entry(profile_id) is entry
+        )
+
+    def same_settings_except_zone() -> bool:
+        return module_id in ("palette", "object_detection") and all(
+            settings.get(key) == entry.data.get(key)
+            for key in (settings.keys() | entry.data.keys()) - {"region"}
+        )
+
     try:
-        frame = None
         if scheduled_capture is not None:
-            frame = await scheduled_capture
-            if (
-                entry.state is not ConfigEntryState.LOADED
-                or entry.data is not settings
-                or hass.config_entries.async_get_entry(profile_id) is not entry
-            ):
-                return AnalysisResult({**response, "reason": "profile_unavailable"})
+            original = await scheduled_capture
         else:
-            frame = await async_get_frame(
+            original = await async_get_frame(
                 hass,
                 source,
                 resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
                 settings[CONF_IMAGE_KEY],
             )
-        result, frame = await MODULES[module_id].process(
-            hass, entry, frame, settings_override
-        )
+        # An edit during capture can use the same full image. An edit during
+        # processing gets one retry so the old crop is never published.
+        for _ in range(2):
+            if not is_loaded() or (entry.data is not settings and not same_settings_except_zone()):
+                break
+            settings = entry.data
+            result, frame = await MODULES[module_id].process(hass, entry, original, settings_override)
+            if not is_loaded():
+                break
+            if entry.data is settings:
+                response.update(status="unknown" if result.reason else "ok", data=result.data)
+                if result.reason:
+                    response["reason"] = result.reason
+                return AnalysisResult(response, frame, result.meter_state)
+            if not same_settings_except_zone():
+                break
+        else:
+            return AnalysisResult({**response, "status": "unknown", "reason": "analysis_settings_changed"})
     except ImageError as err:
         return AnalysisResult({**response, "reason": err.reason})
     except OSError:
         return AnalysisResult({**response, "reason": "storage_error"})
 
-    if (
-        entry.state is not ConfigEntryState.LOADED
-        or entry.data is not settings
-        or hass.config_entries.async_get_entry(profile_id) is not entry
-    ):
-        return AnalysisResult({**response, "reason": "profile_unavailable"})
-
-    response.update(status="unknown" if result.reason else "ok", data=result.data)
-    if result.reason:
-        response["reason"] = result.reason
-    return AnalysisResult(response, frame, result.meter_state)
+    return AnalysisResult({**response, "reason": "profile_unavailable"})

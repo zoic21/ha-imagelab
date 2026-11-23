@@ -75,6 +75,14 @@ class ComparisonStore(ResultStore):
             return self._assign_reference(data, values, capture)
         if operation == "settings":
             data["settings"].update(values)
+        elif operation == "source_changed":
+            data["settings"]["region"] = None
+            if data["references"]:
+                data["reference_review"] = uuid4().hex
+        elif operation == "confirm_references":
+            if data.get("reference_review") != values["review_id"]:
+                raise ImageError("reference_review_changed")
+            data.pop("reference_review")
         elif operation == "state":
             state_id = values.get("state_id")
             name = values["name"]
@@ -100,6 +108,8 @@ class ComparisonStore(ResultStore):
                 reference["state_id"] = values["state_id"]
             else:
                 data["references"].remove(reference)
+                if not data["references"]:
+                    data.pop("reference_review", None)
                 self._save(data)
                 image_id = reference["id"]
                 if data.get("latest", {}).get("id") != image_id and not any(
@@ -255,6 +265,11 @@ class ComparisonStore(ResultStore):
     ) -> tuple[ModuleResult, ImageFrame]:
         assert frame is not None
         engine = gallery["settings"]["engine"]
+        if gallery.get("reference_review"):
+            return ModuleResult(
+                {"engine": engine, "region": gallery["settings"]["region"]},
+                "references_need_review",
+            ), frame
         process = compare_tarsius if engine == "tarsius" else compare
         result = process(frame, gallery, self.images)
         result.data["engine"] = engine
@@ -273,7 +288,7 @@ class ComparisonStore(ResultStore):
                 gallery = await self.hass.async_add_executor_job(self.load)
                 if settings is not None:
                     gallery["settings"].update(settings)
-                if gallery["settings"]["engine"] == "tarsius":
+                if gallery["settings"]["engine"] == "tarsius" and not gallery.get("reference_review"):
                     await async_ensure_tarsius(self.hass)
                 return await self.hass.async_add_executor_job(
                     self._run, frame, gallery

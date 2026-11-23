@@ -10,8 +10,10 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.util.file import WriteError
 
 from .analysis import MODULES, resolve_entity_id
+from .comparison_store import get_comparison_store
 from .const import (
     CONF_FILE,
     CONF_IMAGE_KEY,
@@ -196,16 +198,29 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                     or self._entry.data.get(CONF_ENTITY_ID) != data[CONF_ENTITY_ID]
                 ):
                     data.pop("region", None)
-                options = dict(self._entry.options)
-                if options and source is not SourceType.CAMERA:
-                    options["interval_minutes"] = 0
-                    options.pop("confirmation_seconds", None)
-                return self.async_update_reload_and_abort(
-                    self._entry,
-                    data=data,
-                    options=options,
-                    reload_even_if_entry_is_unchanged=False,
+                source_changed = (
+                    self._entry.data[CONF_SOURCE_TYPE] != source
+                    or self._entry.data.get(CONF_ENTITY_ID) != data.get(CONF_ENTITY_ID)
                 )
+                if source_changed and data[CONF_MODULE] == "comparison":
+                    try:
+                        store = get_comparison_store(self.hass, self._entry.entry_id)
+                        await store.async_mutate("source_changed", {})
+                    except (ImageError, OSError, WriteError):
+                        errors["base"] = "storage_error"
+                if not errors:
+                    if self.hass.config_entries.async_get_entry(self._entry.entry_id) is not self._entry:
+                        return self.async_abort(reason="profile_not_found")
+                    options = dict(self._entry.options)
+                    if options and source is not SourceType.CAMERA:
+                        options["interval_minutes"] = 0
+                        options.pop("confirmation_seconds", None)
+                    return self.async_update_reload_and_abort(
+                        self._entry,
+                        data=data,
+                        options=options,
+                        reload_even_if_entry_is_unchanged=False,
+                    )
 
         if source is SourceType.UPLOAD:
             field = probatio.Optional if previous else probatio.Required

@@ -333,6 +333,11 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
         async def run() -> tuple[AnalysisResult, Observation | None]:
             async with self.analysis_lock:
+                if self._unloaded.is_set():
+                    return AnalysisResult({
+                        CONF_PROFILE_ID: self.config_entry.entry_id,
+                        "status": "error", "data": {}, "reason": "profile_unavailable",
+                    }), None
                 try:
                     result, observation = await self._observe(manual=True)
                 except Exception as err:
@@ -352,6 +357,10 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         return await asyncio.shield(self.hass.async_create_task(run(), self.name))
 
     async def async_process_capture(self, frame: asyncio.Task[ImageFrame]) -> None:
+        # A shared camera frame is already being captured. Don't process it
+        # later as though it were newer than a test that is still confirming.
+        if self.analysis_lock.locked():
+            return
         async with self.analysis_lock:
             if self._unloaded.is_set():
                 return

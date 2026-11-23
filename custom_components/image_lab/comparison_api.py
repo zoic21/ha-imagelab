@@ -18,7 +18,7 @@ from .analysis import async_analyze
 from .comparison_store import ComparisonStore, get_comparison_store
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, thumbnail_frame
-from .result_store import Observation
+from .result_store import observation_response
 
 RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _CAPTURE_SECONDS = 300
@@ -106,6 +106,7 @@ HISTORY_SETTINGS = probatio.Schema(
 )
 
 SCHEMAS = {
+    "confirm_references": probatio.Schema({probatio.Required("review_id"): ID}),
     "correct": probatio.Schema({
         **TARGET, probatio.Required("capture_id"): ID, probatio.Optional("name"): TITLE,
     }),
@@ -214,7 +215,7 @@ class ComparisonView(HomeAssistantView):
             if operation == "latest":
                 latest = await store.async_latest()
                 return self.json(
-                    _preview_response(latest) if latest is not None else None,
+                    observation_response(latest) if latest is not None else None,
                     headers=RESPONSE_HEADERS,
                 )
             if operation is not None:
@@ -230,7 +231,7 @@ class ComparisonView(HomeAssistantView):
                 if isinstance(latest, ImageError):
                     response["latest_error"] = latest.reason
                 elif latest is not None:
-                    response["latest"] = _preview_response(latest)
+                    response["latest"] = observation_response(latest)
                 return self.json(response, headers=RESPONSE_HEADERS)
             async with store.lock:
                 data = await store.hass.async_add_executor_job(store.load)
@@ -287,7 +288,7 @@ class ComparisonView(HomeAssistantView):
             if result.frame is not None and observation is None:
                 raise ImageError("storage_error")
             return self.json(
-                _preview_response(observation) if observation is not None else {
+                observation_response(observation) if observation is not None else {
                     **result.response, "image_id": None,
                 },
                 headers=RESPONSE_HEADERS,
@@ -305,15 +306,6 @@ class ComparisonView(HomeAssistantView):
 
 def _gallery_response(data: dict) -> dict:
     return {key: value for key, value in data.items() if key != "latest"}
-
-
-def _preview_response(observation: Observation) -> dict:
-    return {
-        **observation["response"],
-        "image_id": observation["id"],
-        "time": observation["time"],
-        "manual": observation["manual"],
-    }
 
 
 class ComparisonImageView(HomeAssistantView):

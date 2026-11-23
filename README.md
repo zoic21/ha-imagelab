@@ -86,6 +86,8 @@ Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter co
 2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. **Modifier la zone d’analyse** permet de cadrer à la souris, au doigt ou en pourcentage. Enregistrer les réglages avant de relancer un test.
 
+Un changement de caméra remet la zone à l’image entière et suspend la reconnaissance des états. Vérifier le cadrage et la galerie, puis sélectionner **Réutiliser les références** pour reprendre la comparaison.
+
 Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. **Enregistrer** applique le moteur aux tests, à l’action et aux analyses périodiques. Les profils existants utilisent Pillow par défaut.
 
 Pillow mesure une distance (la plus petite gagne) et utilise les deux seuils du profil. Tarsius mesure une similarité (la plus grande gagne) avec son propre critère de décision. Il utilise la même zone et la même galerie, avec au moins deux états et une référence exploitable par état. Home Assistant installe Tarsius à sa première utilisation. Une analyse indécise donne `unknown`.

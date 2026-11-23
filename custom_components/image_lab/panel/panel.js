@@ -1003,8 +1003,8 @@ class ImageLabPanel extends HTMLElement {
             return row;
         });
     }
-    async showObjects(headers, stage, overlay, results, hass, signal) {
-        const objects = JSON.parse(headers.get("X-Image-Lab-Objects") ?? "null");
+    async showObjects(detection, headers, stage, overlay, results, hass, signal) {
+        const { objects, truncated } = detection;
         const width = Number(headers.get("X-Image-Lab-Width"));
         const height = Number(headers.get("X-Image-Lab-Height"));
         if (!Array.isArray(objects) || width <= 0 || height <= 0)
@@ -1019,17 +1019,17 @@ class ImageLabPanel extends HTMLElement {
         stage.style.setProperty("--image-aspect", String(width / height));
         stage.classList.add("with-objects");
         const list = [];
-        const boxes = objects.map(([label, score, xMin, yMin, xMax, yMax]) => {
+        const boxes = objects.map(({ label, confidence: score, box: { x_min, y_min, x_max, y_max } }) => {
             const name = resources[`component.image_lab.selector.object_labels.options.${label}`]
                 ?? label.replaceAll("_", " ");
             const confidence = score.toLocaleString(language, { style: "percent" });
             const box = document.createElement("div");
             box.className = "object-box";
-            box.style.setProperty("--label-left", `${xMin * 100}cqw`);
-            box.style.left = `${xMin * 100}%`;
-            box.style.top = `${yMin * 100}%`;
-            box.style.width = `${(xMax - xMin) * 100}%`;
-            box.style.height = `${(yMax - yMin) * 100}%`;
+            box.style.setProperty("--label-left", `${x_min * 100}cqw`);
+            box.style.left = `${x_min * 100}%`;
+            box.style.top = `${y_min * 100}%`;
+            box.style.width = `${(x_max - x_min) * 100}%`;
+            box.style.height = `${(y_max - y_min) * 100}%`;
             const caption = document.createElement("span");
             caption.textContent = name;
             box.append(caption);
@@ -1042,7 +1042,16 @@ class ImageLabPanel extends HTMLElement {
         results.replaceChildren(...list);
         results.hidden = !objects.length;
         const summary = this.objectSummary(objects.length);
-        return headers.get("X-Image-Lab-Objects-Truncated") === "1" ? `${summary} · ${this.strings.objectLimit}` : summary;
+        return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
+    }
+    async readDetection(hass, path, imageId, signal) {
+        if (!imageId)
+            throw new Error("Missing detection image ID");
+        const response = await hass.fetchWithAuth(`${path}/${encodeURIComponent(imageId)}?metadata=1`, { signal });
+        if (!response.ok)
+            throw new Error("Missing detection result");
+        const { data } = await response.json();
+        return data;
     }
     objectSummary(count) {
         return count === 0 ? this.strings.noObjects :
@@ -1098,7 +1107,7 @@ class ImageLabPanel extends HTMLElement {
                         `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
                     color: item.dominant_hex ?? undefined,
                 }),
-                details: async (_item, content, image, headers, detailSignal) => {
+                details: async (item, content, image, headers, detailSignal) => {
                     if (profile.module === "palette") {
                         const colors = this.readPalette(headers);
                         const list = document.createElement("ul");
@@ -1122,7 +1131,8 @@ class ImageLabPanel extends HTMLElement {
                         stage.append(image, overlay);
                         const results = document.createElement("ul");
                         results.className = "object-list";
-                        const summary = await this.showObjects(headers, stage, overlay, results, hass, detailSignal);
+                        const detection = await this.readDetection(hass, path, item.id, detailSignal);
+                        const summary = await this.showObjects(detection, headers, stage, overlay, results, hass, detailSignal);
                         const status = document.createElement("p");
                         status.textContent = summary;
                         content.append(status, results);
@@ -1164,8 +1174,15 @@ class ImageLabPanel extends HTMLElement {
         status.textContent = !manual ? this.strings.loadingResult :
             isDetection ? this.strings.detecting : this.strings.testing;
         try {
-            const response = await hass.fetchWithAuth(this.previewPath(profile), {
-                method: manual ? "POST" : "GET", signal: controller.signal, cache: "no-store",
+            const result = manual ? await hass.connection.sendMessagePromise({
+                type: "image_lab/test_source", profile_id: profile.profile_id,
+            }) : undefined;
+            controller.signal.throwIfAborted();
+            if (result && !result.image_id)
+                throw new Error(result.reason);
+            const path = this.previewPath(profile);
+            const response = await hass.fetchWithAuth(result?.image_id ? `${path}/${encodeURIComponent(result.image_id)}` : path, {
+                signal: controller.signal, cache: "no-store",
                 headers: !manual && this.previewETag ? { "If-None-Match": this.previewETag } : undefined,
             });
             if (response.status === 304)
@@ -1178,29 +1195,21 @@ class ImageLabPanel extends HTMLElement {
             }
             if (response.status === 422) {
                 const { reason } = await response.json();
-                if (!controller.signal.aborted) {
-                    const meterReason = profile.module === "meter" && this.meterLabels.reasons[reason];
-                    if (meterReason) {
-                        const error = this.element("error");
-                        error.textContent = meterReason;
-                        error.hidden = false;
-                    }
-                    else {
-                        this.showError(Object.hasOwn(this.strings, reason) ? reason : manual ? "testError" : "resultError");
-                    }
-                }
-                return;
+                throw new Error(reason);
             }
             if (!response.ok || !response.headers.get("Content-Type")?.startsWith("image/")) {
                 throw new Error("Preview response was not an image");
             }
-            const blob = await response.blob();
-            if (controller.signal.aborted)
-                return;
+            const etag = response.headers.get("ETag");
+            const [blob, detection] = await Promise.all([
+                response.blob(),
+                isDetection ? result?.data ?? this.readDetection(hass, path, etag?.slice(1, -1) ?? "", controller.signal) : undefined,
+            ]);
+            controller.signal.throwIfAborted();
             const width = response.headers.get("X-Image-Lab-Width");
             const height = response.headers.get("X-Image-Lab-Height");
-            if (isDetection) {
-                summary = await this.showObjects(response.headers, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
+            if (detection) {
+                summary = await this.showObjects(detection, response.headers, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
                 controller.signal.throwIfAborted();
             }
             else if (profile.module === "meter") {
@@ -1213,7 +1222,7 @@ class ImageLabPanel extends HTMLElement {
             }
             if (this.previewUrl)
                 URL.revokeObjectURL(this.previewUrl);
-            this.previewETag = response.headers.get("ETag") ?? undefined;
+            this.previewETag = etag ?? undefined;
             this.previewUrl = URL.createObjectURL(blob);
             const image = this.element("image");
             image.src = this.previewUrl;
@@ -1228,9 +1237,19 @@ class ImageLabPanel extends HTMLElement {
                 summary += " · " + this.strings.notConfirmed;
             }
         }
-        catch {
-            if (!controller.signal.aborted)
-                this.showError(manual ? "testError" : "resultError");
+        catch (error) {
+            if (!controller.signal.aborted) {
+                const reason = error instanceof Error ? error.message : "";
+                const meterReason = profile.module === "meter" && this.meterLabels.reasons[reason];
+                if (meterReason) {
+                    const notice = this.element("error");
+                    notice.textContent = meterReason;
+                    notice.hidden = false;
+                }
+                else {
+                    this.showError(Object.hasOwn(this.strings, reason) ? reason : manual ? "testError" : "resultError");
+                }
+            }
         }
         finally {
             if (this.activeTest === controller) {

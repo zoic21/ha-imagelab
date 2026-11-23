@@ -35,7 +35,7 @@ export const historyStyles = `
   .history-entry::part(base) { width: 100%; padding: 0 4px; }
   .history-entry::part(label) { width: 100%; min-width: 0; }
   .history-entry-label {
-    display: grid; grid-template-columns: 108px minmax(0, 1fr) minmax(0, auto) 20px;
+    display: grid; grid-template-columns: 108px minmax(58px, 1fr) fit-content(200px) 20px;
     gap: 10px; align-items: center; width: 100%; padding: 8px 0; text-align: start;
     white-space: normal; font-weight: 400; color: var(--primary-text-color);
   }
@@ -49,11 +49,14 @@ export const historyStyles = `
   .history-trigger, .history-detail-meta { color: var(--secondary-text-color); font-size: .9em; }
   .history-summary {
     display: inline-flex; align-items: center; justify-self: end; gap: 5px;
-    max-width: min(100%, 200px); overflow-wrap: anywhere;
+    min-width: 0; max-width: 100%; overflow-wrap: anywhere;
     background: var(--secondary-background-color); border-radius: 16px; padding: 3px 8px;
   }
   .history-summary.uncertain {
     background: color-mix(in srgb, var(--warning-color) 18%, var(--card-background-color));
+  }
+  .history-summary-text {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   }
   .history-color { flex: none; width: 12px; height: 12px; border: 1px solid var(--divider-color); border-radius: 50%; }
   .history-chevron { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
@@ -62,7 +65,7 @@ export const historyStyles = `
   .history-correction { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
   .history-correction ha-select { flex: 1 1 190px; min-width: 0; }
   @media (max-width: 480px) {
-    .history-entry-label { grid-template-columns: 72px minmax(0, 1fr) minmax(0, 41%) 14px; gap: 6px; }
+    .history-entry-label { grid-template-columns: 62px minmax(58px, 1fr) minmax(0, 36%) 14px; gap: 6px; }
     .history-summary { font-size: .9em; padding-inline: 6px; }
     .history-chevron { --mdc-icon-size: 14px; }
   }`;
@@ -181,7 +184,10 @@ export class CaptureHistory {
             if (summary.text) {
                 chip.className = "history-summary";
                 chip.classList.toggle("uncertain", Boolean(summary.uncertain));
-                chip.textContent = summary.text;
+                const result = document.createElement("span");
+                result.className = "history-summary-text";
+                result.textContent = summary.text;
+                chip.append(result);
                 if (summary.color && /^#[0-9a-f]{6}$/i.test(summary.color)) {
                     const color = document.createElement("span");
                     color.className = "history-color";

@@ -15,6 +15,7 @@ const actionIcons = {
     close: "close", correct: "tag-edit-outline", edit_zone: "crop",
     move: "arrow-right", reload: "refresh", remove: "delete-outline",
     rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
+    upload: "file-upload",
 };
 const template = document.createElement("template");
 template.innerHTML = `
@@ -84,7 +85,7 @@ template.innerHTML = `
     .accessibleLabel { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
     .original { display:block; max-width:100%; max-height:65dvh; margin:auto; }
     .reference img { width:100%; height:110px; object-fit:contain; }
-    ha-file-upload { display:block; min-width:0; margin-block:8px; }
+    .referenceImport { margin-block:var(--ha-space-2, 8px); }
     .fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,135px),1fr)); gap:6px 12px; }
     #classify { border-top:1px solid var(--divider-color); padding-top:8px; }
     #stateMessage { margin-bottom:9px; }
@@ -303,16 +304,16 @@ export class ImageLabComparison extends HTMLElement {
     onClick(id, fn) {
         this.get(id).addEventListener("click", () => void fn());
     }
-    loadUploadComponents() {
-        if (customElements.get("ha-file-upload") || this.get("uploadLoader") || !this.client)
+    loadProgressBar() {
+        if (customElements.get("ha-progress-bar") || this.get("progressLoader") || !this.client)
             return;
-        // HA loads its file uploader and progress bar when a file selector is rendered.
+        // Home Assistant loads its progress bar along with the file selector.
         const loader = document.createElement("ha-selector");
-        loader.id = "uploadLoader";
+        loader.id = "progressLoader";
         loader.hidden = true;
         Object.assign(loader, { hass: this.client, selector: { file: { accept } } });
         this.shadowRoot.append(loader);
-        void customElements.whenDefined("ha-file-upload").then(() => loader.remove());
+        void customElements.whenDefined("ha-progress-bar").then(() => loader.remove());
     }
     localize() {
         this.history.localize(this.client);
@@ -423,7 +424,7 @@ export class ImageLabComparison extends HTMLElement {
     async load() {
         if (!this.profile || !this.client)
             return;
-        this.loadUploadComponents();
+        this.loadProgressBar();
         this.scope?.abort();
         this.scope = new AbortController();
         await this.task(async (signal) => {
@@ -955,22 +956,28 @@ export class ImageLabComparison extends HTMLElement {
             actions.append(rename, remove);
             controls.append(name, actions);
             section.append(controls);
-            const upload = document.createElement("ha-file-upload");
-            upload.setAttribute("multiple", "");
-            upload.setAttribute("accept", accept);
-            upload.setAttribute("label", this.labels.upload);
-            upload.addEventListener("file-picked", event => {
-                const { files } = event.detail;
-                upload.value = undefined;
+            const input = document.createElement("input");
+            input.type = "file";
+            input.multiple = true;
+            input.accept = accept;
+            input.hidden = true;
+            input.addEventListener("change", () => {
+                const files = Array.from(input.files ?? []);
+                input.value = "";
                 if (files.length)
-                    void this.importReferences(Array.from(files), state.id);
+                    void this.importReferences(files, state.id);
             });
+            const upload = this.button("upload", () => input.click());
+            upload.setAttribute("appearance", "filled");
+            const importer = document.createElement("div");
+            importer.className = "referenceImport";
+            importer.append(upload, input);
             const grid = document.createElement("div");
             grid.className = "grid";
             for (const ref of this.gallery.references.filter(item => item.state_id === state.id)) {
                 grid.append(this.referenceRow(ref));
             }
-            section.append(upload, grid);
+            section.append(importer, grid);
             panel.append(section);
             node.append(panel);
         }

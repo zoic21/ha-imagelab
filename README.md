@@ -109,8 +109,8 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 ### Lire un compteur mécanique
 
 1. Créer une analyse **Lecture de compteur** avec une caméra fixe ou une image importée.
-2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Tracer un rectangle serré autour de tous les rouleaux, puis indiquer le nombre total de rouleaux et le nombre de rouleaux décimaux.
-3. Pour un compteur à rouleaux et aiguilles, ajouter un rectangle centré sur chaque aiguille, de la plus significative à la moins significative. Choisir le sens de rotation de chaque cadran.
+2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Dans **Rouleaux**, indiquer le nombre de chiffres entiers et de chiffres décimaux, puis tracer un seul rectangle autour de tous les rouleaux.
+3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Sélectionner un cadran dans la liste pour ajuster sa zone ou son sens de rotation.
 4. Sélectionner **Tester** en bas de la fenêtre. Le résultat s’affiche au-dessus des boutons. Saisir l’index affiché sur le compteur et une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
 5. Lancer **Tester la source** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 

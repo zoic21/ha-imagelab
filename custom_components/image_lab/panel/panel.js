@@ -30,6 +30,19 @@ template.innerHTML = `
     .content { padding: 16px; }
     ul { list-style: none; margin: 0; padding: 0; }
     ha-data-table { display: block; width: 100%; }
+    .analysisControls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--ha-space-3, 12px);
+      padding: var(--ha-space-3, 12px);
+      border-bottom: 1px solid var(--divider-color);
+    }
+    #analysisSearch { flex: 1 1 200px; min-width: 0; }
+    #analysisSort { flex: 1 1 200px; min-width: 0; }
+    @media (min-width: 480px) {
+      #analysisSort { max-width: 240px; }
+    }
     #profileNav { margin: 14px 0; }
     #profileSettings { margin-top: 18px; }
     #profileConfiguration {
@@ -104,7 +117,12 @@ template.innerHTML = `
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-      <ha-data-table clickable auto-height hidden></ha-data-table>
+      <ha-data-table clickable auto-height hidden>
+        <div class="analysisControls" slot="header">
+          <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
+          <ha-select id="analysisSort" value="warnings"></ha-select>
+        </div>
+      </ha-data-table>
     </section>
     <ha-card id="detailCard" hidden>
       <section class="content">
@@ -218,6 +236,19 @@ class ImageLabPanel extends HTMLElement {
             const { id } = event.detail;
             this.select(id);
         });
+        const search = this.element("analysisSearch");
+        search.addEventListener("input", () => { this.analysisTable.filter = search.value; });
+        this.analysisSort.addEventListener("selected", event => {
+            const { value } = event.detail;
+            const [column, direction] = value.split(":");
+            this.analysisTable.sortColumn = direction ? column : undefined;
+            this.analysisTable.sortDirection = direction === "asc" || direction === "desc" ? direction : null;
+            this.analysisSort.value = value;
+        });
+        this.analysisTable.addEventListener("sorting-changed", event => {
+            const { column, direction } = event.detail;
+            this.analysisSort.value = direction ? `${column}:${direction}` : "warnings";
+        });
         this.renderAnalysisColumns();
         this.element("profileNav").addEventListener("wa-tab-show", event => {
             this.showTab(event.detail.name);
@@ -311,6 +342,9 @@ class ImageLabPanel extends HTMLElement {
     }
     get analysisTable() {
         return this.shadowRoot.querySelector("ha-data-table");
+    }
+    get analysisSort() {
+        return this.element("analysisSort");
     }
     get scrollTarget() {
         const { scrollTarget } = this.element("appBar");
@@ -456,13 +490,16 @@ class ImageLabPanel extends HTMLElement {
         const labels = this.strings;
         const narrow = this.hasAttribute("narrow");
         this.element("analysisList").setAttribute("aria-label", labels.analyses);
+        this.element("analysisSearch").setAttribute("label", labels.searchAnalyses);
+        const columnDefaults = { minWidth: "0", filterable: true, sortable: true };
         this.analysisTable.columns = {
             name: {
-                title: labels.nameColumn, minWidth: "0", flex: 1.6, showNarrow: true,
+                ...columnDefaults, title: labels.nameColumn, flex: 1.6, showNarrow: true,
                 template: row => this.analysisNameCell(row),
             },
             type: {
-                title: labels.typeColumn, minWidth: "0", showNarrow: true,
+                ...columnDefaults, title: narrow ? labels.typeColumnShort : labels.typeColumn,
+                label: labels.typeColumn, showNarrow: true,
                 template: row => {
                     const type = document.createElement("span");
                     type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
@@ -470,9 +507,17 @@ class ImageLabPanel extends HTMLElement {
                     return type;
                 },
             },
-            source: { title: labels.sourceColumn, minWidth: "0", hidden: narrow },
-            trigger: { title: labels.triggerColumn, minWidth: "0", hidden: narrow },
+            source: { ...columnDefaults, title: labels.sourceColumn, hidden: narrow },
+            trigger: { ...columnDefaults, title: labels.triggerColumn, hidden: narrow },
         };
+        this.analysisSort.label = labels.sortBy;
+        this.analysisSort.options = [
+            { value: "warnings", label: labels.warningsFirst },
+            ...Object.entries(this.analysisTable.columns).flatMap(([key, { title, label = title }]) => [
+                { value: `${key}:asc`, label: `${label} (A–Z)` },
+                { value: `${key}:desc`, label: `${label} (Z–A)` },
+            ]),
+        ];
     }
     analysisNameCell(row) {
         // Keep a native keyboard target on Home Assistant versions that only handle row clicks.

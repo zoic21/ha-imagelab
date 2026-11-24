@@ -24,7 +24,7 @@ from .const import (
     DOMAIN,
     SourceType,
 )
-from .images import ImageError, ImageFrame, async_get_frame
+from .images import ImageError, ImageFrame, async_get_frame, validate_image
 from .meter import METER, METER_SEED, METER_SETTINGS, async_read_meter, meter_source
 from .models import ModuleResult
 from .object_detection import ObjectDetector
@@ -83,6 +83,8 @@ async def _async_meter(
     assert frame is not None
     config = entry.data.get(METER_SETTINGS)
     if config is None or config["source"] != meter_source(entry.data):
+        # This result still archives the original, even without running the reader.
+        await hass.async_add_executor_job(validate_image, frame.content)
         return ModuleResult({}, "meter_needs_calibration"), frame
     store = get_result_store(hass, entry.entry_id)
     state = await store.async_meter_state() or entry.data.get(METER_SEED)
@@ -175,6 +177,7 @@ async def async_analyze(
                 source,
                 resolve_entity_id(hass, settings.get(CONF_ENTITY_ID)),
                 settings[CONF_IMAGE_KEY],
+                for_analysis=True,
             )
         # An edit during capture can use the same full image. An edit during
         # processing gets one retry so the old crop is never published.

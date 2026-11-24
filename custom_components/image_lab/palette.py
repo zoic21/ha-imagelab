@@ -5,7 +5,7 @@ from math import dist, sqrt
 
 from PIL import Image
 
-from .images import ImageFrame, Region, analysis_pixels
+from .images import ImageError, ImageFrame, Region, analysis_pixels
 from .models import ModuleResult
 
 type RGB = tuple[float, float, float]
@@ -96,8 +96,11 @@ def extract_palette(
     frame: ImageFrame, size: int, region: Region | None = None,
 ) -> tuple[ModuleResult, ImageFrame]:
     """Return a fixed-length palette, repeating colors when needed."""
-    with analysis_pixels(frame, region) as (image, preview):
-        colored, neutral = _buckets(image)
+    try:
+        with analysis_pixels(frame, region) as (image, preview):
+            colored, neutral = _buckets(image)
+    except (OSError, SyntaxError, ValueError) as err:
+        raise ImageError("invalid_image") from err
     selected = _select_colors(colored, size)
     source = "image"
     if not selected and neutral:

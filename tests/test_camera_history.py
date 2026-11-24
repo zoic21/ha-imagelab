@@ -300,3 +300,52 @@ def test_stored_zone_thumbnail_uses_pixel_limit_and_imports_keep_byte_limit(tmp_
     path.touch()
     with pytest.raises(ImageError, match="image_too_large"):
         images.read_thumbnail(path)
+
+
+@pytest.mark.parametrize(("mode", "keyed", "mime_type"), [
+    ("RGB", False, "image/webp"), ("RGBA", False, "image/webp"),
+    ("L", False, "image/png"), ("RGB", True, "image/png"),
+])
+def test_oriented_zone_round_trips_through_history(tmp_path, mode, keyed, mime_type):
+    from custom_components.image_lab.palette import extract_palette
+
+    source = Image.new(mode, (40, 20))
+    for y in range(source.height):
+        for x in range(source.width):
+            color = (5 * x, 10 * y, x + y)
+            if mode == "RGBA":
+                color += ((0, 127, 255)[x % 3],)
+            source.putpixel((x, y), color[0] if mode == "L" else color)
+    if keyed:
+        source.info["transparency"] = source.getpixel((14, 14))
+    exif = Image.Exif()
+    exif[Image.ExifTags.Base.Orientation] = 6
+    content = BytesIO()
+    source.save(content, "PNG", exif=exif, icc_profile=b"test profile")
+    frame = validate_image(content.getvalue())
+    region = {"x": 0, "y": 0.25, "width": 0.5, "height": 0.5}
+    result, preview = extract_palette(frame, 2, region)
+
+    hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
+    store = ResultStore(hass, "palette")
+    capture = store._record(preview, {"status": "ok", "data": result.data}, manual=True)
+    _, archived = store._read(capture["id"])
+    assert archived.content_type == mime_type
+    assert (archived.width, archived.height) == (10, 20)
+    expected = source.convert("RGBA").transpose(Image.Transpose.ROTATE_270).crop((0, 10, 10, 30))
+    with Image.open(BytesIO(archived.content)) as restored:
+        assert Image.MIME[restored.format] == mime_type
+        assert restored.convert("RGBA").tobytes() == expected.tobytes()
+        assert restored.info["icc_profile"] == b"test profile"
+        assert restored.getexif().get(Image.ExifTags.Base.Orientation, 1) == 1
+    _, thumbnail = store._read(capture["id"], thumbnail=True)
+    assert (thumbnail.width, thumbnail.height, thumbnail.content_type) == (10, 20, "image/jpeg")
+
+
+def test_zone_wider_than_webp_limit_keeps_full_resolution():
+    content = BytesIO()
+    Image.new("RGB", (16_384, 2), "red").save(content, "PNG")
+    region = {"x": 0, "y": 0, "width": 1, "height": 0.5}
+    with analysis_pixels(validate_image(content.getvalue()), region) as (_, preview):
+        assert preview.content_type == "image/png"
+        assert (preview.width, preview.height) == (16_384, 1)

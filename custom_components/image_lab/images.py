@@ -16,11 +16,12 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.file import write_utf8_file_atomic
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, features
 
 from .const import DOMAIN, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, SourceType
 
 _THUMBNAIL_SIZE = (240, 144)
+_WEBP_MAX_DIMENSION = 16_383
 
 
 class ImageError(HomeAssistantError):
@@ -34,7 +35,7 @@ class ImageError(HomeAssistantError):
 
 @dataclass(frozen=True)
 class ImageFrame:
-    """A validated still image with its original bytes."""
+    """A still image with its encoded bytes and dimensions."""
 
     content: bytes
     content_type: str
@@ -83,10 +84,29 @@ def analysis_pixels(
     if cropped.mode not in ("RGB", "RGBA", "L"):
         cropped = cropped.convert("RGBA")
     with cropped:
-        with BytesIO() as buffer:
+        yield cropped, _encode_crop(cropped)
+
+
+def _encode_crop(cropped: Image.Image) -> ImageFrame:
+    """Encode the oriented pixels before a processor resizes them in place."""
+    with BytesIO() as buffer:
+        if (
+            cropped.mode in ("RGB", "RGBA")
+            and "transparency" not in cropped.info
+            and max(cropped.size) <= _WEBP_MAX_DIMENSION
+            and features.check("webp")
+        ):
+            # With lossless WebP, quality controls compression effort. exact
+            # also preserves the RGB channels of completely transparent pixels.
+            cropped.save(
+                buffer, "WEBP", lossless=True, quality=0, method=0, exact=True,
+                icc_profile=cropped.info.get("icc_profile"),
+            )
+            content_type = "image/webp"
+        else:
             cropped.save(buffer, "PNG", compress_level=1)
-            preview = ImageFrame(buffer.getvalue(), "image/png", *cropped.size)
-        yield cropped, preview
+            content_type = "image/png"
+        return ImageFrame(buffer.getvalue(), content_type, *cropped.size)
 
 
 def thumbnail_frame(frame: ImageFrame) -> ImageFrame:
@@ -107,10 +127,10 @@ def _thumbnail(source: Path | BytesIO) -> ImageFrame:
 
 @contextmanager
 def open_validated_image(
-    content: bytes | Path | BytesIO, *, thumbnail: bool = False
+    content: bytes | Path | BytesIO, *, thumbnail: bool = False, decode: bool = True
 ) -> Iterator[Image.Image]:
-    """Open, validate and decode an image for immediate pixel processing."""
-    # Stored images and in-memory frames came from already validated inputs.
+    """Check input bounds and format, optionally deferring the pixel decode."""
+    # Source byte limits do not apply to previews encoded from validated pixels.
     if isinstance(content, bytes):
         if not content:
             raise ImageError("invalid_image")
@@ -132,7 +152,8 @@ def open_validated_image(
                 if image.getexif().get(Image.ExifTags.Base.Orientation) in (5, 6, 7, 8):
                     bounds = bounds[::-1]
                 image.thumbnail(bounds, reducing_gap=1.0)
-            image.load()
+            if decode:
+                image.load()
         except Image.DecompressionBombError as err:
             raise ImageError("image_too_large") from err
         except (OSError, SyntaxError, ValueError) as err:
@@ -140,10 +161,14 @@ def open_validated_image(
         yield image
 
 
-def validate_image(content: bytes) -> ImageFrame:
-    """Check the format and size and decode the image off the event loop."""
-    with open_validated_image(content) as image:
+def _read_frame(content: bytes, decode: bool) -> ImageFrame:
+    with open_validated_image(content, decode=decode) as image:
         return ImageFrame(content, IMAGE_TYPES[image.format], *image.size)
+
+
+def validate_image(content: bytes) -> ImageFrame:
+    """Fully decode an original before accepting it for storage or display."""
+    return _read_frame(content, True)
 
 
 def read_image_file(path: Path) -> bytes:
@@ -228,6 +253,8 @@ async def async_get_frame(
     source: SourceType,
     entity_id: str | None,
     image_key: str,
+    *,
+    for_analysis: bool = False,
 ) -> ImageFrame:
     """Acquire an image through the selected Home Assistant source."""
     if source is SourceType.UPLOAD:
@@ -262,4 +289,4 @@ async def async_get_frame(
         if not content:
             raise ImageError("source_no_image")
 
-    return await hass.async_add_executor_job(validate_image, content)
+    return await hass.async_add_executor_job(_read_frame, content, not for_analysis)

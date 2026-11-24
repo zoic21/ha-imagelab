@@ -78,7 +78,7 @@ def scheduled_frame(
     task = pending.get(camera)
     if task is None or task.done():
         task = hass.async_create_task(
-            async_get_frame(hass, SourceType.CAMERA, camera, "")
+            async_get_frame(hass, SourceType.CAMERA, camera, "", for_analysis=True)
         )
         pending[camera] = task
 

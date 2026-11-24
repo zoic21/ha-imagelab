@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -13,11 +15,12 @@ from homeassistant.components.http import KEY_HASS, KEY_HASS_USER
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.http import KEY_AUTHENTICATED
+from PIL import Image, JpegImagePlugin
 
 from custom_components.image_lab import ImageLabPreviewView, async_test_source
 from custom_components.image_lab import analysis, config_flow, object_detection, output
 from custom_components.image_lab.comparison_store import ComparisonStore
-from custom_components.image_lab.images import ImageError, ImageFrame
+from custom_components.image_lab.images import ImageError, ImageFrame, validate_image
 from custom_components.image_lab.models import ModuleResult
 from custom_components.image_lab.output import OutputCoordinator
 from custom_components.image_lab.result_store import get_result_store
@@ -29,6 +32,80 @@ def loaded_entry(module: str) -> SimpleNamespace:
         disabled_by=None, options={},
         data={"module": module, "source_type": "camera", "entity_id": "camera.old", "image_key": "original"},
     )
+
+
+def camera_jpeg() -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", (320, 240), "red")
+    image.paste("blue", (160, 0, 320, 240))
+    image.save(buffer, "JPEG")
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def camera_capture(monkeypatch):
+    capture = AsyncMock()
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.components.camera", SimpleNamespace(async_get_image=capture)
+    )
+    return capture
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_zone_analysis_decodes_camera_jpeg_once(monkeypatch, camera_capture, scheduled):
+    async def run():
+        entry = loaded_entry("palette")
+        entry.data["region"] = {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
+        camera_capture.return_value = SimpleNamespace(content=camera_jpeg())
+        monkeypatch.setattr(analysis, "resolve_entity_id", lambda _, value: value)
+        hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_get_entry=lambda _: entry),
+            config=SimpleNamespace(components={"camera"}), states=Mock(), data={},
+            async_add_executor_job=asyncio.to_thread, async_create_task=asyncio.create_task,
+        )
+        decodes = []
+        load = JpegImagePlugin.JpegImageFile.load
+
+        def track_load(image):
+            if image.tile:
+                decodes.append(image.size)
+            return load(image)
+
+        monkeypatch.setattr(JpegImagePlugin.JpegImageFile, "load", track_load)
+        frame = output.scheduled_frame(hass, entry.data["entity_id"]) if scheduled else None
+        result = await analysis.async_analyze(hass, entry.entry_id, scheduled_capture=frame)
+        assert result.response["status"] == "ok"
+        assert result.frame.width == 160
+        assert decodes == [(320, 240)]
+        camera_capture.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("module", ["palette", "object_detection", "comparison", "meter"])
+def test_truncated_capture_never_produces_an_observation(tmp_path, monkeypatch, camera_capture, module):
+    async def run():
+        content = camera_jpeg()[:-100]
+        with pytest.raises(ImageError, match="invalid_image"):
+            validate_image(content)
+        entry = loaded_entry(module)
+        camera_capture.return_value = SimpleNamespace(content=content)
+        monkeypatch.setattr(analysis, "resolve_entity_id", lambda _, value: value)
+        hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_get_entry=lambda _: entry),
+            config=SimpleNamespace(components={"camera"}, path=tmp_path.joinpath), states=Mock(),
+            async_add_executor_job=asyncio.to_thread, async_create_task=lambda coro, _: asyncio.create_task(coro),
+            data={},
+        )
+        if module == "object_detection":
+            detector = object_detection.ObjectDetector()
+            detector._detector = object.__new__(object_detection._NanoDet)
+            hass.data["image_lab.object_detector"] = detector
+        result = await analysis.async_analyze(hass, entry.entry_id)
+        assert result.response["reason"] == "invalid_image"
+        assert result.frame is None
+
+    asyncio.run(run())
 
 
 def test_zone_edit_during_analysis_reuses_full_source(monkeypatch):
@@ -96,7 +173,7 @@ def test_camera_change_resets_region_and_requires_current_review(tmp_path, monke
         changed = store.load()
         assert changed["settings"]["region"] is None
         assert changed["references"] == gallery["references"]
-        frame = ImageFrame(b"new camera frame", "image/jpeg", 1, 1)
+        frame = validate_image(camera_jpeg())
         assert store._run(frame, changed)[0].reason == "references_need_review"
 
         await flow.async_step_image({"entity_id": "camera.third"})

@@ -16,7 +16,7 @@ Le panneau et les appels manuels à l’action sont réservés aux administrateu
 
 - Pour mettre à jour Image Lab, installer la version proposée par HACS et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
 - Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
-- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, **Tester la source → Tracer la zone** permet de dessiner le rectangle au doigt. Dans **Réglages**, vérifier le rectangle et sélectionner **Enregistrer**.
+- Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, ouvrir **Réglages → Modifier la zone d’analyse**, tracer le rectangle au doigt et sélectionner **Enregistrer**.
 
 ## Outils disponibles
 
@@ -37,13 +37,13 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source et déclenchement** et **Entité de résultat**. Cliquer sur l’identifiant de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source et déclenchement**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. La comparaison dispose aussi de l’onglet **Références**. Les formulaires et sélecteurs sont ceux de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source** et **Publication**. Cliquer sur le nom de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. La comparaison dispose aussi de l’onglet **Références**. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
 **Résultat** affiche la dernière analyse manuelle ou automatique, avec l’image utilisée, le résultat et la date. Ouvrir la fiche ne déclenche aucune capture. Si l’analyse n’a encore jamais donné de résultat, sélectionner **Tester la source**. Ce bouton utilise les réglages enregistrés, ajoute la capture à l’historique et actualise l’entité configurée.
 
 ### Publier le résultat dans une entité
 
-La publication dans Home Assistant se configure dans **Image Lab → Réglages → Entité de résultat**. Elle est facultative et s’active pour chaque analyse. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement. Un compteur restaure son dernier index validé au démarrage.
+La publication dans Home Assistant se configure dans **Image Lab → Réglages → Publication**. Elle est facultative et s’active pour chaque analyse. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement. Un compteur restaure son dernier index validé au démarrage.
 
 | Module | Entité disponible |
 | --- | --- |
@@ -52,15 +52,15 @@ La publication dans Home Assistant se configure dans **Image Lab → Réglages �
 | Palette | Couleur dominante au format hexadécimal |
 | Lecture de compteur | Index cumulé pour l’eau, le gaz ou l’électricité, activé à la création |
 
-Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans **Publication**, choisir **Capteur binaire**, sélectionner la classe **Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
 Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex` et `palette_rgb`. Les deux entités de détection d’objets exposent `objects` (catégorie, confiance et cadre normalisé pour chaque objet), `counts` (nombre par catégorie), `count` et `truncated`.
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Dans la fiche de l’analyse, ouvrir **Réglages → Source et déclenchement**. Avec une caméra, saisir par exemple **5** dans **Intervalle (minutes)** puis sélectionner **Enregistrer la fréquence**. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. **0** lance les analyses à la demande. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
+Dans la fiche de l’analyse, ouvrir **Réglages → Publication**. Avec une caméra, choisir une fréquence ou **Personnalisé** dans le champ **Intervalle**. Choisir **Manuel** pour lancer les analyses à la demande. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
-Dans les options des profils caméra de comparaison, de palette et de détection, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
+Dans **Publication**, le champ **Confirmation** des profils caméra de comparaison, de palette et de détection accepte de 1 à 60 secondes. La valeur 0 désactive la confirmation. Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
 
 L’action renvoie la dernière observation et, lorsqu’une seconde capture a été demandée, le champ `confirmation` vaut `confirmed`, `disagreed` ou `failed`. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
 
@@ -68,7 +68,7 @@ L’action renvoie la dernière observation et, lorsqu’une seconde capture a �
 
 Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.
 
-Pour une comparaison, tracer le rectangle dans **Aperçu** puis l’enregistrer dans **Réglages**. Pour la palette et la détection, utiliser **Modifier la zone caméra**, tracer sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer. **Tester la source** montre le résultat sur le cadrage choisi.
+Pour la comparaison, la palette et la détection, ouvrir **Réglages → Modifier la zone d’analyse**. Tracer le rectangle sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer dans la même fenêtre. **Tester la source** montre le résultat sur le cadrage choisi.
 
 Quand plusieurs analyses automatiques de la même caméra arrivent à échéance ensemble, Home Assistant prend une seule image pour toutes ces zones. Avec des intervalles de 2 et 5 minutes, les deux zones partagent donc la capture toutes les 10 minutes. Un test ou une action manuelle demande sa propre capture.
 
@@ -76,15 +76,17 @@ Quand plusieurs analyses automatiques de la même caméra arrivent à échéance
 
 **Historique** regroupe les captures par jour et distingue les analyses manuelles des analyses automatiques. Chaque ligne affiche une vignette et le résultat principal. Toucher une ligne ouvre l’image avec le résultat détaillé, selon le type d’analyse.
 
-Dans **Réglages → Historique**, choisir la limite d’images **de 1 à 100** (10 par défaut) et le mode de conservation. **Toutes les analyses** et **Désactivé** s’appliquent aux captures automatiques. La comparaison propose aussi **Changements et états indéterminés**. Les tests manuels comptent dans la limite. Le dernier résultat reste consultable quel que soit le mode choisi.
+Dans **Réglages → Historique**, choisir la limite d’images **de 1 à 100** (10 par défaut) et le mode de conservation des captures automatiques. Le mode par défaut des comparaisons est **Changements et états indéterminés**. Les tests manuels comptent dans la limite. Le dernier résultat reste consultable quel que soit le mode choisi.
 
 Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter comme référence**. La galerie conserve l’original après sa sortie de l’historique. La prédiction d’origine reste consultable tant que la capture figure dans l’historique.
 
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
-2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Tracer la zone** permet de cadrer à la souris ou au doigt. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
-3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. La zone peut aussi être saisie en pourcentages. Enregistrer les réglages avant de relancer un test.
+2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
+3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. **Modifier la zone d’analyse** permet de cadrer à la souris, au doigt ou en pourcentage. Enregistrer les réglages avant de relancer un test.
+
+Un changement de caméra remet la zone à l’image entière et suspend la reconnaissance des états. Vérifier le cadrage et la galerie, puis sélectionner **Réutiliser les références** pour reprendre la comparaison.
 
 Dans **Réglages → Moteur de comparaison**, choisir **Pillow** ou **Tarsius (ncnn)**. **Enregistrer** applique le moteur aux tests, à l’action et aux analyses périodiques. Les profils existants utilisent Pillow par défaut.
 
@@ -110,7 +112,7 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 
 1. Créer une analyse **Lecture de compteur** avec une caméra fixe ou une image importée.
 2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Dans **Rouleaux**, indiquer le nombre de chiffres entiers et de chiffres décimaux, puis tracer un seul rectangle autour de tous les rouleaux.
-3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Sélectionner un cadran dans la liste pour ajuster sa zone ou son sens de rotation.
+3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Le facteur affiché à côté de chaque cadran dépend des rouleaux décimaux et de son rang. Avec plusieurs cadrans, **Changer l’ordre des cadrans** échange les deux positions.
 4. Sélectionner **Tester** en bas de la fenêtre. Une lecture acceptée remplit l’index de départ. Vérifier cette valeur, régler une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
 5. Lancer **Tester la source** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 
@@ -207,4 +209,4 @@ npx --yes --package typescript@6.0.3 tsc -p frontend
 
 ## Publier une version
 
-Mettre à jour `version` dans `custom_components/image_lab/manifest.json`. Après fusion sur `main`, ouvrir **Actions → Validate integration → Run workflow**, choisir `main` et activer **Publish the version declared in manifest.json**. Après les deux validations, GitHub crée la release et le tag au numéro du manifeste. HACS récupère le répertoire de l’intégration depuis ce tag.
+Pour une stable, renseigner la nouvelle `version` dans `custom_components/image_lab/manifest.json` et ajouter ses notes sous un titre `## X.Y.Z` dans `CHANGELOG.md`. Une fois ces changements sur `main`, GitHub Actions exécute les validations puis publie la version avec ses notes. Sur `dev`, une version de la forme `X.Y.Z-dev.N` est publiée en préversion.

@@ -1,6 +1,6 @@
 export type CaptureImage = { blob: Blob; headers: Headers };
 
-type ImageClient = {
+export type ImageClient = {
   fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
 };
 

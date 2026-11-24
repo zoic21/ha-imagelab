@@ -9,6 +9,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from zipfile import ZipFile
 
 from aiohttp import ClientError, ClientTimeout
@@ -19,7 +20,7 @@ from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
 from .const import DOMAIN
-from .images import ImageError, ImageFrame
+from .images import ImageError, ImageFrame, Region, analysis_pixels
 from .models import ModuleResult
 
 _LOGGER = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ _STRIDES = (8, 16, 32, 64)
 _BINS = 8
 _MAX_OBJECTS = 100
 _IOU_THRESHOLD = 0.5
+_LOAD_RETRY_SECONDS = 300
 
 
 def _cached(directory: Path) -> bool:
@@ -269,11 +271,12 @@ class _NanoDet:
             raise ImageError("object_model_unavailable")
 
     def detect(
-        self, frame: ImageFrame, labels: list[str], confidence: int, detailed: bool = False
+        self, frame: ImageFrame, labels: list[str], confidence: int, detailed: bool = False,
+        region: Region | None = None,
     ) -> tuple[ModuleResult, ImageFrame]:
         """Run inference and return coordinates relative to the oriented image."""
         try:
-            with Image.open(BytesIO(frame.content)) as image:
+            with analysis_pixels(frame, region) as (image, frame):
                 ImageOps.exif_transpose(image, in_place=True)
                 source = image.convert("RGB")
         except (OSError, SyntaxError, ValueError) as err:
@@ -340,17 +343,26 @@ class ObjectDetector:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._detector: _NanoDet | None = None
+        self._load_failure: tuple[float, str] | None = None
 
     async def async_detect(
         self, hass: HomeAssistant, frame: ImageFrame, labels: list[str], confidence: int,
-        detailed: bool,
+        detailed: bool, region: Region | None = None,
     ) -> tuple[ModuleResult, ImageFrame]:
         if self._detector is None:
             async with self._lock:
                 if self._detector is None:
-                    self._detector = await self._async_load(hass)
+                    failure = self._load_failure
+                    if failure is not None and monotonic() < failure[0]:
+                        raise ImageError(failure[1])
+                    try:
+                        self._detector = await self._async_load(hass)
+                    except ImageError as err:
+                        self._load_failure = (monotonic() + _LOAD_RETRY_SECONDS, err.reason)
+                        raise
+                    self._load_failure = None
         return await hass.async_add_executor_job(
-            self._detector.detect, frame, labels, confidence, detailed
+            self._detector.detect, frame, labels, confidence, detailed, region
         )
 
     async def _async_load(self, hass: HomeAssistant) -> _NanoDet:

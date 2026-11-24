@@ -45,6 +45,7 @@ class Reference(TypedDict):
     id: str
     state_id: str
     name: str
+    source: NotRequired[Literal["capture", "upload"]]
 
 
 class ComparisonData(TypedDict):
@@ -56,6 +57,7 @@ class ComparisonData(TypedDict):
     settings: Settings
     states: list[State]
     references: list[Reference]
+    reference_review: NotRequired[str]
 
 
 def _preprocess(image: Image.Image, size: tuple[int, int]) -> Image.Image:

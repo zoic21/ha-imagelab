@@ -18,11 +18,13 @@ from .analysis import async_analyze
 from .comparison_store import ComparisonStore, get_comparison_store
 from .const import CONF_MODULE, DOMAIN
 from .images import ImageError, ImageFrame, thumbnail_frame
-from .result_store import Observation
+from .result_store import observation_response
 
 RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _CAPTURE_SECONDS = 300
-_CAPTURE_SLOTS = 4
+_CAPTURE_SLOTS_PER_USER_PROFILE = 4
+_CAPTURE_MAX_COUNT = 64
+_CAPTURE_MAX_BYTES = 64 * 1024 * 1024
 _CACHE_KEY = f"{DOMAIN}.captures"
 _HEX_ID = re.compile(r"[a-f0-9]{32}\Z")
 
@@ -79,7 +81,7 @@ REGION = probatio.All(
 SETTINGS = probatio.Schema(
     {
         probatio.Optional("engine"): probatio.In(("pillow", "tarsius")),
-        probatio.Required("region"): probatio.Any(None, REGION),
+        probatio.Optional("region"): probatio.Any(None, REGION),
         probatio.Required("max_distance"): _number(255),
         probatio.Required("min_margin"): _number(255),
     }
@@ -106,7 +108,10 @@ HISTORY_SETTINGS = probatio.Schema(
 )
 
 SCHEMAS = {
-    "correct": probatio.Schema({**TARGET, probatio.Required("capture_id"): ID}),
+    "confirm_references": probatio.Schema({probatio.Required("review_id"): ID}),
+    "correct": probatio.Schema({
+        **TARGET, probatio.Required("capture_id"): ID, probatio.Optional("name"): TITLE,
+    }),
     "history_settings": HISTORY_SETTINGS,
     "settings": SETTINGS,
     "state": probatio.Schema(
@@ -157,13 +162,28 @@ def drop_captures(hass: HomeAssistant, profile_id: str) -> None:
 def cache_capture(
     request: web.Request, profile_id: str, frame: ImageFrame, revision: str | None = None
 ) -> str:
-    """Keep a bounded, short-lived snapshot tied to the requesting admin."""
+    """Keep a short-lived snapshot within the per-owner and global limits."""
+    frame_bytes = len(frame.content)
+    if frame_bytes > _CAPTURE_MAX_BYTES:
+        raise ImageError("image_too_large")
+
     image_id = uuid4().hex
     captures = _captures(request.app[KEY_HASS])
-    while len(captures) >= _CAPTURE_SLOTS:
-        del captures[next(iter(captures))]
+    user_id = request[KEY_HASS_USER].id
+    own_captures = [
+        key for key, capture in captures.items()
+        if capture.profile_id == profile_id and capture.user_id == user_id
+    ]
+    if len(own_captures) >= _CAPTURE_SLOTS_PER_USER_PROFILE:
+        del captures[own_captures[0]]
+
+    total_bytes = frame_bytes + sum(len(capture.frame.content) for capture in captures.values())
+    while len(captures) >= _CAPTURE_MAX_COUNT or total_bytes > _CAPTURE_MAX_BYTES:
+        oldest = captures.pop(next(iter(captures)))
+        total_bytes -= len(oldest.frame.content)
+
     captures[image_id] = Capture(
-        profile_id, request[KEY_HASS_USER].id, frame, monotonic() + _CAPTURE_SECONDS, revision
+        profile_id, user_id, frame, monotonic() + _CAPTURE_SECONDS, revision
     )
     return image_id
 
@@ -212,7 +232,7 @@ class ComparisonView(HomeAssistantView):
             if operation == "latest":
                 latest = await store.async_latest()
                 return self.json(
-                    _preview_response(latest) if latest is not None else None,
+                    observation_response(latest) if latest is not None else None,
                     headers=RESPONSE_HEADERS,
                 )
             if operation is not None:
@@ -228,7 +248,7 @@ class ComparisonView(HomeAssistantView):
                 if isinstance(latest, ImageError):
                     response["latest_error"] = latest.reason
                 elif latest is not None:
-                    response["latest"] = _preview_response(latest)
+                    response["latest"] = observation_response(latest)
                 return self.json(response, headers=RESPONSE_HEADERS)
             async with store.lock:
                 data = await store.hass.async_add_executor_job(store.load)
@@ -285,7 +305,7 @@ class ComparisonView(HomeAssistantView):
             if result.frame is not None and observation is None:
                 raise ImageError("storage_error")
             return self.json(
-                _preview_response(observation) if observation is not None else {
+                observation_response(observation) if observation is not None else {
                     **result.response, "image_id": None,
                 },
                 headers=RESPONSE_HEADERS,
@@ -303,15 +323,6 @@ class ComparisonView(HomeAssistantView):
 
 def _gallery_response(data: dict) -> dict:
     return {key: value for key, value in data.items() if key != "latest"}
-
-
-def _preview_response(observation: Observation) -> dict:
-    return {
-        **observation["response"],
-        "image_id": observation["id"],
-        "time": observation["time"],
-        "manual": observation["manual"],
-    }
 
 
 class ComparisonImageView(HomeAssistantView):

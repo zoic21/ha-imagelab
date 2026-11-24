@@ -2,19 +2,31 @@ import { meterStrings, panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 
 import { actionLabel } from "./action.js";
+import { AnalysisList, analysisListStyles, type AnalysisModule, type AnalysisRow, type CaptureUpdate } from "./analysis-list.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
 import { ImageCache } from "./image-cache.js";
 import { editMeter, meterStyles, meterText, type MeterResult } from "./meter.js";
 import { editModuleSettings, runProfileFlow, type ProfileFlowMode } from "./options.js";
+import { profileTab, profileTabsStyles } from "./profile-tabs.js";
+import { PublicationSettings, publicationMarkup, publicationStyles, type PublicationChanges, type PublicationSnapshot } from "./publication.js";
 import { editZone } from "./zone.js";
 import type { Region } from "./region.js";
 
-type Module = "comparison" | "palette" | "object_detection" | "meter";
+type Module = AnalysisModule;
 type Source = "camera" | "media_player" | "upload";
 type Rgb = [number, number, number];
-type Detection = [label: string, confidence: number, xMin: number, yMin: number, xMax: number, yMax: number];
+type DetectionResult = {
+  objects: {
+    label: string;
+    confidence: number;
+    box: { x_min: number; y_min: number; x_max: number; y_max: number };
+  }[];
+  truncated: boolean;
+};
+type TestResult = { image_id: string | null; reason?: string; data?: DetectionResult };
 type HistoryItem = Capture & { dominant_hex: string | null; count: number | null; meter?: MeterResult; reason?: string | null };
 const panelPath = "/image-lab";
+const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
 
 interface Profile {
   profile_id: string;
@@ -28,6 +40,7 @@ interface Profile {
   entity_id: string | null;
   output_entity_id: string | null;
   interval_minutes: number;
+  publication: PublicationSnapshot;
   available: boolean;
 }
 
@@ -38,8 +51,8 @@ interface HomeAssistant {
   entities?: Record<string, unknown>;
   connection: {
     sendMessagePromise<T>(message: Record<string, unknown>): Promise<T>;
-    subscribeMessage(
-      listener: (profiles: Profile[]) => void,
+    subscribeMessage<T>(
+      listener: (message: T) => void,
       message: { type: string },
     ): Promise<() => Promise<void>>;
   };
@@ -48,22 +61,10 @@ interface HomeAssistant {
 }
 
 type Message = keyof typeof strings.en;
-interface AnalysisRow {
-  id: string;
-  name: string;
-  type: string;
-  source: string;
-  trigger: string;
-  warning: string;
-}
-
 interface AnalysisColumn {
   title: string;
-  label?: string;
   flex?: number;
   minWidth: string;
-  hidden?: boolean;
-  showNarrow?: boolean;
   filterable: boolean;
   sortable: boolean;
   template?: (row: AnalysisRow) => Node;
@@ -75,16 +76,14 @@ interface AnalysisTable extends HTMLElement {
   columns: Record<string, AnalysisColumn>;
   data: AnalysisRow[];
   filter: string;
-  narrow: boolean;
-  sortColumn?: string;
+  sortColumn?: "name" | "type" | "source" | "trigger";
   sortDirection: SortDirection;
   updateComplete?: Promise<unknown>;
 }
 
-interface AnalysisSortSelect extends HTMLElement {
-  label: string;
+interface AnalysisSortItem extends HTMLElement {
   value: string;
-  options: { value: string; label: string }[];
+  checked: boolean;
 }
 
 interface HomeAssistantButton extends HTMLElement {
@@ -117,6 +116,9 @@ template.innerHTML = `
       padding: var(--ha-content-gutter, 16px); margin: 0 auto;
     }
     main.with-detail { max-width: var(--ha-content-width-narrow, 720px); }
+    :host([narrow]) main.with-detail {
+      padding-block-end: calc(var(--ha-content-gutter, 16px) + var(--image-lab-tab-height) + 1px);
+    }
     #analysisList { padding-bottom: var(--ha-space-16, 64px); }
     ha-card { min-width: 0; }
     .content { padding: 16px; }
@@ -124,53 +126,52 @@ template.innerHTML = `
     ha-data-table { display: block; width: 100%; }
     .analysisControls {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      gap: var(--ha-space-3, 12px);
+      gap: var(--ha-space-2, 8px);
       padding: var(--ha-space-3, 12px);
       border-bottom: 1px solid var(--divider-color);
     }
-    #analysisSearch { flex: 1 1 200px; min-width: 0; }
-    #analysisSort { flex: 1 1 200px; min-width: 0; }
-    @media (min-width: 480px) {
-      #analysisSort { max-width: 240px; }
-    }
-    #profileNav { margin: 14px 0; }
-    @media (max-width: 480px) {
-      #profileNav ha-tab-group-tab { font-size: var(--ha-font-size-s, 12px); }
-      #profileNav ha-tab-group-tab::part(base) { padding-inline: var(--ha-space-1, 4px); }
-    }
+    :host([narrow]) .analysisControls { border: 0; padding: 0 0 var(--ha-space-3, 12px); }
+    ${analysisListStyles}
+    ${profileTabsStyles}
+    #analysisSearch { flex: 1; min-width: 0; }
+    #analysisSort { flex: none; }
+    #profile > [role="tabpanel"] { padding-block-start: var(--ha-space-4, 16px); }
     ${historyStyles}
     ${meterStyles}
-    #profileSettings { margin-top: 18px; }
+    #profileHistorySettings { margin-top: var(--ha-space-3, 12px); }
     .moduleSettingsSave, #zone, #meterSettings { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
     .settingsSection {
       border-top: 1px solid var(--divider-color);
-      padding-top: 12px;
-      margin-bottom: 16px;
+      padding-block: var(--ha-space-3, 12px);
     }
     .settingsTitle { font-size: 1rem; margin: 0 0 8px; }
-    .settingsRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-    .settingsRow > .metadata { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
-    .settingsRow p { margin: 0; }
-    #outputEntity {
-      max-width: 100%; --ha-button-label-overflow: visible;
-      white-space: normal; overflow-wrap: anywhere; text-align: start;
+    .settingsInfo {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+      gap: var(--ha-space-2, 8px);
     }
-    #outputEntity::part(base) { padding-inline: var(--ha-space-2, 8px); }
-    #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
-    #outputId { display: block; text-align: start; }
-    #analysisId { margin-bottom: 0; }
-    #analysisId .settingsRow { gap: 0 8px; }
-    #profileId { min-width: 0; }
+    .settingsInfo p { margin: 0; }
+    #editSource { display: block; width: 100%; --ha-button-height: auto; }
+    #editSource::part(base) { padding: 0; border-radius: var(--ha-border-radius-md, 8px); }
+    #editSource::part(label) { width: 100%; padding: 0; }
+    .sourceRow {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+      gap: var(--ha-space-2, 8px); padding: var(--ha-space-2, 8px); min-height: var(--ha-space-12, 48px);
+      box-sizing: border-box; border-radius: var(--ha-border-radius-md, 8px);
+      background: var(--secondary-background-color); color: var(--primary-text-color);
+      text-align: start; white-space: normal; overflow-wrap: anywhere;
+    }
+    .sourceRow ha-icon { --mdc-icon-size: 20px; }
+    .sourceRow ha-icon:last-child { color: var(--primary-color); }
+    #sourceKind { display: block; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-normal, 400); }
+    ${publicationStyles}
+    #profileId { font-size: var(--ha-font-size-s, 12px); }
+    #analysisId { padding-block-end: 0; }
+    #profileId { display: block; color: var(--secondary-text-color); }
     #copyStatus { margin-top: 0; }
-    #cameraSchedule { margin-top: 8px; }
-    #intervalControls { align-items: flex-start; }
-    #intervalAction { min-height: var(--ha-space-14, 56px); }
-    #interval { width: min(100%, 230px); }
 
     figure { margin: 16px 0 0; }
     .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
@@ -208,13 +209,8 @@ template.innerHTML = `
       height: 32px; margin-bottom: 4px; border: 1px solid var(--divider-color);
       border-radius: var(--ha-border-radius-md, 8px);
     }
-    .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;
-      width:min(100%,calc(40dvh * var(--ratio,1))); margin:8px auto; }
-    .zoneFrame img { width:100%; max-height:none; }
     .selection { position:absolute; pointer-events:none; border:2px solid var(--primary-color); box-sizing:border-box;
       box-shadow:0 0 0 1px #111, inset 0 0 0 1px #111; background:color-mix(in srgb, var(--primary-color) 18%, transparent); }
-    .zoneFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-    .zoneFields ha-input { min-width:0; }
   </style>
 
   <ha-top-app-bar-fixed id="appBar">
@@ -233,21 +229,25 @@ template.innerHTML = `
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-      <ha-data-table clickable auto-height hidden>
-        <div class="analysisControls" slot="header">
-          <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
-          <ha-select id="analysisSort" value="warnings"></ha-select>
-        </div>
-      </ha-data-table>
+      <div id="analysisControls" class="analysisControls" slot="header" hidden>
+        <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
+        <ha-dropdown id="analysisSort" placement="bottom-end">
+          <ha-icon-button id="analysisSortButton" slot="trigger" aria-haspopup="menu">
+            <ha-icon icon="mdi:sort" aria-hidden="true"></ha-icon>
+          </ha-icon-button>
+        </ha-dropdown>
+      </div>
+      <ha-data-table clickable auto-height hidden></ha-data-table>
+      <div id="analysisGroups" hidden></div>
     </section>
     <ha-card id="detailCard" hidden>
       <section class="content">
         <div id="profile">
           <p class="secondary" id="source"></p>
-          <ha-tab-group id="profileNav" active="result">
-            <ha-tab-group-tab slot="nav" panel="result" id="resultTab" aria-controls="resultPane"></ha-tab-group-tab>
-            <ha-tab-group-tab slot="nav" panel="history" id="historyTab" aria-controls="historyPane"></ha-tab-group-tab>
-            <ha-tab-group-tab slot="nav" panel="settings" id="settingsTab" aria-controls="settingsPane"></ha-tab-group-tab>
+          <ha-tab-group id="profileNav" class="profileTabs" active="result">
+            ${profileTab("resultTab", "result", "resultPane", "image-outline")}
+            ${profileTab("historyTab", "history", "historyPane", "history")}
+            ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
           </ha-tab-group>
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <ha-button id="test" variant="brand"></ha-button>
@@ -278,41 +278,23 @@ template.innerHTML = `
               <ha-button id="meterSettings" appearance="plain" hidden></ha-button>
               <p class="secondary" id="meterSettingsStatus" role="status" hidden></p>
             </section>
-            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
+            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup()}</section>
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
-                <div class="settingsRow">
-                  <p id="sourceSummary" class="metadata"></p>
-                  <ha-button id="editSource" appearance="plain"></ha-button>
-                </div>
-                <p id="schedule" class="secondary" hidden></p>
-                <div id="cameraSchedule" hidden>
-                  <div id="intervalControls" class="toolbar">
-                    <ha-input id="interval" type="number" min="0" step="1" required></ha-input>
-                    <div id="intervalAction" class="toolbar"><ha-button id="saveInterval" variant="brand"></ha-button></div>
-                  </div>
-                  <p id="frequencyHelp" class="secondary"></p>
-                  <p id="frequencyStatus" role="status"></p>
-                </div>
-                <p class="secondary" id="cameraZones" hidden></p>
+                <ha-button id="editSource" appearance="plain" variant="neutral">
+                  <span class="sourceRow">
+                    <ha-icon id="sourceIcon" class="secondary" aria-hidden="true"></ha-icon>
+                    <span><span id="sourceKind" class="secondary"></span><span id="sourceSummary"></span></span>
+                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
+                  </span>
+                </ha-button>
+                <p id="scheduleHint" class="secondary" hidden></p>
               </section>
-              <section class="settingsSection" aria-labelledby="outputTitle">
-                <h3 id="outputTitle" class="settingsTitle"></h3>
-                <div class="settingsRow">
-                  <div class="metadata">
-                    <ha-button id="outputEntity" appearance="plain" size="s" hidden>
-                      <code id="outputId"></code>
-                    </ha-button>
-                    <p id="noOutput" class="secondary"></p>
-                  </div>
-                  <ha-button id="settings" appearance="plain"></ha-button>
-                </div>
-              </section>
+              ${publicationMarkup}
               <div id="analysisId" class="settingsSection">
-                <div class="settingsRow">
-                  <span id="idLabel" class="secondary"></span>
-                  <code id="profileId"></code>
+                <div class="settingsInfo">
+                  <span><span id="idLabel"></span><code id="profileId"></code></span>
                   <ha-icon-button id="copy">
                     <ha-icon icon="mdi:content-copy" aria-hidden="true"></ha-icon>
                   </ha-icon-button>
@@ -336,24 +318,28 @@ class ImageLabPanel extends HTMLElement {
   private selectedId?: string;
   private listScrollTop = 0;
   private subscription?: Promise<() => Promise<void>>;
+  private captureSubscription?: Promise<() => Promise<void>>;
   private failed = false;
   private activeTest?: AbortController;
   private historyScope?: AbortController;
   private readonly captureHistory: CaptureHistory<HistoryItem>;
   private readonly historySettings: HistorySettings;
   private previewUrl?: string;
+  private previewETag?: string;
   private optionsScope?: AbortController;
   private moduleSettingsScope?: AbortController;
-  private intervalKey?: string;
-  private savingInterval = false;
   private zoneScope?: AbortController;
   private strings = strings.en;
   private readonly images = new ImageCache();
   private readonly comparison: ImageLabComparison;
+  private readonly publication: PublicationSettings;
+  private readonly analysisList: AnalysisList;
 
   constructor() {
     super();
     this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+    this.analysisTable.append(this.element("analysisControls"));
+    this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
     this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
     this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
       const profile = this.selected;
@@ -363,16 +349,20 @@ class ImageLabPanel extends HTMLElement {
       });
       if (!response.ok) throw new Error();
     });
-    this.comparison = new ImageLabComparison(this.images);
+    this.comparison = new ImageLabComparison(this.images, {
+      draft: profile => this.publication.draft(profile),
+      save: (profile, changes) => this.savePublication(profile, changes),
+      setStates: states => this.publication.setStates(states),
+    });
+    this.publication = new PublicationSettings(
+      this.element("publication"), () => this.comparison.refreshSettings(),
+      (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences(),
+    );
     this.element("comparisonSlot").append(this.comparison);
+    this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
     this.element("add").addEventListener("click", () => this.openFlow("create"));
     this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
     this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
-    this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
-    this.element("interval").addEventListener("input", () => {
-      this.element("frequencyStatus").textContent = "";
-    });
-    this.element("settings").addEventListener("click", () => this.openFlow("options"));
     this.element("retry").addEventListener("click", () => this.subscribe());
     this.element("back").addEventListener("click", () => {
       if (history.state?.from === panelPath) history.back();
@@ -383,18 +373,19 @@ class ImageLabPanel extends HTMLElement {
       this.select(id);
     });
     const search = this.element<HTMLElement & { value: string }>("analysisSearch");
-    search.addEventListener("input", () => { this.analysisTable.filter = search.value; });
-    this.analysisSort.addEventListener("selected", event => {
-      const { value } = (event as CustomEvent<{ value: string }>).detail;
+    search.addEventListener("input", () => {
+      this.analysisTable.filter = search.value;
+      this.renderAnalysisGroups();
+    });
+    this.element("analysisSort").addEventListener("wa-select", event => {
+      const { item: { value } } = (event as CustomEvent<{ item: AnalysisSortItem }>).detail;
       const [column, direction] = value.split(":");
-      this.analysisTable.sortColumn = direction ? column : undefined;
       this.analysisTable.sortDirection = direction === "asc" || direction === "desc" ? direction : null;
-      this.analysisSort.value = value;
+      this.analysisTable.sortColumn = this.analysisTable.sortDirection ? column as AnalysisTable["sortColumn"] : undefined;
+      this.updateAnalysisSort();
+      this.renderAnalysisGroups();
     });
-    this.analysisTable.addEventListener("sorting-changed", event => {
-      const { column, direction } = (event as CustomEvent<{ column: string; direction: SortDirection }>).detail;
-      this.analysisSort.value = direction ? `${column}:${direction}` : "warnings";
-    });
+    this.analysisTable.addEventListener("sorting-changed", () => this.updateAnalysisSort());
     this.renderAnalysisColumns();
     this.element("profileNav").addEventListener("wa-tab-show", event => {
       this.showTab((event as CustomEvent<{name: string}>).detail.name);
@@ -437,10 +428,16 @@ class ImageLabPanel extends HTMLElement {
   set hass(hass: HomeAssistant) {
     const previous = this._hass;
     const connectionChanged = previous?.connection !== hass.connection;
-    if (connectionChanged) this.images.clear();
+    if (connectionChanged) {
+      this.analysisList.clear();
+      this.images.clear();
+    }
     const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
     const languageChanged = this.strings !== language;
     this._hass = hass;
+    const output = this.selected?.output_entity_id;
+    if (output && previous?.states[output]?.attributes.friendly_name !== hass.states[output]?.attributes.friendly_name)
+      this.publication.setEntity(output, hass.states[output]?.attributes.friendly_name);
     if (languageChanged) {
       this.strings = language;
       this.closeModuleSettings();
@@ -466,8 +463,15 @@ class ImageLabPanel extends HTMLElement {
     if (this.hasAttribute("narrow") === value) return;
     this.toggleAttribute("narrow", value);
     this.element("appBar").toggleAttribute("narrow", value);
-    this.analysisTable.narrow = value;
-    this.renderAnalysisColumns();
+    this.comparison.toggleAttribute("narrow", value);
+    const controls = this.element("analysisControls");
+    if (value) {
+      this.analysisTable.before(controls);
+      this.renderAnalysisGroups();
+    } else {
+      this.analysisTable.append(controls);
+      this.analysisList.clear();
+    }
     this.render();
   }
 
@@ -481,7 +485,7 @@ class ImageLabPanel extends HTMLElement {
     this.closeModuleSettings();
     this.clearTest();
     this.selectedId = id;
-    this.showTab("result");
+    this.showTab("result", false);
     this.render(Boolean(id));
     if (!id && scroller) {
       scroller.scrollTop = this.listScrollTop;
@@ -496,6 +500,7 @@ class ImageLabPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.analysisList.clear();
     this.images.clear();
     this.optionsScope?.abort();
     this.closeModuleSettings();
@@ -509,10 +514,6 @@ class ImageLabPanel extends HTMLElement {
 
   private get analysisTable() {
     return this.shadowRoot!.querySelector<AnalysisTable>("ha-data-table")!;
-  }
-
-  private get analysisSort() {
-    return this.element<AnalysisSortSelect>("analysisSort");
   }
 
   private get scrollTarget() {
@@ -557,7 +558,16 @@ class ImageLabPanel extends HTMLElement {
   private subscribe() {
     if (!this.isConnected || !this._hass || this.subscription) return;
     this.failed = false;
-    const subscription = this._hass.connection.subscribeMessage((profiles) => {
+    if (!this.captureSubscription) {
+      const captures = this._hass.connection.subscribeMessage<CaptureUpdate>((update) => {
+        if (captures === this.captureSubscription) this.analysisList.refresh(update);
+      }, { type: "image_lab/subscribe_captures" });
+      this.captureSubscription = captures;
+      void captures.catch(() => {
+        if (captures === this.captureSubscription) this.captureSubscription = undefined;
+      });
+    }
+    const subscription = this._hass.connection.subscribeMessage<Profile[]>((profiles) => {
       if (subscription !== this.subscription) return;
       const initial = !this.profiles;
       const previous = this.selected;
@@ -581,6 +591,9 @@ class ImageLabPanel extends HTMLElement {
   }
 
   private unsubscribe() {
+    const captures = this.captureSubscription;
+    this.captureSubscription = undefined;
+    void captures?.then(unsubscribe => unsubscribe()).catch(() => {});
     if (!this.subscription) return;
     void this.subscription.then((unsubscribe) => unsubscribe()).catch(() => {});
     this.subscription = undefined;
@@ -595,6 +608,12 @@ class ImageLabPanel extends HTMLElement {
   }
 
   private async focusListAction(id?: string) {
+    if (this.hasAttribute("narrow")) {
+      const action = (this.shadowRoot!.getElementById(`analysis-${id}`) ?? this.element("add")) as HomeAssistantButton;
+      await action.updateComplete;
+      if (!this.selectedId && action.isConnected) action.focus({ preventScroll: true });
+      return;
+    }
     const table = this.analysisTable;
     await table.updateComplete;
     const findAction = () => table.shadowRoot?.getElementById(`analysis-${id}`);
@@ -609,11 +628,20 @@ class ImageLabPanel extends HTMLElement {
     if (!this.selectedId && action.isConnected) action.focus({ preventScroll: true });
   }
 
-  private showTab(tab: string) {
+  private resetMobileTabScroll() {
+    const scroller = this.scrollTarget;
+    if (this.hasAttribute("narrow") && scroller) scroller.scrollTop = 0;
+  }
+
+  private showTab(tab: string, refresh = true) {
+    const previous = this.element("profileNav").getAttribute("active");
+    const returning = previous !== "result" || this.element("resultPane").hidden;
+    if (refresh && previous !== tab) this.resetMobileTabScroll();
     this.element("profileNav").setAttribute("active", tab);
     this.element("resultPane").hidden = tab !== "result";
     this.element("historyPane").hidden = tab !== "history";
     this.element("settingsPane").hidden = tab !== "settings";
+    if (tab === "result" && refresh && returning && this.selected?.module !== "comparison") void this.loadPreview();
     if (tab === "settings") this.showModuleSettings();
     if (tab === "history") void this.loadHistory();
     else {
@@ -643,6 +671,7 @@ class ImageLabPanel extends HTMLElement {
     this.element("objectList").hidden = true;
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
     this.previewUrl = undefined;
+    this.previewETag = undefined;
     this.element("copyStatus").hidden = true;
   }
 
@@ -666,29 +695,50 @@ class ImageLabPanel extends HTMLElement {
         (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
       const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable :
         profile.module === "meter" && !profile.meter_initialized ? this.meterLabels.reasons.meter_unconfirmed : "";
+      const trigger = this.analysisTrigger(profile);
       return {
-        id: profile.profile_id, name: profile.title, type: labels[profile.module], source, warning,
-        trigger: this.analysisTrigger(profile),
+        id: profile.profile_id, name: profile.title, module: profile.module, type: labels[profile.module], source, warning,
+        trigger, schedule: profile.source_type === "camera" && profile.interval_minutes
+          ? `${profile.interval_minutes} min` : trigger === labels.manualTrigger ? "" : trigger,
       };
     });
     rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
     this.analysisTable.data = rows;
+    this.renderAnalysisGroups();
+  }
+
+  private renderAnalysisGroups() {
+    if (!this.hasAttribute("narrow") || !this._hass || !this.profiles?.length) {
+      this.analysisList.clear();
+      return;
+    }
+    const { data, filter, sortColumn, sortDirection } = this.analysisTable;
+    const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+    const terms = normalize(filter.trim()).split(/\s+/).filter(Boolean);
+    const rows = data.filter(row => {
+      const searchable = normalize([row.name, row.type, row.source, row.trigger, row.warning].join(" "));
+      return terms.every(term => searchable.includes(term));
+    });
+    if (sortColumn && sortDirection) {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      const collator = new Intl.Collator(this._hass.locale.language, { sensitivity: "base", numeric: true });
+      rows.sort((a, b) => direction * collator.compare(a[sortColumn], b[sortColumn]));
+    }
+    this.analysisList.render(rows, this._hass, this.strings.noMatchingAnalyses);
   }
 
   private renderAnalysisColumns() {
     const labels = this.strings;
-    const narrow = this.hasAttribute("narrow");
     this.element("analysisList").setAttribute("aria-label", labels.analyses);
     this.element("analysisSearch").setAttribute("label", labels.searchAnalyses);
     const columnDefaults = { minWidth: "0", filterable: true, sortable: true };
     this.analysisTable.columns = {
       name: {
-        ...columnDefaults, title: labels.nameColumn, flex: 1.6, showNarrow: true,
+        ...columnDefaults, title: labels.nameColumn, flex: 1.6,
         template: row => this.analysisNameCell(row),
       },
       type: {
-        ...columnDefaults, title: narrow ? labels.typeColumnShort : labels.typeColumn,
-        label: labels.typeColumn, showNarrow: true,
+        ...columnDefaults, title: labels.typeColumn,
         template: row => {
           const type = document.createElement("span");
           type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
@@ -696,47 +746,63 @@ class ImageLabPanel extends HTMLElement {
           return type;
         },
       },
-      source: { ...columnDefaults, title: labels.sourceColumn, hidden: narrow },
-      trigger: { ...columnDefaults, title: labels.triggerColumn, hidden: narrow },
+      source: { ...columnDefaults, title: labels.sourceColumn },
+      trigger: { ...columnDefaults, title: labels.triggerColumn },
     };
-    this.analysisSort.label = labels.sortBy;
-    this.analysisSort.options = [
+    this.element("analysisSortButton").setAttribute("label", labels.sortBy);
+    const sort = this.element("analysisSort");
+    const options = [
       { value: "warnings", label: labels.warningsFirst },
-      ...Object.entries(this.analysisTable.columns).flatMap(([key, { title, label = title }]) => [
+      ...Object.entries({
+        name: labels.nameColumn, type: labels.typeColumn, source: labels.sourceColumn, trigger: labels.triggerColumn,
+      }).flatMap(([key, label]) => [
         { value: `${key}:asc`, label: `${label} (A–Z)` },
         { value: `${key}:desc`, label: `${label} (Z–A)` },
       ]),
     ];
+    sort.querySelectorAll("ha-dropdown-item").forEach(item => item.remove());
+    for (const option of options) {
+      const item = document.createElement("ha-dropdown-item");
+      item.setAttribute("type", "checkbox");
+      item.setAttribute("value", option.value);
+      item.textContent = option.label;
+      sort.append(item);
+    }
+    this.updateAnalysisSort();
+  }
+
+  private updateAnalysisSort() {
+    const { sortColumn, sortDirection } = this.analysisTable;
+    const active = sortDirection ? `${sortColumn}:${sortDirection}` : "warnings";
+    for (const item of this.element("analysisSort").querySelectorAll<AnalysisSortItem>("ha-dropdown-item"))
+      item.checked = item.getAttribute("value") === active;
   }
 
   private analysisNameCell(row: AnalysisRow) {
     // Keep a native keyboard target on Home Assistant versions that only handle row clicks.
-    const narrow = this.hasAttribute("narrow");
     const name = document.createElement("div");
     name.style.cssText = "min-width:0;max-width:100%;line-height:1.2";
     const action = document.createElement("ha-button");
     action.id = `analysis-${row.id}`;
     action.style.cssText = "display:block;width:fit-content;max-width:100%;text-align:start";
     action.setAttribute("appearance", "plain");
-    action.setAttribute("size", narrow ? "xs" : "s");
+    action.setAttribute("size", "s");
     action.textContent = row.name;
     action.title = row.name;
     action.onclick = () => this.select(row.id);
     name.append(action);
-    const metadata = row.warning ? [row.warning] : narrow ? [row.source, row.trigger] : [];
-    for (const label of metadata) {
+    if (row.warning) {
       const details = document.createElement("span");
       details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-        + "font-size:12px;line-height:13px;color:var(--secondary-text-color)";
-      details.textContent = label;
-      details.title = label;
-      if (row.warning) {
-        const icon = document.createElement("ha-icon");
-        icon.setAttribute("icon", "mdi:alert-outline");
-        icon.setAttribute("aria-hidden", "true");
-        icon.style.cssText = "--mdc-icon-size:14px;color:var(--warning-color);margin-inline-end:4px";
-        details.prepend(icon);
-      }
+        + "font-size:var(--ha-font-size-s,12px);line-height:var(--ha-line-height-normal,1.4);"
+        + "color:var(--secondary-text-color)";
+      details.textContent = row.warning;
+      details.title = row.warning;
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", "mdi:alert-outline");
+      icon.setAttribute("aria-hidden", "true");
+      icon.style.cssText = "--mdc-icon-size:14px;color:var(--warning-color);margin-inline-end:4px";
+      details.prepend(icon);
       name.append(details);
     }
     return name;
@@ -745,26 +811,23 @@ class ImageLabPanel extends HTMLElement {
   private render(moveFocus = false) {
     const labels = this.strings;
     for (const [id, message] of Object.entries({
-      idLabel: labels.id, paletteTitle: labels.palette, resultTab: labels.resultTab,
-      historyTab: labels.historyTab, settingsTab: labels.settingsTab,
+      idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
+      "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
       analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
-      outputTitle: labels.settings, noOutput: labels.noResultEntity, renameAction: labels.rename,
-      frequencyHelp: labels.frequencyHelp,
+      renameAction: labels.rename,
     })) {
       this.element(id).textContent = message;
     }
     const actions = {
       add: [labels.add, "plus"],
       retry: [labels.retry, "refresh"],
-      settings: [labels.configure, "cog-outline"],
-      editSource: [labels.editSource, "pencil-outline"],
-      saveInterval: [labels.saveFrequency, "content-save-outline"],
       test: [labels.test, "play-outline"],
       zone: [labels.zone, "crop"],
       meterSettings: [this.meterLabels.configure, "gauge"],
     };
     for (const [id, [label, icon]] of Object.entries(actions))
       actionLabel(this.element(id), label, icon);
+    this.element("editSource").title = labels.editSource;
     this.element("copy").setAttribute("label", labels.copy);
     this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
 
@@ -784,7 +847,11 @@ class ImageLabPanel extends HTMLElement {
     const title = this.element("title");
     title.textContent = profile?.title ?? "Image Lab";
     title.title = title.textContent;
-    this.analysisTable.hidden = !this.profiles?.length;
+    const hasProfiles = Boolean(this.profiles?.length);
+    const narrow = this.hasAttribute("narrow");
+    this.analysisTable.hidden = !hasProfiles || narrow;
+    this.element("analysisGroups").hidden = !hasProfiles || !narrow;
+    this.element("analysisControls").hidden = !hasProfiles;
     this.element("retry").hidden = !this.failed;
     const message = this.element("listMessage");
     message.textContent = this.failed ? labels.loadError :
@@ -792,6 +859,9 @@ class ImageLabPanel extends HTMLElement {
     message.hidden = !message.textContent;
 
     const isComparison = profile?.module === "comparison";
+    const outputEntityId = profile?.output_entity_id ?? undefined;
+    const outputName = outputEntityId && this._hass?.states[outputEntityId]?.attributes.friendly_name;
+    this.publication.configure(profile, labels === strings.fr ? "fr" : "en", outputEntityId, outputName);
     this.comparison.hidden = !isComparison;
     this.comparison.configure(
       this._hass,
@@ -810,51 +880,22 @@ class ImageLabPanel extends HTMLElement {
     if (!isComparison && tab === "settings") this.showModuleSettings();
     if (!profile) return;
     const camera = profile.source_type === "camera";
-    const interval = this.element<HTMLElement & {value: string}>("interval");
-    this.element("cameraSchedule").hidden = !camera;
-    const schedule = this.element("schedule");
+    const schedule = this.element("scheduleHint");
     schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
     schedule.textContent = labels.frequencyMediaInactive;
-    if (camera) {
-      interval.setAttribute("label", labels.intervalLabel);
-      const key = `${profile.profile_id}/${profile.interval_minutes}`;
-      if (key !== this.intervalKey) {
-        this.intervalKey = key;
-        interval.value = String(profile.interval_minutes);
-        this.element("frequencyStatus").textContent = "";
-      }
-    } else {
-      this.intervalKey = undefined;
-    }
     const sourceName = profile.entity_id
       ? this._hass?.states[profile.entity_id]?.attributes.friendly_name || profile.entity_id
       : undefined;
     const trigger = camera ? undefined : profile.output_entity_id && profile.source_type === "media_player"
       ? labels.artworkTrigger : labels.onDemand;
+    this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[profile.source_type]}`);
+    this.element("sourceKind").textContent = camera ? labels.cameraLabel : labels[profile.source_type];
     this.element("sourceSummary").textContent =
-      [labels[profile.source_type], sourceName, trigger].filter(Boolean).join(" · ");
+      [sourceName ?? (profile.source_type !== "upload" ? labels.missingSource : undefined), trigger].filter(Boolean).join(" · ");
     this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
     this.element("meterSettings").hidden = profile.module !== "meter";
     this.element("meterSettings").toggleAttribute("disabled", !profile.available);
-    const cameraZones = this.element("cameraZones");
-    cameraZones.hidden = profile.source_type !== "camera";
-    if (!cameraZones.hidden) {
-      const others = this.profiles?.filter(p => p.source_type === "camera" && p.entity_id === profile.entity_id && p !== profile) ?? [];
-      cameraZones.hidden = !others.length;
-      cameraZones.textContent = labels.cameraZones;
-      for (const p of others) {
-        const button = document.createElement("ha-button");
-        button.setAttribute("appearance", "plain");
-        button.setAttribute("size", "s");
-        actionLabel(button, p.title, "crop");
-        button.onclick = () => this.select(p.profile_id);
-        cameraZones.append(button);
-      }
-    }
     this.element("profileId").textContent = profile.profile_id;
-    this.element("outputEntity").hidden = !profile.output_entity_id;
-    this.element("noOutput").hidden = Boolean(profile.output_entity_id);
-    this.element("outputId").textContent = profile.output_entity_id ?? "";
     this.element("source").textContent = labels[profile.module];
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
     if (opened) {
@@ -865,32 +906,20 @@ class ImageLabPanel extends HTMLElement {
     }
   }
 
-  private async saveInterval() {
+  private async savePublication(profileId: string, changes: PublicationChanges) {
     const profile = this.selected;
     const hass = this._hass;
-    if (!hass || profile?.source_type !== "camera" || this.savingInterval) return;
-    const field = this.element<HTMLElement & {value: string; reportValidity(): boolean}>("interval");
-    const minutes = Number(field.value);
-    const status = this.element("frequencyStatus");
-    if (!field.reportValidity() || !Number.isSafeInteger(minutes) || minutes < 0) {
-      status.textContent = this.strings.invalidFrequency;
-      return;
-    }
-    const button = this.element("saveInterval");
-    this.savingInterval = true;
-    button.setAttribute("loading", "");
-    field.setAttribute("disabled", "");
-    try {
-      await hass.connection.sendMessagePromise({
-        type: "image_lab/set_schedule", profile_id: profile.profile_id, interval_minutes: minutes,
-      });
-      if (this.selectedId === profile.profile_id) status.textContent = this.strings.frequencySaved;
-    } catch {
-      if (this.selectedId === profile.profile_id) status.textContent = this.strings.optionsError;
-    } finally {
-      this.savingInterval = false;
-      button.removeAttribute("loading");
-      field.removeAttribute("disabled");
+    if (!hass || profile?.profile_id !== profileId) throw new Error("profile_not_found");
+    const publication = await hass.connection.sendMessagePromise<PublicationSnapshot>({
+      type: "image_lab/set_publication", profile_id: profileId, settings: changes,
+    }).catch(error => { throw new Error(error?.code ?? "publication_failed"); });
+    // The subscription normally reports the update before the command replies.
+    if (this.selected === profile) {
+      this.profiles = this.profiles?.map(item => item === profile ? {
+        ...item, publication, interval_minutes: publication.settings.interval_minutes,
+      } : item);
+      this.renderAnalysisRows();
+      this.render();
     }
   }
 
@@ -946,10 +975,10 @@ class ImageLabPanel extends HTMLElement {
   }
 
   private async showObjects(
-    headers: Headers, stage: HTMLElement, overlay: HTMLElement, results: HTMLElement,
+    detection: DetectionResult, headers: Headers, stage: HTMLElement, overlay: HTMLElement, results: HTMLElement,
     hass: HomeAssistant, signal: AbortSignal,
   ) {
-    const objects = JSON.parse(headers.get("X-Image-Lab-Objects") ?? "null") as Detection[] | null;
+    const { objects, truncated } = detection;
     const width = Number(headers.get("X-Image-Lab-Width"));
     const height = Number(headers.get("X-Image-Lab-Height"));
     if (!Array.isArray(objects) || width <= 0 || height <= 0) throw new Error("Missing detection result");
@@ -963,17 +992,17 @@ class ImageLabPanel extends HTMLElement {
     stage.style.setProperty("--image-aspect", String(width / height));
     stage.classList.add("with-objects");
     const list: HTMLLIElement[] = [];
-    const boxes = objects.map(([label, score, xMin, yMin, xMax, yMax]) => {
+    const boxes = objects.map(({ label, confidence: score, box: { x_min, y_min, x_max, y_max } }) => {
       const name = resources[`component.image_lab.selector.object_labels.options.${label}`]
         ?? label.replaceAll("_", " ");
       const confidence = score.toLocaleString(language, { style: "percent" });
       const box = document.createElement("div");
       box.className = "object-box";
-      box.style.setProperty("--label-left", `${xMin * 100}cqw`);
-      box.style.left = `${xMin * 100}%`;
-      box.style.top = `${yMin * 100}%`;
-      box.style.width = `${(xMax - xMin) * 100}%`;
-      box.style.height = `${(yMax - yMin) * 100}%`;
+      box.style.setProperty("--label-left", `${x_min * 100}cqw`);
+      box.style.left = `${x_min * 100}%`;
+      box.style.top = `${y_min * 100}%`;
+      box.style.width = `${(x_max - x_min) * 100}%`;
+      box.style.height = `${(y_max - y_min) * 100}%`;
       const caption = document.createElement("span");
       caption.textContent = name;
       box.append(caption);
@@ -987,7 +1016,15 @@ class ImageLabPanel extends HTMLElement {
     results.hidden = !objects.length;
 
     const summary = this.objectSummary(objects.length);
-    return headers.get("X-Image-Lab-Objects-Truncated") === "1" ? `${summary} · ${this.strings.objectLimit}` : summary;
+    return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
+  }
+
+  private async readDetection(hass: HomeAssistant, path: string, imageId: string, signal: AbortSignal) {
+    if (!imageId) throw new Error("Missing detection image ID");
+    const response = await hass.fetchWithAuth(`${path}/${encodeURIComponent(imageId)}?metadata=1`, { signal });
+    if (!response.ok) throw new Error("Missing detection result");
+    const { data } = await response.json() as { data: DetectionResult };
+    return data;
   }
 
   private objectSummary(count: number) {
@@ -1045,7 +1082,7 @@ class ImageLabPanel extends HTMLElement {
             `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
           color: item.dominant_hex ?? undefined,
         }),
-        details: async (_item, content, image, headers, detailSignal) => {
+        details: async (item, content, image, headers, detailSignal) => {
           if (profile.module === "palette") {
             const colors = this.readPalette(headers);
             const list = document.createElement("ul");
@@ -1067,7 +1104,8 @@ class ImageLabPanel extends HTMLElement {
             stage.append(image, overlay);
             const results = document.createElement("ul");
             results.className = "object-list";
-            const summary = await this.showObjects(headers, stage, overlay, results, hass, detailSignal);
+            const detection = await this.readDetection(hass, path, item.id, detailSignal);
+            const summary = await this.showObjects(detection, headers, stage, overlay, results, hass, detailSignal);
             const status = document.createElement("p");
             status.textContent = summary;
             content.append(status, results);
@@ -1110,10 +1148,20 @@ class ImageLabPanel extends HTMLElement {
       isDetection ? this.strings.detecting : this.strings.testing;
 
     try {
+      const result = manual ? await hass.connection.sendMessagePromise<TestResult>({
+        type: "image_lab/test_source", profile_id: profile.profile_id,
+      }) : undefined;
+      controller.signal.throwIfAborted();
+      if (result && !result.image_id) throw new Error(result.reason);
+      const path = this.previewPath(profile);
       const response = await hass.fetchWithAuth(
-        this.previewPath(profile),
-        { method: manual ? "POST" : "GET", signal: controller.signal, cache: "no-store" },
+        result?.image_id ? `${path}/${encodeURIComponent(result.image_id)}` : path,
+        {
+          signal: controller.signal, cache: "no-store",
+          headers: !manual && this.previewETag ? { "If-None-Match": this.previewETag } : undefined,
+        },
       );
+      if (response.status === 304) return;
       if (response.status === 204) {
         summary = profile.available && profile.module === "meter" && !profile.meter_initialized
           ? this.meterLabels.reasons.meter_needs_calibration
@@ -1122,28 +1170,22 @@ class ImageLabPanel extends HTMLElement {
       }
       if (response.status === 422) {
         const { reason } = await response.json();
-        if (!controller.signal.aborted) {
-          const meterReason = profile.module === "meter" && this.meterLabels.reasons[reason];
-          if (meterReason) {
-            const error = this.element("error");
-            error.textContent = meterReason;
-            error.hidden = false;
-          } else {
-            this.showError(Object.hasOwn(this.strings, reason) ? reason : manual ? "testError" : "resultError");
-          }
-        }
-        return;
+        throw new Error(reason);
       }
       if (!response.ok || !response.headers.get("Content-Type")?.startsWith("image/")) {
         throw new Error("Preview response was not an image");
       }
-      const blob = await response.blob();
-      if (controller.signal.aborted) return;
+      const etag = response.headers.get("ETag");
+      const [blob, detection] = await Promise.all([
+        response.blob(),
+        isDetection ? result?.data ?? this.readDetection(hass, path, etag?.slice(1, -1) ?? "", controller.signal) : undefined,
+      ]);
+      controller.signal.throwIfAborted();
 
       const width = response.headers.get("X-Image-Lab-Width");
       const height = response.headers.get("X-Image-Lab-Height");
-      if (isDetection) {
-        summary = await this.showObjects(response.headers, this.element("imageStage"), this.element("objectsOverlay"),
+      if (detection) {
+        summary = await this.showObjects(detection, response.headers, this.element("imageStage"), this.element("objectsOverlay"),
           this.element("objectList"), hass, controller.signal);
         controller.signal.throwIfAborted();
       } else if (profile.module === "meter") {
@@ -1154,6 +1196,7 @@ class ImageLabPanel extends HTMLElement {
         summary = this.strings.paletteReady;
       }
       if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+      this.previewETag = etag ?? undefined;
       this.previewUrl = URL.createObjectURL(blob);
       const image = this.element<HTMLImageElement>("image");
       image.src = this.previewUrl;
@@ -1167,8 +1210,18 @@ class ImageLabPanel extends HTMLElement {
       if (response.headers.get("X-Image-Lab-Confirmation") === "disagreed") {
         summary += " · " + this.strings.notConfirmed;
       }
-    } catch {
-      if (!controller.signal.aborted) this.showError(manual ? "testError" : "resultError");
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const reason = error instanceof Error ? error.message : "";
+        const meterReason = profile.module === "meter" && this.meterLabels.reasons[reason];
+        if (meterReason) {
+          const notice = this.element("error");
+          notice.textContent = meterReason;
+          notice.hidden = false;
+        } else {
+          this.showError(Object.hasOwn(this.strings, reason) ? reason as Message : manual ? "testError" : "resultError");
+        }
+      }
     } finally {
       if (this.activeTest === controller) {
         this.activeTest = undefined;

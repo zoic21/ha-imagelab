@@ -10,6 +10,7 @@ from typing import TypedDict
 from uuid import uuid4
 
 from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 
 from .const import DOMAIN
@@ -17,6 +18,7 @@ from .images import ImageError, ImageFrame, read_thumbnail
 
 STORAGE_VERSION = 1
 DEFAULT_HISTORY = {"mode": "all", "limit": 10}
+SIGNAL_CAPTURE_SAVED = f"{DOMAIN}_capture_saved"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -28,6 +30,16 @@ class Observation(TypedDict):
     content_type: str
     width: int
     height: int
+
+
+def observation_response(observation: Observation) -> dict:
+    """Return the analysis metadata keyed to the exact saved image."""
+    return {
+        **observation["response"],
+        "image_id": observation["id"],
+        "time": observation["time"],
+        "manual": observation["manual"],
+    }
 
 
 class ResultStore:
@@ -69,13 +81,12 @@ class ResultStore:
         write_utf8_file_atomic(str(self.manifest), content, private=True)
 
     def _save_history(
-        self, data: dict, new_image: Path | None = None, previous: str | None = None
+        self, data: dict, new_image: Path | None = None, *, obsolete: tuple[str, ...] = (),
     ) -> None:
         limit = data.get("history_settings", DEFAULT_HISTORY)["limit"]
         expired = {item["id"] for item in data["history"][:-limit]}
         del data["history"][:-limit]
-        if previous is not None:
-            expired.add(previous)
+        expired.update(obsolete)
         try:
             self._save(data)
         except (OSError, WriteError):
@@ -139,7 +150,7 @@ class ResultStore:
         if meter_state is not None:
             data["meter_state"] = meter_state
         self._append_history(data, observation)
-        self._save_history(data, path, previous["id"] if previous else None)
+        self._save_history(data, path, obsolete=(previous["id"],) if previous else ())
         return observation
 
     async def async_record(
@@ -147,9 +158,11 @@ class ResultStore:
         meter_state: dict | None = None,
     ) -> Observation:
         async with self.lock:
-            return await self.hass.async_add_executor_job(
+            observation = await self.hass.async_add_executor_job(
                 self._record, frame, response, manual, meter_state
             )
+            async_dispatcher_send(self.hass, SIGNAL_CAPTURE_SAVED, self.profile_id, observation["id"])
+            return observation
 
     async def async_meter_state(self) -> dict | None:
         async with self.lock:
@@ -190,12 +203,21 @@ class ResultStore:
                 ]
             )
 
-    def _read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
+    def _observation(self, image_id: str | None, *, include_latest: bool = False) -> Observation | None:
         data = self.load()
-        observation = (
-            self._latest(data) if image_id is None else
-            next((item for item in data["history"] if item["id"] == image_id), None)
-        )
+        if image_id is None:
+            return self._latest(data)
+        if include_latest and (latest := self._latest(data)) and latest["id"] == image_id:
+            return latest
+        return next((item for item in data["history"] if item["id"] == image_id), None)
+
+    async def async_observation(self, image_id: str) -> Observation | None:
+        """Read metadata for a capture without loading its image."""
+        async with self.lock:
+            return await self.hass.async_add_executor_job(lambda: self._observation(image_id, include_latest=True))
+
+    def _read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
+        observation = self._observation(image_id)
         if observation is None:
             return None
         path = self.images / observation["id"]

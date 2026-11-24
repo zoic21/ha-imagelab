@@ -67,16 +67,24 @@ def crop_image(image: Image.Image, bounds: Bounds | None) -> Image.Image:
     return image.crop((x, y, min(right, width), min(bottom, height)))
 
 
-def crop_frame(frame: ImageFrame, region: Region) -> ImageFrame:
-    """Provide a lossless, oriented zone for modules using image coordinates."""
-    bounds = (region["x"], region["y"], region["width"], region["height"])
-    with Image.open(BytesIO(frame.content)) as original:
-        cropped = crop_image(original, bounds)
-        if cropped.mode not in ("RGB", "RGBA", "L"):
-            cropped = cropped.convert("RGBA")
-        buffer = BytesIO()
-        cropped.save(buffer, "PNG", compress_level=1)
-    return ImageFrame(buffer.getvalue(), "image/png", *cropped.size)
+@contextmanager
+def analysis_pixels(
+    frame: ImageFrame, region: Region | None
+) -> Iterator[tuple[Image.Image, ImageFrame]]:
+    """Give the processor decoded pixels and preserve the exact frame for history."""
+    with Image.open(BytesIO(frame.content)) as source:
+        if region is None:
+            yield source, frame
+            return
+        bounds = (region["x"], region["y"], region["width"], region["height"])
+        cropped = crop_image(source, bounds)
+    if cropped.mode not in ("RGB", "RGBA", "L"):
+        cropped = cropped.convert("RGBA")
+    with cropped:
+        with BytesIO() as buffer:
+            cropped.save(buffer, "PNG", compress_level=1)
+            preview = ImageFrame(buffer.getvalue(), "image/png", *cropped.size)
+        yield cropped, preview
 
 
 def thumbnail_frame(frame: ImageFrame) -> ImageFrame:
@@ -96,18 +104,19 @@ def _thumbnail(image: Image.Image) -> ImageFrame:
 
 
 @contextmanager
-def open_validated_image(content: bytes) -> Iterator[Image.Image]:
+def open_validated_image(content: bytes | Path) -> Iterator[Image.Image]:
     """Open, validate and decode an image for immediate pixel processing."""
-    if not content:
-        raise ImageError("invalid_image")
-    if len(content) > MAX_IMAGE_BYTES:
-        raise ImageError("image_too_large")
+    # Archived crops are private files generated from already validated inputs.
+    if isinstance(content, bytes):
+        if not content:
+            raise ImageError("invalid_image")
+        if len(content) > MAX_IMAGE_BYTES:
+            raise ImageError("image_too_large")
 
     with ExitStack() as stack:
         try:
-            image = stack.enter_context(
-                Image.open(BytesIO(content), formats=list(IMAGE_TYPES))
-            )
+            source = BytesIO(content) if isinstance(content, bytes) else content
+            image = stack.enter_context(Image.open(source, formats=list(IMAGE_TYPES)))
             width, height = image.size
             if width * height > MAX_IMAGE_PIXELS:
                 raise ImageError("image_too_large")
@@ -141,7 +150,7 @@ def read_thumbnail(path: Path) -> ImageFrame:
 
 @lru_cache(maxsize=256)
 def _read_thumbnail(path: Path, _revision: tuple[int, int, int, int]) -> ImageFrame:
-    with open_validated_image(read_image_file(path)) as image:
+    with open_validated_image(path) as image:
         return _thumbnail(image)
 
 

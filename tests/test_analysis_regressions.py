@@ -17,13 +17,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.http import KEY_AUTHENTICATED
 from PIL import Image, JpegImagePlugin
 
-from custom_components.image_lab import ImageLabPreviewView, async_test_source
+from custom_components.image_lab import ImageLabPreviewView
 from custom_components.image_lab import analysis, config_flow, object_detection, output
 from custom_components.image_lab.comparison_store import ComparisonStore
 from custom_components.image_lab.images import ImageError, ImageFrame, validate_image
 from custom_components.image_lab.models import ModuleResult
-from custom_components.image_lab.output import OutputCoordinator
+from custom_components.image_lab.output import ConfirmingOutputCoordinator, OutputCoordinator
 from custom_components.image_lab.result_store import get_result_store
+from custom_components.image_lab.websocket import async_test_source
 
 
 def loaded_entry(module: str) -> SimpleNamespace:
@@ -230,11 +231,10 @@ def test_test_source_publishes_the_first_capture_over_websocket(monkeypatch):
             async_create_background_task=schedule,
             async_create_task=lambda coro, name: asyncio.create_task(coro, name=name),
         )
-        coordinator = object.__new__(OutputCoordinator)
+        coordinator = object.__new__(ConfirmingOutputCoordinator)
         coordinator.hass = hass
         coordinator.name = "Door analysis"
         coordinator.kind = "enum"
-        coordinator.is_meter = False
         coordinator.config_entry = entry
         coordinator.analysis_lock = asyncio.Lock()
         coordinator._unloaded = asyncio.Event()
@@ -356,5 +356,72 @@ def test_scheduled_frame_is_skipped_during_another_analysis():
             await asyncio.wait_for(coordinator.async_process_capture(frame), timeout=1)
         await frame
         coordinator._observe.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_panel_websocket_registration_and_capture_subscription(tmp_path):
+    from homeassistant.exceptions import Unauthorized
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.image_lab.result_store import SIGNAL_CAPTURE_SAVED
+    from custom_components.image_lab.websocket import async_register_commands
+
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        async_register_commands(hass)
+        commands = hass.data["websocket_api"]
+        assert set(commands) == {
+            "image_lab/subscribe_profiles", "image_lab/subscribe_captures", "image_lab/test_source",
+            "image_lab/module_settings", "image_lab/set_publication",
+        }
+        connection = Mock(subscriptions={}, user=SimpleNamespace(is_admin=False))
+        for handler, _ in commands.values():
+            with pytest.raises(Unauthorized):
+                handler(hass, connection, {"id": 1})
+
+        connection.user.is_admin = True
+        subscribe, _ = commands["image_lab/subscribe_captures"]
+        subscribe(hass, connection, {"id": 1})
+        connection.send_result.assert_called_once_with(1)
+        connection.send_message.assert_called_once_with({"id": 1, "type": "event", "event": None})
+        async_dispatcher_send(hass, SIGNAL_CAPTURE_SAVED, "profile", "capture")
+        await hass.async_block_till_done()
+        connection.send_message.assert_called_with({
+            "id": 1, "type": "event", "event": {"profile_id": "profile", "image_id": "capture"},
+        })
+        connection.subscriptions.pop(1)()
+        async_dispatcher_send(hass, SIGNAL_CAPTURE_SAVED, "profile", "next")
+        await hass.async_block_till_done()
+        assert connection.send_message.call_count == 2
+
+    asyncio.run(run())
+
+
+def test_admin_views_check_permissions_and_profile_type():
+    from custom_components.image_lab import CameraZoneView
+    from custom_components.image_lab.comparison_api import ComparisonView
+    from custom_components.image_lab.meter_api import MeterView
+
+    async def run():
+        entry = loaded_entry("palette")
+        entry.data["source_type"] = "upload"
+        lookup = Mock(return_value=entry)
+        hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=lookup))
+        request = make_mocked_request("GET", "/", app={KEY_HASS: hass})
+        user = SimpleNamespace(is_admin=False)
+        request[KEY_HASS_USER] = user
+        for view in (ImageLabPreviewView(), CameraZoneView(), MeterView(), ComparisonView()):
+            with pytest.raises(web.HTTPForbidden):
+                await view.get(request, "profile")
+        lookup.assert_not_called()
+
+        user.is_admin = True
+        for view in (MeterView(), ComparisonView(), CameraZoneView()):
+            with pytest.raises(web.HTTPNotFound):
+                await view.get(request, "profile")
+        entry.domain = "other_integration"
+        with pytest.raises(web.HTTPNotFound):
+            await ImageLabPreviewView().get(request, "profile")
 
     asyncio.run(run())

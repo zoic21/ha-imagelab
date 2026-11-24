@@ -111,12 +111,11 @@ def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entit
     import asyncio
     from unittest.mock import AsyncMock, Mock, patch
 
-    from custom_components.image_lab.output import OutputCoordinator
+    from custom_components.image_lab.output import ConfirmingOutputCoordinator
 
     async def run():
-        coord = object.__new__(OutputCoordinator)
+        coord = object.__new__(ConfirmingOutputCoordinator)
         coord.kind = "binary"
-        coord.is_meter = False
         coord.hass = None
         coord.config_entry = SimpleNamespace(
             entry_id="profile",

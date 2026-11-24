@@ -2,6 +2,7 @@
 
 ## À venir
 
+- **Analyses de caméra.** Image Lab évite un décodage redondant à chaque analyse. Les zones de palette et de détection sont archivées à leur résolution d’origine, avec une compression sans perte plus rapide pour les captures en couleur.
 - **Métadonnées des captures.** Pour lire la palette, le relevé du compteur ou les objets détectés, utilisez `GET /api/image_lab/preview/{profile_id}/{image_id}?metadata=1`. Le JSON inclut les dimensions, la date et le résultat. Les clients qui lisaient les en-têtes `X-Image-Lab-*` de l’aperçu peuvent utiliser l’identifiant de capture fourni par son `ETag`.
 - **Clients externes.** L’ancien `POST /api/image_lab/preview/{profile_id}` est retiré. Pour lancer une analyse, utilisez l’action Home Assistant `image_lab.analyze` ou la commande WebSocket `image_lab/test_source` avec `profile_id`. Pour régler la fréquence d’une caméra, remplacez `image_lab/set_schedule` par `image_lab/set_publication`, avec `profile_id` et `settings.interval_minutes`.
 

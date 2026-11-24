@@ -5,14 +5,17 @@ const moduleIcons = {
     meter: "gauge",
 };
 export const analysisListStyles = `
-  #analysisGroups { display: grid; gap: var(--ha-space-3, 12px); }
+  #analysisGroups { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ha-space-3, 12px); }
   #analysisGroups ha-expansion-panel {
     --expansion-panel-summary-padding: 0 var(--ha-space-3, 12px);
     --expansion-panel-content-padding: 0;
     background: var(--card-background-color);
   }
   .analysisGroupIcon { color: var(--primary-color); }
-  .analysisGroupRows { border-block-start: 1px solid var(--divider-color); }
+  .analysisGroupRows {
+    display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--ha-space-1, 4px);
+    border-block-start: 1px solid var(--divider-color);
+  }
   .analysisAction {
     display: block; width: 100%;
     --ha-button-height: auto;
@@ -20,12 +23,14 @@ export const analysisListStyles = `
     --ha-button-label-overflow: visible;
   }
   .analysisAction + .analysisAction { border-block-start: 1px solid var(--divider-color); }
-  .analysisAction::part(base) { padding: 0 var(--ha-space-3, 12px); width: 100%; }
-  .analysisAction::part(label) { width: 100%; padding-block: 0; }
+  .analysisAction::part(base) {
+    box-sizing: border-box; height: auto; width: 100%;
+    padding: var(--ha-space-2, 8px) var(--ha-space-3, 12px);
+  }
+  .analysisAction::part(label) { min-width: 0; width: 100%; padding-block: 0; }
   .analysisRow {
     display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center;
     gap: var(--ha-space-3, 12px);
-    padding: var(--ha-space-2, 8px) 0;
     text-align: start;
     color: var(--primary-text-color);
   }
@@ -40,7 +45,8 @@ export const analysisListStyles = `
   }
   .analysisCaption.warning { color: var(--warning-color); }
   .analysisPreview {
-    display: grid; place-items: center; width: 44px; height: 44px;
+    display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    width: 44px; height: 44px; overflow: hidden;
   }
   .analysisPreview img {
     width: 100%; height: 100%; object-fit: cover;

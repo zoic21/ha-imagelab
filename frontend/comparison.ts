@@ -426,6 +426,10 @@ export class ImageLabComparison extends HTMLElement {
     this.refresh();
   }
 
+  get settingsOpen() {
+    return this.tab === "settings";
+  }
+
   configure(
     client?: ComparisonClient,
     profile?: string,

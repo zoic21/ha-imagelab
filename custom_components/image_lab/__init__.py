@@ -75,6 +75,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_register_commands(hass)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
+    hass.http.register_view(ImportedThumbnailView)
     hass.http.register_view(CameraZoneView)
     hass.http.register_view(MeterView)
     hass.http.register_view(ComparisonView)
@@ -190,6 +191,26 @@ class AnalysisFlowView(ConfigManagerFlowIndexView):
         context = super().get_context(data)
         # Keep HA's user/reconfigure source so unfinished forms stay out of discovery.
         return {**context, PANEL_FLOW: True}
+
+
+class ImportedThumbnailView(HomeAssistantView):
+    """Show the configured upload even before the first analysis."""
+
+    url = f"/api/{DOMAIN}/upload_thumbnail/{{profile_id}}"
+    name = f"api:{DOMAIN}:upload_thumbnail"
+
+    async def get(self, request: web.Request, profile_id: str) -> web.Response:
+        entry = admin_profile(request, profile_id)
+        if entry.data[CONF_SOURCE_TYPE] != SourceType.UPLOAD:
+            raise web.HTTPNotFound
+        storage = get_image_storage(request.app[KEY_HASS])
+        try:
+            frame = await storage.async_thumbnail(entry.data[CONF_IMAGE_KEY])
+        except FileNotFoundError:
+            raise web.HTTPNotFound from None
+        except ImageError as err:
+            return self.json({"reason": err.reason}, status_code=422, headers=RESPONSE_HEADERS)
+        return web.Response(body=frame.content, content_type=frame.content_type, headers=RESPONSE_HEADERS)
 
 
 class ImageLabPreviewView(HomeAssistantView):

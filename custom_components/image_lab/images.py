@@ -234,6 +234,10 @@ class ImageStorage:
         except FileNotFoundError as err:
             raise ImageError("image_missing") from err
 
+    async def async_thumbnail(self, image_key: str) -> ImageFrame:
+        """Read a small preview of the current original in the executor."""
+        return await self.hass.async_add_executor_job(read_thumbnail, self._path(image_key))
+
     async def async_remove(self, image_key: str) -> None:
         """Remove the original when the owning config entry is deleted."""
         async with self._write_lock:

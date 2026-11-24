@@ -214,6 +214,7 @@
     }
   },
   "options": {
+    "step": {},
     "abort": {
       "open_panel": "Ouvrez [Image Lab](/image-lab), puis Réglages → Publication."
     }

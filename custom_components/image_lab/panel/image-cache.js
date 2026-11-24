@@ -44,17 +44,16 @@ export class ImageCache {
         }
         const blob = await response.blob();
         signal.throwIfAborted();
-        const image = { blob, headers: response.headers };
         if (blob.size <= maxBytes) {
-            this.images.set(path, image);
+            this.images.set(path, blob);
             this.bytes += blob.size;
             for (const [key, entry] of this.images) {
                 if (this.images.size <= maxImages && this.bytes <= maxBytes)
                     break;
                 this.images.delete(key);
-                this.bytes -= entry.blob.size;
+                this.bytes -= entry.size;
             }
         }
-        return image;
+        return blob;
     }
 }

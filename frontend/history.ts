@@ -1,5 +1,4 @@
 import { actionLabel } from "./action.js";
-import type { CaptureImage } from "./image-cache.js";
 import type { NumberField } from "./number-field.js";
 import { historyStrings } from "./translations.js";
 
@@ -8,9 +7,9 @@ export type HistorySettingsValue = { mode: "all" | "changes" | "off"; limit: num
 
 type Context = { locale: { language: string }; config?: { time_zone: string } };
 type HistoryOptions<T extends Capture> = {
-  image: (id: string, signal: AbortSignal, thumbnail: boolean) => Promise<CaptureImage>;
+  image: (id: string, signal: AbortSignal, thumbnail: boolean) => Promise<Blob>;
   summary: (item: T) => { text: string; color?: string; uncertain?: boolean };
-  details: (item: T, content: HTMLElement, image: HTMLImageElement, headers: Headers, signal: AbortSignal) => void | Promise<void>;
+  details: (item: T, content: HTMLElement, image: HTMLImageElement, signal: AbortSignal) => void | Promise<void>;
 };
 
 const labelsFor = (language?: string) =>
@@ -240,7 +239,7 @@ export class CaptureHistory<T extends Capture> {
 
   private async thumbnail(target: HTMLElement, options: HistoryOptions<T>, signal: AbortSignal) {
     try {
-      const { blob } = await options.image(target.dataset.captureId!, signal, true);
+      const blob = await options.image(target.dataset.captureId!, signal, true);
       if (signal.aborted || !target.isConnected) return;
       const url = URL.createObjectURL(blob);
       this.urls.push(url);
@@ -259,7 +258,7 @@ export class CaptureHistory<T extends Capture> {
     const { signal } = controller;
     button.setAttribute("loading", "");
     try {
-      const { blob, headers } = await options.image(item.id, signal, false);
+      const blob = await options.image(item.id, signal, false);
       signal.throwIfAborted();
       const dialog = document.createElement("ha-dialog");
       dialog.setAttribute("header-title", this.labels.capture);
@@ -272,7 +271,7 @@ export class CaptureHistory<T extends Capture> {
       stamp.className = "history-detail-meta";
       stamp.textContent = metadata;
       content.append(image, stamp);
-      await options.details(item, content, image, headers, signal);
+      await options.details(item, content, image, signal);
       signal.throwIfAborted();
       const url = URL.createObjectURL(blob);
       image.src = url;

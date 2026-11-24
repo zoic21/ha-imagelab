@@ -795,15 +795,7 @@ export class ImageLabComparison extends HTMLElement {
     return table;
   }
 
-  private async fetchImage(
-    id: string,
-    signal: AbortSignal,
-    thumbnail = false,
-  ): Promise<Blob> {
-    return (await this.readImage(id, signal, thumbnail)).blob;
-  }
-
-  private readImage(id: string, signal: AbortSignal, thumbnail: boolean) {
+  private fetchImage(id: string, signal: AbortSignal, thumbnail = false) {
     const suffix = thumbnail ? "?thumbnail=1" : "";
     return this.images.get(this.client!, this.url("/image/" + id + suffix), signal);
   }
@@ -1207,9 +1199,9 @@ export class ImageLabComparison extends HTMLElement {
     if (!this.gallery || this.tab !== "history") return;
     this.history.localize(this.client);
     this.history.render(this.gallery.history, {
-      image: (id, signal, thumbnail) => this.readImage(id, signal, thumbnail),
+      image: (id, signal, thumbnail) => this.fetchImage(id, signal, thumbnail),
       summary: item => ({ text: item.state_id ? item.state : this.labels.unknown, uncertain: !item.state_id }),
-      details: (item, content, _image, _response, signal) => this.historyDetails(item, content, signal),
+      details: (item, content, _image, signal) => this.historyDetails(item, content, signal),
     });
   }
 

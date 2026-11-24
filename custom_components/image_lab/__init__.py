@@ -49,7 +49,6 @@ from .const import (
     CONF_SOURCE_TYPE,
     DEFAULT_PALETTE_SIZE,
     DOMAIN,
-    MAX_INTERVAL_MINUTES,
     PANEL_PATH,
     SERVICE_ANALYZE,
     SOURCE_ANALYSIS,
@@ -93,7 +92,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     websocket_api.async_register_command(hass, async_subscribe_captures)
-    websocket_api.async_register_command(hass, async_set_schedule)
     websocket_api.async_register_command(hass, async_set_publication)
     websocket_api.async_register_command(hass, async_test_source)
     websocket_api.async_register_command(hass, async_module_settings)
@@ -302,40 +300,6 @@ class AnalysisFlowView(ConfigManagerFlowIndexView):
         return {**context, "source": source}
 
 
-@websocket_api.websocket_command(
-    {
-        probatio.Required("type"): f"{DOMAIN}/set_schedule",
-        probatio.Required(CONF_PROFILE_ID): cv.string,
-        probatio.Required("interval_minutes"): probatio.All(
-            int, probatio.Range(min=0, max=MAX_INTERVAL_MINUTES)
-        ),
-    }
-)
-@websocket_api.require_admin
-@websocket_api.async_response
-async def async_set_schedule(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Save the camera interval independently of result publication."""
-    entry = hass.config_entries.async_get_entry(msg[CONF_PROFILE_ID])
-    if (
-        not entry
-        or entry.domain != DOMAIN
-        or entry.data.get(CONF_SOURCE_TYPE) != SourceType.CAMERA
-    ):
-        connection.send_error(msg["id"], "profile_not_found", "Camera analysis not found")
-        return
-    minutes = msg["interval_minutes"]
-    changed = hass.config_entries.async_update_entry(
-        entry, options={**entry.options, "interval_minutes": minutes},
-        pref_disable_polling=False if minutes else entry.pref_disable_polling,
-    )
-    if changed and not await hass.config_entries.async_reload(entry.entry_id):
-        connection.send_error(msg["id"], "profile_unavailable", "Could not reload analysis")
-        return
-    connection.send_result(msg["id"])
-
-
 @websocket_api.websocket_command({
     probatio.Required("type"): f"{DOMAIN}/test_source",
     probatio.Required(CONF_PROFILE_ID): cv.string,
@@ -426,30 +390,24 @@ class ImageLabPreviewView(HomeAssistantView):
     async def post(
         self, request: web.Request, profile_id: str, item: str | None = None
     ) -> web.Response:
-        """Record a manual analysis and publish its result entity."""
+        """Save history settings for a non-comparison profile."""
         entry = self._entry(request, profile_id)
-        if item == "history_settings" and entry.data[CONF_MODULE] != "comparison":
-            try:
-                settings = HISTORY_SETTINGS(await request.json())
-                if settings["mode"] == "changes":
-                    raise probatio.Invalid("Change detection is only available for comparisons")
-            except (ValueError, probatio.Invalid):
-                raise web.HTTPBadRequest from None
-            store = get_result_store(request.app[KEY_HASS], profile_id)
-            try:
-                await store.async_set_history_settings(settings)
-            except (ImageError, OSError, WriteError):
-                return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
-            return self.json(settings, headers=self.headers)
-        if item is not None:
+        if item is None:
+            raise web.HTTPMethodNotAllowed("POST", ["GET"])
+        if item != "history_settings" or entry.data[CONF_MODULE] == "comparison":
             raise web.HTTPNotFound
-        if entry.state is not ConfigEntryState.LOADED or entry.runtime_data is None:
-            return self.json({"reason": "profile_unavailable"}, status_code=422, headers=self.headers)
-        result, observation = await entry.runtime_data.async_run_manual()
-        if result.frame is None or observation is None:
-            reason = "storage_error" if result.frame is not None else result.response["reason"]
-            return self.json({"reason": reason}, status_code=422, headers=self.headers)
-        return self._image_response(observation, result.frame)
+        try:
+            settings = HISTORY_SETTINGS(await request.json())
+        except (ValueError, probatio.Invalid):
+            raise web.HTTPBadRequest from None
+        if settings["mode"] == "changes":
+            raise web.HTTPBadRequest
+        store = get_result_store(request.app[KEY_HASS], profile_id)
+        try:
+            await store.async_set_history_settings(settings)
+        except (ImageError, OSError, WriteError):
+            return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
+        return self.json(settings, headers=self.headers)
 
     def _image_response(self, observation: Observation, frame: ImageFrame) -> web.Response:
         result = observation["response"]

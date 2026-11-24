@@ -7,9 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from aiohttp.test_utils import make_mocked_request
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 from homeassistant.components.http import KEY_HASS, KEY_HASS_USER
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.http import KEY_AUTHENTICATED
 
 from custom_components.image_lab import ImageLabPreviewView, async_test_source
 from custom_components.image_lab import analysis, config_flow, object_detection, output
@@ -174,6 +177,37 @@ def test_test_source_publishes_the_first_capture_over_websocket(monkeypatch):
         connection.send_result.assert_called_once_with(1, {
             **response, "image_id": "capture", "time": "now", "manual": True,
         })
+
+    asyncio.run(run())
+
+
+def test_preview_post_only_updates_history_settings(tmp_path):
+    async def run():
+        entry = loaded_entry("palette")
+        entry.runtime_data = AsyncMock()
+        hass = HomeAssistant(str(tmp_path))
+        hass.config_entries = SimpleNamespace(async_get_entry=lambda _: entry)
+
+        @web.middleware
+        async def admin(request, handler):
+            request[KEY_AUTHENTICATED] = True
+            request[KEY_HASS_USER] = SimpleNamespace(is_admin=True)
+            return await handler(request)
+
+        app = web.Application(middlewares=[admin])
+        app[KEY_HASS] = hass
+        ImageLabPreviewView().register(hass, app, app.router)
+        async with TestClient(TestServer(app)) as client:
+            path = f"/api/image_lab/preview/{entry.entry_id}"
+            retired = await client.post(path)
+            assert retired.status == 405
+            assert retired.headers["Allow"] == "GET"
+            assert (await client.get(path)).status == 204
+            settings = {"mode": "all", "limit": 3}
+            saved = await client.post(f"{path}/history_settings", json=settings)
+            assert saved.status == 200
+            assert await (await client.get(f"{path}/history_settings")).json() == settings
+            entry.runtime_data.async_run_manual.assert_not_awaited()
 
     asyncio.run(run())
 

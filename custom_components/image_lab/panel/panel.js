@@ -868,6 +868,8 @@ class ImageLabPanel extends HTMLElement {
         }
     }
     paletteSwatches(colors) {
+        if (!colors?.length)
+            throw new Error("Missing palette");
         return colors.map((rgb) => {
             const row = document.createElement("li");
             const swatch = document.createElement("div");
@@ -880,10 +882,8 @@ class ImageLabPanel extends HTMLElement {
             return row;
         });
     }
-    async showObjects(detection, headers, stage, overlay, results, hass, signal) {
-        const { objects, truncated } = detection;
-        const width = Number(headers.get("X-Image-Lab-Width"));
-        const height = Number(headers.get("X-Image-Lab-Height"));
+    async showObjects(metadata, stage, overlay, results, hass, signal) {
+        const { width, height, data: { objects, truncated } } = metadata;
         if (!Array.isArray(objects) || width <= 0 || height <= 0)
             throw new Error("Missing detection result");
         const language = hass.locale.language;
@@ -921,14 +921,14 @@ class ImageLabPanel extends HTMLElement {
         const summary = this.objectSummary(objects.length);
         return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
     }
-    async readDetection(hass, path, imageId, signal) {
-        if (!imageId)
-            throw new Error("Missing detection image ID");
+    async readMetadata(hass, path, imageId, signal) {
         const response = await hass.fetchWithAuth(`${path}/${encodeURIComponent(imageId)}?metadata=1`, { signal });
         if (!response.ok)
-            throw new Error("Missing detection result");
-        const { data } = await response.json();
-        return data;
+            throw new Error("Missing capture metadata");
+        const metadata = await response.json();
+        if (metadata.image_id !== imageId)
+            throw new Error("Unexpected capture ID");
+        return metadata;
     }
     objectSummary(count) {
         return count === 0 ? this.strings.noObjects :
@@ -984,18 +984,21 @@ class ImageLabPanel extends HTMLElement {
                         `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
                     color: item.dominant_hex ?? undefined,
                 }),
-                details: async (item, content, image, headers, detailSignal) => {
-                    if (profile.module === "palette") {
-                        const colors = this.readPalette(headers);
+                details: async (item, content, image, detailSignal) => {
+                    const metadata = item.meter
+                        ? { module: "meter", data: item.meter, reason: item.reason }
+                        : await this.readMetadata(hass, path, item.id, detailSignal);
+                    detailSignal.throwIfAborted();
+                    if (metadata.module === "palette") {
                         const list = document.createElement("ul");
                         list.className = "swatches";
-                        list.append(...this.paletteSwatches(colors));
+                        list.append(...this.paletteSwatches(metadata.data.palette_rgb));
                         content.append(list);
                     }
-                    else if (profile.module === "meter") {
+                    else if (metadata.module === "meter") {
                         const status = document.createElement("p");
                         status.className = "meter-status";
-                        status.textContent = meterText(this.readMeter(headers), hass.locale.language);
+                        status.textContent = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
                         content.append(status);
                     }
                     else {
@@ -1008,8 +1011,7 @@ class ImageLabPanel extends HTMLElement {
                         stage.append(image, overlay);
                         const results = document.createElement("ul");
                         results.className = "object-list";
-                        const detection = await this.readDetection(hass, path, item.id, detailSignal);
-                        const summary = await this.showObjects(detection, headers, stage, overlay, results, hass, detailSignal);
+                        const summary = await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
                         const status = document.createElement("p");
                         status.textContent = summary;
                         content.append(status, results);
@@ -1023,18 +1025,6 @@ class ImageLabPanel extends HTMLElement {
                 this.captureHistory.failed();
             }
         }
-    }
-    readMeter(headers) {
-        const data = headers.get("X-Image-Lab-Meter");
-        if (!data)
-            throw new Error("Missing meter result");
-        return JSON.parse(data);
-    }
-    readPalette(headers) {
-        const colors = JSON.parse(headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
-        if (!colors?.length)
-            throw new Error("Missing palette");
-        return colors;
     }
     async loadPreview(manual = false) {
         const profile = this.selected;
@@ -1055,7 +1045,7 @@ class ImageLabPanel extends HTMLElement {
                 type: "image_lab/test_source", profile_id: profile.profile_id,
             }) : undefined;
             controller.signal.throwIfAborted();
-            if (result && !result.image_id)
+            if (result?.image_id === null)
                 throw new Error(result.reason);
             const path = this.previewPath(profile);
             const response = await hass.fetchWithAuth(result?.image_id ? `${path}/${encodeURIComponent(result.image_id)}` : path, {
@@ -1078,22 +1068,25 @@ class ImageLabPanel extends HTMLElement {
                 throw new Error("Preview response was not an image");
             }
             const etag = response.headers.get("ETag");
-            const [blob, detection] = await Promise.all([
+            const imageId = etag?.slice(1, -1);
+            if (!imageId || (result && result.image_id !== imageId))
+                throw new Error("Unexpected capture ID");
+            const [blob, metadata] = await Promise.all([
                 response.blob(),
-                isDetection ? result?.data ?? this.readDetection(hass, path, etag?.slice(1, -1) ?? "", controller.signal) : undefined,
+                result ?? this.readMetadata(hass, path, imageId, controller.signal),
             ]);
             controller.signal.throwIfAborted();
-            const width = response.headers.get("X-Image-Lab-Width");
-            const height = response.headers.get("X-Image-Lab-Height");
-            if (detection) {
-                summary = await this.showObjects(detection, response.headers, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
+            if (metadata.module !== profile.module)
+                throw new Error("Unexpected capture module");
+            if (metadata.module === "object_detection") {
+                summary = await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
                 controller.signal.throwIfAborted();
             }
-            else if (profile.module === "meter") {
-                summary = meterText(this.readMeter(response.headers), hass.locale.language);
+            else if (metadata.module === "meter") {
+                summary = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
             }
             else {
-                this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response.headers)));
+                this.element("swatches").replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
                 this.element("palette").hidden = false;
                 summary = this.strings.paletteReady;
             }
@@ -1105,12 +1098,10 @@ class ImageLabPanel extends HTMLElement {
             image.src = this.previewUrl;
             image.alt = this.strings.preview;
             const format = blob.type.split("/")[1]?.toUpperCase();
-            const time = response.headers.get("X-Image-Lab-Time");
-            const details = `${width} × ${height} px · ${format}`;
-            this.element("dimensions").textContent = time ?
-                this.observationLabel(time, response.headers.get("X-Image-Lab-Manual") === "1") + " · " + details : details;
+            const details = `${metadata.width} × ${metadata.height} px · ${format}`;
+            this.element("dimensions").textContent = this.observationLabel(metadata.time, metadata.manual) + " · " + details;
             this.element("preview").hidden = false;
-            if (response.headers.get("X-Image-Lab-Confirmation") === "disagreed") {
+            if (metadata.confirmation === "disagreed") {
                 summary += " · " + this.strings.notConfirmed;
             }
         }

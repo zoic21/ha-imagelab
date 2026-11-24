@@ -1,6 +1,5 @@
 """Image Lab integration for Home Assistant."""
 
-from json import dumps
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -55,14 +54,14 @@ from .const import (
     SOURCE_RENAME,
     SourceType,
 )
-from .images import ImageError, ImageFrame, async_get_frame, get_image_storage
-from .meter import METER, METER_SEED
+from .images import ImageError, async_get_frame, get_image_storage
+from .meter import METER_SEED
 from .meter_api import MeterView
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
 from .publication import async_set_publication, publication_settings
 from .result_store import (
-    SIGNAL_CAPTURE_SAVED, Observation, async_remove_results, get_result_store,
+    SIGNAL_CAPTURE_SAVED, async_remove_results, get_result_store,
     observation_response,
 )
 
@@ -362,7 +361,7 @@ class ImageLabPreviewView(HomeAssistantView):
             if item == "history_settings":
                 return self.json(await store.async_history_settings(), headers=self.headers)
             if request.query.get("metadata") == "1":
-                if item is None or entry.data[CONF_MODULE] != "object_detection":
+                if item is None:
                     raise web.HTTPNotFound
                 observation = await store.async_observation(item)
                 if observation is None:
@@ -383,9 +382,10 @@ class ImageLabPreviewView(HomeAssistantView):
                 raise web.HTTPNotFound
             return web.Response(status=204, headers=self.headers)
         observation, frame = saved
-        if thumbnail:
-            return web.Response(body=frame.content, content_type=frame.content_type, headers=self.headers)
-        return self._image_response(observation, frame)
+        return web.Response(
+            body=frame.content, content_type=frame.content_type,
+            headers=self.headers if thumbnail else {**self.headers, "ETag": f'"{observation["id"]}"'},
+        )
 
     async def post(
         self, request: web.Request, profile_id: str, item: str | None = None
@@ -408,35 +408,6 @@ class ImageLabPreviewView(HomeAssistantView):
         except (ImageError, OSError, WriteError):
             return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
         return self.json(settings, headers=self.headers)
-
-    def _image_response(self, observation: Observation, frame: ImageFrame) -> web.Response:
-        result = observation["response"]
-        headers = self.headers.copy()
-        headers.update(
-            {
-                "ETag": f'"{observation["id"]}"',
-                "X-Image-Lab-Width": str(frame.width),
-                "X-Image-Lab-Height": str(frame.height),
-                "X-Image-Lab-Time": observation["time"],
-                "X-Image-Lab-Manual": "1" if observation["manual"] else "0",
-            }
-        )
-        if result.get("confirmation") == "disagreed":
-            headers["X-Image-Lab-Confirmation"] = "disagreed"
-        if result.get(CONF_MODULE) == METER:
-            headers["X-Image-Lab-Meter"] = dumps(
-                {**result["data"], "reason": result.get("reason")}, separators=(",", ":")
-            )
-        elif result.get(CONF_MODULE) == "palette":
-            # Send the small palette alongside the exact image used for the analysis.
-            headers["X-Image-Lab-Palette-Rgb"] = dumps(
-                result["data"]["palette_rgb"], separators=(",", ":")
-            )
-        return web.Response(
-            body=frame.content,
-            content_type=frame.content_type,
-            headers=headers,
-        )
 
 
 class CameraZoneView(HomeAssistantView):

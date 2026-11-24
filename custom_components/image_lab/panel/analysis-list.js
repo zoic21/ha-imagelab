@@ -225,9 +225,9 @@ export class AnalysisList {
         if (signal.aborted || revision !== this.revision(id))
             return;
         this.clearImage(thumbnail);
-        if (!result?.blob.size)
+        if (!result?.size)
             return;
-        thumbnail.url = URL.createObjectURL(result.blob);
+        thumbnail.url = URL.createObjectURL(result);
         image.src = thumbnail.url;
     }
 }

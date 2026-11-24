@@ -244,8 +244,8 @@ export class AnalysisList {
     const result = await this.images.get(client, path, signal).catch(() => undefined);
     if (signal.aborted || revision !== this.revision(id)) return;
     this.clearImage(thumbnail);
-    if (!result?.blob.size) return;
-    thumbnail.url = URL.createObjectURL(result.blob);
+    if (!result?.size) return;
+    thumbnail.url = URL.createObjectURL(result);
     image.src = thumbnail.url;
   }
 }

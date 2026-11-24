@@ -164,6 +164,7 @@ def test_test_source_publishes_the_first_capture_over_websocket(monkeypatch):
         coordinator._confirmed = coordinator._retained = {"status": "ok", "data": {"state_id": "closed"}}
         coordinator._save_observation = AsyncMock(return_value={
             "id": "capture", "time": "now", "manual": True, "response": response,
+            "width": frame.width, "height": frame.height,
         })
         coordinator.async_set_updated_data = Mock(side_effect=lambda data: setattr(coordinator, "data", data))
         entry.runtime_data = coordinator
@@ -176,6 +177,7 @@ def test_test_source_publishes_the_first_capture_over_websocket(monkeypatch):
         assert coordinator.entity_response == coordinator._confirmed == response
         connection.send_result.assert_called_once_with(1, {
             **response, "image_id": "capture", "time": "now", "manual": True,
+            "width": frame.width, "height": frame.height,
         })
 
     asyncio.run(run())
@@ -212,9 +214,17 @@ def test_preview_post_only_updates_history_settings(tmp_path):
     asyncio.run(run())
 
 
-def test_large_detection_metadata_is_json_for_exact_image(tmp_path):
+@pytest.mark.parametrize(("module", "data", "latest_data"), [
+    ("object_detection", {"objects": [{
+        "label": "person", "confidence": 0.9876,
+        "box": {"x_min": 0.0123, "y_min": 0.2345, "x_max": 0.6789, "y_max": 0.9876},
+    }] * 100, "truncated": True}, {"objects": [], "truncated": False}),
+    ("palette", {"palette_rgb": [[80, 20, 10], [0, 64, 255]]}, {"palette_rgb": [[0, 0, 0]]}),
+    ("meter", {"value": 0, "unit": "m³"}, {"candidate": 103, "meter_value": 0, "unit": "m³"}),
+])
+def test_preview_metadata_is_json_for_exact_image(tmp_path, module, data, latest_data):
     async def run():
-        entry = loaded_entry("object_detection")
+        entry = loaded_entry(module)
 
         async def executor(job, *args):
             return job(*args)
@@ -226,28 +236,34 @@ def test_large_detection_metadata_is_json_for_exact_image(tmp_path):
         view = ImageLabPreviewView()
         store = get_result_store(hass, entry.entry_id)
         frame = ImageFrame(b"original image bytes", "image/jpeg", 640, 480)
-        objects = [{
-            "label": "person", "confidence": 0.9876,
-            "box": {"x_min": 0.0123, "y_min": 0.2345, "x_max": 0.6789, "y_max": 0.9876},
-        }] * 100
-        detection = {"status": "ok", "module": "object_detection", "data": {"objects": objects, "truncated": True}}
-        observation = store._record(frame, detection, manual=True)
+        response = {"status": "ok", "module": module, "data": data}
+        observation = store._record(frame, response, manual=True)
         store._set_history_settings(store.load(), {"mode": "off", "limit": 1})
-        latest = store._record(frame, {**detection, "data": {"objects": [], "truncated": False}}, manual=False)
+        latest_response = {**response, "data": latest_data}
+        if module == "meter":
+            latest_response.update(status="unknown", reason="meter_too_fast")
+        else:
+            latest_response["confirmation"] = "disagreed"
+        latest = store._record(frame, latest_response, manual=False)
 
         def request(suffix=""):
             req = make_mocked_request("GET", "/preview/profile" + suffix, app={KEY_HASS: hass})
             req[KEY_HASS_USER] = SimpleNamespace(is_admin=True)
             return req
 
-        image = await view.get(request(), entry.entry_id, observation["id"])
-        assert image.body == frame.content
-        assert len(str(image.headers).encode()) < 1024
-        for item in (observation, latest):
+        for item, image_path in ((observation, observation["id"]), (latest, None)):
+            image = await view.get(request(), entry.entry_id, image_path)
+            assert image.body == frame.content
+            assert image.headers["ETag"] == f'"{item["id"]}"'
+            assert not any(key.lower().startswith("x-image-lab-") for key in image.headers)
             metadata = await view.get(request(f"/{item['id']}?metadata=1"), entry.entry_id, item["id"])
-            body = json.loads(metadata.body)
-            assert body["image_id"] == item["id"]
-            assert body["data"] == item["response"]["data"]
+            assert metadata.content_type == "application/json"
+            assert json.loads(metadata.body) == {
+                **item["response"], "image_id": item["id"], "time": item["time"],
+                "manual": item["manual"], "width": frame.width, "height": frame.height,
+            }
+        with pytest.raises(web.HTTPNotFound):
+            await view.get(request("/missing?metadata=1"), entry.entry_id, "missing")
 
     asyncio.run(run())
 

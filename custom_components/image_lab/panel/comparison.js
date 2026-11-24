@@ -38,13 +38,6 @@ template.innerHTML = `
     #thresholdFields ha-input { --ha-input-padding-bottom:0; }
     #thresholdsHint, #dirty { font-size:var(--ha-font-size-s, 12px); }
     #settings:has(#save:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
-    #save {
-      position:fixed; z-index:3;
-      inset-inline-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
-      bottom:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px) + var(--save-tab-offset, 0px));
-      --ha-button-box-shadow:var(--ha-box-shadow-l);
-    }
-    :host([narrow]) #save { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -230,11 +223,11 @@ template.innerHTML = `
       <ha-select id="engine"></ha-select>
       <p id="thresholdsHint" class="secondary"></p>
       <div id="thresholdFields" class="fields"></div>
-      <section id="historySettings">${historySettingsMarkup(false)}</section>
+      <section id="historySettings">${historySettingsMarkup}</section>
       <slot name="profile-settings"></slot>
     </div>
     <p id="dirty" class="secondary" role="status" hidden></p>
-    <ha-button id="save" variant="brand" size="l" hidden></ha-button>
+    <ha-button id="save" class="settingsSave" variant="brand" size="l" hidden></ha-button>
   </section>
   <ha-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">

@@ -1,5 +1,12 @@
 export const profileTabsStyles = `
   :host { --image-lab-tab-height: var(--header-height, 56px); }
+  .settingsSave {
+    position:fixed; z-index:3;
+    inset-inline-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
+    bottom:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px) + var(--save-tab-offset, 0px));
+    --ha-button-box-shadow:var(--ha-box-shadow-l);
+  }
+  :host([narrow]) .settingsSave { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
   .profileTabIcon { display: none; }
   :host([narrow]) .profileTabs {
     position: fixed; z-index: 2; box-sizing: border-box;

@@ -128,7 +128,8 @@ template.innerHTML = `
     ${historyStyles}
     ${meterStyles}
     #profileHistorySettings { margin-top: var(--ha-space-3, 12px); }
-    .moduleSettingsSave, #zone, #meterSettings { margin-top: 12px; }
+    #settingsPane:has(.settingsSave:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
+    #zone, #meterSettings { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
@@ -259,6 +260,8 @@ template.innerHTML = `
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <ha-button id="settingsSave" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+            <p id="settingsStatus" class="secondary" role="status" hidden></p>
             <section aria-labelledby="analysisSettingsTitle">
               <h3 id="analysisSettingsTitle" class="settingsTitle"></h3>
               <div id="moduleSettings"></div>
@@ -266,7 +269,7 @@ template.innerHTML = `
               <ha-button id="meterSettings" appearance="plain" hidden></ha-button>
               <p class="secondary" id="meterSettingsStatus" role="status" hidden></p>
             </section>
-            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup()}</section>
+            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
@@ -319,6 +322,8 @@ class ImageLabPanel extends HTMLElement {
   private previewETag?: string;
   private optionsScope?: AbortController;
   private moduleSettingsScope?: AbortController;
+  private moduleSettings?: ReturnType<typeof editModuleSettings>;
+  private savingSettings = false;
   private zoneScope?: AbortController;
   private strings = strings.en;
   private readonly images = new ImageCache();
@@ -334,22 +339,21 @@ class ImageLabPanel extends HTMLElement {
     this.sourceThumbnail = new SourceThumbnail(this.element("sourceImage"), this.images);
     this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
     this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
-    this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
-      const profile = this.selected;
-      if (!profile || !this._hass) return;
-      const response = await this._hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value), signal,
-      });
-      if (!response.ok) throw new Error();
-    });
+    const historyFields = this.element("profileHistorySettings");
+    this.historySettings = new HistorySettings(historyFields, false);
+    historyFields.addEventListener("selected", () => this.refreshSettingsSave());
+    historyFields.addEventListener("input", () => this.refreshSettingsSave());
+    this.element("settingsSave").addEventListener("click", () => void this.saveSettings());
     this.comparison = new ImageLabComparison(this.images, {
       draft: profile => this.publication.draft(profile),
       save: (profile, changes) => this.savePublication(profile, changes),
       setStates: states => this.publication.setStates(states),
     });
     this.publication = new PublicationSettings(
-      this.element("publication"), () => this.comparison.refreshSettings(),
-      (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences(),
+      this.element("publication"), () => {
+        if (this.selected?.module === "comparison") this.comparison.refreshSettings();
+        else this.refreshSettingsSave();
+      }, () => this.comparison.openReferences(),
     );
     this.element("comparisonSlot").append(this.comparison);
     this.comparison.addEventListener("analysis-tab-changed", () => {
@@ -522,6 +526,11 @@ class ImageLabPanel extends HTMLElement {
   private closeModuleSettings() {
     this.moduleSettingsScope?.abort();
     this.moduleSettingsScope = undefined;
+    this.moduleSettings = undefined;
+    this.savingSettings = false;
+    this.element("settingsPane").inert = false;
+    this.element("settingsStatus").hidden = true;
+    this.element("settingsSave").hidden = true;
   }
 
   private showModuleSettings() {
@@ -532,7 +541,8 @@ class ImageLabPanel extends HTMLElement {
     const moduleSettings = this.element("moduleSettings");
     moduleSettings.hidden = profile.module === "meter";
     if (profile.module !== "meter")
-      editModuleSettings(moduleSettings, hass, profile.profile_id, this.strings, this.moduleSettingsScope.signal);
+      this.moduleSettings = editModuleSettings(moduleSettings, hass, profile.profile_id, this.strings,
+        this.moduleSettingsScope.signal, () => this.refreshSettingsSave());
     void this.loadHistorySettings(profile, hass, this.moduleSettingsScope.signal);
   }
 
@@ -735,6 +745,7 @@ class ImageLabPanel extends HTMLElement {
       add: [labels.add, "plus"],
       retry: [labels.retry, "refresh"],
       test: [labels.test, "play-outline"],
+      settingsSave: [labels.save, "content-save-outline"],
       zone: [labels.zone, "crop"],
       meterSettings: [this.meterLabels.configure, "gauge"],
     };
@@ -840,6 +851,71 @@ class ImageLabPanel extends HTMLElement {
         picture = url.href;
       }
       void this.sourceThumbnail.show(picture);
+    }
+  }
+
+  private refreshSettingsSave() {
+    const profile = this.selected;
+    const button = this.element("settingsSave");
+    if (!profile || profile.module === "comparison") {
+      button.hidden = true;
+      return;
+    }
+    let changed = Boolean(this.moduleSettings?.changed || this.historySettings.changed);
+    let invalid = this.historySettings.changed && !this.historySettings.draft;
+    try {
+      if (this.publication.draft(profile.profile_id)) changed = true;
+    } catch (error) {
+      this.publication.showError(error);
+      changed = invalid = true;
+    }
+    button.hidden = !changed && !this.savingSettings;
+    button.toggleAttribute("disabled", invalid || this.savingSettings);
+    button.toggleAttribute("loading", this.savingSettings);
+    if (changed) this.element("settingsStatus").hidden = true;
+  }
+
+  private async saveSettings() {
+    const profile = this.selected;
+    const signal = this.moduleSettingsScope?.signal;
+    const hass = this._hass;
+    if (!profile || !hass || !signal || this.savingSettings) return;
+    const pane = this.element("settingsPane");
+    this.savingSettings = pane.inert = true;
+    this.refreshSettingsSave();
+    try {
+      const publication = this.publication.draft(profile.profile_id);
+      const history = this.historySettings.draft;
+      if (this.historySettings.changed && !history) return;
+      if (this.moduleSettings?.changed && !await this.moduleSettings.save()) return;
+      signal.throwIfAborted();
+      if (this.historySettings.changed && history) {
+        try {
+          const response = await hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(history), signal,
+          });
+          if (!response.ok) throw new Error();
+          const stored: HistorySettingsValue = await response.json();
+          signal.throwIfAborted();
+          this.historySettings.setValue(stored);
+        } catch {
+          if (!signal.aborted) this.historySettings.failed();
+          return;
+        }
+      }
+      if (publication) await this.savePublication(profile.profile_id, publication);
+      if (!signal.aborted) {
+        const status = this.element("settingsStatus");
+        status.textContent = this.strings.settingsSaved;
+        status.hidden = false;
+      }
+    } catch (error) {
+      if (!signal.aborted) this.publication.showError(error);
+    } finally {
+      if (!signal.aborted) {
+        this.savingSettings = pane.inert = false;
+        this.refreshSettingsSave();
+      }
     }
   }
 
@@ -987,6 +1063,7 @@ class ImageLabPanel extends HTMLElement {
       const settings: HistorySettingsValue = await response.json();
       signal.throwIfAborted();
       this.historySettings.setValue(settings);
+      this.refreshSettingsSave();
     } catch {
       if (!signal.aborted) this.historySettings.failed();
     }

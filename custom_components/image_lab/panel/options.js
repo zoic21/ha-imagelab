@@ -95,15 +95,14 @@ export function editModuleSettings(host, hass, entry, labels, signal) {
 }
 // Reuse Home Assistant's flow schemas and native selectors without leaving the panel.
 export async function runProfileFlow(host, hass, mode, entry, labels, signal, onCreated) {
-    const isOptions = mode === "options";
-    const category = isOptions ? "options" : "config";
-    const path = `config/config_entries/${isOptions ? "options/" : ""}flow`;
+    const category = "config";
+    const path = "config/config_entries/flow";
     const startPath = mode === "create" || mode === "rename" ? "image_lab/analysis_flow" : path;
-    const start = isOptions ? { handler: entry } : { handler: "image_lab", ...(entry && { entry_id: entry }) };
+    const start = { handler: "image_lab", ...(entry && { entry_id: entry }) };
     const successReason = mode === "configure" ? "reconfigure_successful" :
         mode === "rename" ? "rename_successful" : undefined;
     const dialog = document.createElement("ha-dialog");
-    const title = { create: labels.add, configure: labels.editSource, rename: labels.rename, options: labels.settings }[mode];
+    const title = { create: labels.add, configure: labels.editSource, rename: labels.rename }[mode];
     dialog.setAttribute("header-title", title);
     dialog.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
     <ha-form hidden></ha-form>
@@ -183,7 +182,7 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, on
                 error.textContent = translate(category + ".error." + next.errors.base) || next.errors.base;
                 error.hidden = false;
             }
-            const last = next.last_step || isOptions;
+            const last = next.last_step;
             actionLabel(submit, last ? labels.save : labels.next, last ? "content-save-outline" : "arrow-right");
         }
         catch {

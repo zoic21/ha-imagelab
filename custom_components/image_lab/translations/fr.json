@@ -214,36 +214,8 @@
     }
   },
   "options": {
-    "step": {
-      "init": {
-        "title": "Entité de résultat",
-        "data": {
-          "output": "Entité de résultat",
-          "confirmation_seconds": "Délai de confirmation d’un changement"
-        },
-        "data_description": {
-          "confirmation_seconds": "De 1 à 60 secondes avant une seconde capture. Le changement est publié si les deux résultats concordent. 0 désactive la confirmation."
-        }
-      },
-      "mapping": {
-        "title": "Associer les états reconnus",
-        "description": "Les autres états et les images ambiguës donnent un résultat inconnu.",
-        "data": {
-          "binary_class": "Classe du capteur binaire",
-          "on_state": "État correspondant à « activé »",
-          "off_state": "État correspondant à « désactivé »"
-        }
-      }
-    },
-    "error": {
-      "different_states": "Choisissez deux états différents.",
-      "state_removed": "Un état a été supprimé. Vérifiez les associations.",
-      "invalid_delay": "Saisissez un nombre entier de secondes entre 0 et 60."
-    },
     "abort": {
-      "need_two_states": "Créez au moins deux états dans Image Lab → Références, puis configurez à nouveau l’entité.",
-      "gallery_unavailable": "Impossible de lire la galerie de comparaison.",
-      "open_panel": "Ouvrez [Image Lab](/image-lab) pour configurer vos analyses."
+      "open_panel": "Ouvrez [Image Lab](/image-lab), puis Réglages → Publication."
     }
   }
 }

@@ -42,7 +42,7 @@ template.innerHTML = `
     }
     #analysisList { padding-bottom: var(--ha-space-16, 64px); }
     ha-card { min-width: 0; }
-    .content { padding: 16px; }
+    .content { --result-inset: 16px; padding: var(--result-inset); }
     ul { list-style: none; margin: 0; padding: 0; }
     .analysisControls {
       display: flex;
@@ -93,7 +93,14 @@ template.innerHTML = `
     #profileId { display: block; color: var(--secondary-text-color); }
     #copyStatus { margin-top: 0; }
 
-    figure { margin: 16px 0 0; }
+    #profile > #resultPane { padding-block-start: var(--ha-space-2, 8px); }
+    #preview {
+      margin: var(--ha-space-3, 12px) calc(-1 * var(--result-inset)) 0;
+      background: var(--secondary-background-color);
+    }
+    #imageStage { --preview-height: 72dvh; }
+    #imageStage, #image { border-radius: 0; }
+    #meterReading:not([hidden]) { margin-block-start: var(--ha-space-3, 12px); }
     .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
     .image-stage.with-objects {
       width: min(100%, calc(var(--preview-height) * var(--image-aspect)));
@@ -120,7 +127,13 @@ template.innerHTML = `
     }
     ${resultStyles}
     ha-alert { margin-top: 8px; }
-    #palette { margin-top: 16px; }
+    #palette {
+      display: flex; flex-wrap: wrap; row-gap: 8px; column-gap: 0; margin-top: 12px;
+    }
+    #palette li { flex: 1 0 8ch; text-align: center; font-family: monospace; font-size: var(--ha-font-size-s, 12px); }
+    #palette .swatch { border: 0; border-radius: 0; height: 24px; }
+    #palette li:first-child .swatch { border-start-start-radius: 6px; border-end-start-radius: 6px; }
+    #palette li:last-child .swatch { border-start-end-radius: 6px; border-end-end-radius: 6px; }
     .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
     .swatches li { min-width: 0; margin: 0; }
     .history-detail .swatches { margin-top: 12px; }
@@ -174,13 +187,14 @@ template.innerHTML = `
               <p id="status" class="secondary"></p>
             </div>
             <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
-            <ul id="palette" class="swatches" hidden></ul>
             <figure id="preview" hidden>
               <div id="imageStage" class="image-stage">
                 <img id="image" />
                 <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
               </div>
             </figure>
+            <span id="meterReading" class="resultBadge" role="status" hidden></span>
+            <ul id="palette" class="swatches" hidden></ul>
             <ul id="objectList" class="object-list" hidden></ul>
           </section>
           <section id="historyPane" role="tabpanel" aria-labelledby="historyTab" hidden>
@@ -594,6 +608,7 @@ class ImageLabPanel extends HTMLElement {
     }
     clearPreview() {
         this.element("resultMeta").replaceChildren();
+        this.element("meterReading").hidden = true;
         this.element("palette").hidden = true;
         this.element("palette").replaceChildren();
         this.element("preview").hidden = true;
@@ -1168,7 +1183,7 @@ class ImageLabPanel extends HTMLElement {
             controller.signal.throwIfAborted();
             if (metadata.module !== profile.module)
                 throw new Error("Unexpected capture module");
-            const meta = [analysisTime(metadata.time, hass)];
+            const stamp = analysisTime(metadata.time, hass);
             let notice = "";
             if (metadata.module === "object_detection") {
                 await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
@@ -1179,11 +1194,10 @@ class ImageLabPanel extends HTMLElement {
                     notice = this.strings.objectLimit;
             }
             else if (metadata.module === "meter") {
-                if (!metadata.reason && metadata.data.value != null) {
-                    const badge = document.createElement("span");
-                    badge.className = "resultBadge";
+                const badge = this.element("meterReading");
+                badge.hidden = Boolean(metadata.reason) || metadata.data.value == null;
+                if (!badge.hidden) {
                     badge.textContent = meterText(metadata.data, hass.locale.language, true);
-                    meta.push(badge);
                 }
                 else {
                     notice = meterText({ ...metadata.data, reason: metadata.reason, confidence: null }, hass.locale.language)
@@ -1195,7 +1209,7 @@ class ImageLabPanel extends HTMLElement {
                 palette.replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
                 palette.hidden = false;
             }
-            this.element("resultMeta").replaceChildren(...meta);
+            this.element("resultMeta").replaceChildren(stamp);
             if (this.previewUrl)
                 URL.revokeObjectURL(this.previewUrl);
             this.previewETag = etag ?? undefined;

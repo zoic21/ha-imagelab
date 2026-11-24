@@ -358,6 +358,9 @@ export class ImageLabComparison extends HTMLElement {
         this.localize();
         this.refresh();
     }
+    get settingsOpen() {
+        return this.tab === "settings";
+    }
     configure(client, profile, sourceKey, available = false) {
         const sameProfile = profile === this.profile;
         const changed = !sameProfile ||

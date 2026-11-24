@@ -17,7 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.http import KEY_AUTHENTICATED
 from PIL import Image, JpegImagePlugin
 
-from custom_components.image_lab import ImageLabPreviewView
+from custom_components.image_lab import ImageLabPreviewView, ImportedThumbnailView
 from custom_components.image_lab import analysis, config_flow, object_detection, output
 from custom_components.image_lab.comparison_store import ComparisonStore
 from custom_components.image_lab.images import ImageError, ImageFrame, validate_image
@@ -398,6 +398,40 @@ def test_panel_websocket_registration_and_capture_subscription(tmp_path):
     asyncio.run(run())
 
 
+def test_source_thumbnail_reads_current_upload_before_any_analysis(tmp_path):
+    async def run():
+        key = "1234567890abcdef1234567890abcdef"
+        entry = loaded_entry("comparison")
+        entry.data.update(source_type="upload", image_key=key)
+        hass = SimpleNamespace(
+            config=SimpleNamespace(path=tmp_path.joinpath), data={}, async_add_executor_job=asyncio.to_thread,
+            config_entries=SimpleNamespace(async_get_entry=lambda _: entry),
+        )
+        request = make_mocked_request("GET", "/", app={KEY_HASS: hass})
+        request[KEY_HASS_USER] = SimpleNamespace(is_admin=True)
+        view = ImportedThumbnailView()
+        with pytest.raises(web.HTTPNotFound):
+            await view.get(request, entry.entry_id)
+
+        directory = tmp_path / ".storage" / "image_lab.images"
+        directory.mkdir(parents=True)
+        (directory / key).write_bytes(camera_jpeg())
+        first = await view.get(request, entry.entry_id)
+        assert first.content_type == "image/jpeg"
+        with Image.open(BytesIO(first.body)) as thumbnail:
+            assert thumbnail.size == (192, 144)
+
+        Image.new("RGB", (100, 200), "green").save(directory / key, format="PNG")
+        second = await view.get(request, entry.entry_id)
+        with Image.open(BytesIO(second.body)) as thumbnail:
+            assert thumbnail.size == (72, 144)
+        entry.data["source_type"] = "camera"
+        with pytest.raises(web.HTTPNotFound):
+            await view.get(request, entry.entry_id)
+
+    asyncio.run(run())
+
+
 def test_admin_views_check_permissions_and_profile_type():
     from custom_components.image_lab import CameraZoneView
     from custom_components.image_lab.comparison_api import ComparisonView
@@ -411,7 +445,7 @@ def test_admin_views_check_permissions_and_profile_type():
         request = make_mocked_request("GET", "/", app={KEY_HASS: hass})
         user = SimpleNamespace(is_admin=False)
         request[KEY_HASS_USER] = user
-        for view in (ImageLabPreviewView(), CameraZoneView(), MeterView(), ComparisonView()):
+        for view in (ImageLabPreviewView(), ImportedThumbnailView(), CameraZoneView(), MeterView(), ComparisonView()):
             with pytest.raises(web.HTTPForbidden):
                 await view.get(request, "profile")
         lookup.assert_not_called()

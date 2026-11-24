@@ -8,6 +8,7 @@ import { editMeter, meterStyles, meterText } from "./meter.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { PublicationSettings, publicationMarkup, publicationStyles } from "./publication.js";
+import { SourceThumbnail } from "./source-thumbnail.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
 const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
@@ -68,19 +69,20 @@ template.innerHTML = `
       gap: var(--ha-space-2, 8px);
     }
     .settingsInfo p { margin: 0; }
-    #editSource { display: block; width: 100%; --ha-button-height: auto; }
-    #editSource::part(base) { padding: 0; border-radius: var(--ha-border-radius-md, 8px); }
-    #editSource::part(label) { width: 100%; padding: 0; }
     .sourceRow {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
-      gap: var(--ha-space-2, 8px); padding: var(--ha-space-2, 8px); min-height: var(--ha-space-12, 48px);
-      box-sizing: border-box; border-radius: var(--ha-border-radius-md, 8px);
-      background: var(--secondary-background-color); color: var(--primary-text-color);
-      text-align: start; white-space: normal; overflow-wrap: anywhere;
+      gap: var(--ha-space-3, 12px); overflow-wrap: anywhere;
     }
-    .sourceRow ha-icon { --mdc-icon-size: 20px; }
-    .sourceRow ha-icon:last-child { color: var(--primary-color); }
-    #sourceKind { display: block; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-normal, 400); }
+    .sourcePreview {
+      display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center;
+      width: 84px; height: 56px; overflow: hidden;
+      border-radius: var(--ha-border-radius-md, 8px); background: var(--secondary-background-color);
+    }
+    #sourceImage { width: 100%; height: 100%; object-fit: cover; }
+    #sourceImage:not([hidden]) + ha-icon { display: none; }
+    #sourceKind { display: block; font-weight: var(--ha-font-weight-medium, 500); }
+    #sourceSummary { font-size: var(--ha-font-size-s, 12px); }
+    #editSource { color: var(--primary-color); }
     ${publicationStyles}
     #profileId { font-size: var(--ha-font-size-s, 12px); }
     #analysisId { padding-block-end: 0; }
@@ -195,13 +197,16 @@ template.innerHTML = `
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
-                <ha-button id="editSource" appearance="plain" variant="neutral">
-                  <span class="sourceRow">
+                <div class="sourceRow">
+                  <span class="sourcePreview" aria-hidden="true">
+                    <img id="sourceImage" alt="" referrerpolicy="no-referrer" hidden>
                     <ha-icon id="sourceIcon" class="secondary" aria-hidden="true"></ha-icon>
-                    <span><span id="sourceKind" class="secondary"></span><span id="sourceSummary"></span></span>
-                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
                   </span>
-                </ha-button>
+                  <span><span id="sourceKind"></span><span id="sourceSummary" class="secondary"></span></span>
+                  <ha-icon-button id="editSource">
+                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
+                  </ha-icon-button>
+                </div>
                 <p id="scheduleHint" class="secondary" hidden></p>
               </section>
               ${publicationMarkup}
@@ -243,6 +248,7 @@ class ImageLabPanel extends HTMLElement {
     zoneScope;
     strings = strings.en;
     images = new ImageCache();
+    sourceThumbnail;
     comparison;
     publication;
     analysisList;
@@ -250,6 +256,7 @@ class ImageLabPanel extends HTMLElement {
     constructor() {
         super();
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
+        this.sourceThumbnail = new SourceThumbnail(this.element("sourceImage"), this.images);
         this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
         this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
         this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
@@ -269,7 +276,10 @@ class ImageLabPanel extends HTMLElement {
         });
         this.publication = new PublicationSettings(this.element("publication"), () => this.comparison.refreshSettings(), (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences());
         this.element("comparisonSlot").append(this.comparison);
-        this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
+        this.comparison.addEventListener("analysis-tab-changed", () => {
+            this.resetMobileTabScroll();
+            this.updateSourceThumbnail();
+        });
         this.element("add").addEventListener("click", () => this.openFlow("create"));
         this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
         this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
@@ -330,11 +340,17 @@ class ImageLabPanel extends HTMLElement {
         const connectionChanged = previous?.connection !== hass.connection;
         if (connectionChanged) {
             this.analysisList.clear();
+            void this.sourceThumbnail.show();
             this.images.clear();
         }
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
         const languageChanged = this.strings !== language;
         this._hass = hass;
+        const profile = this.selected;
+        if (profile?.entity_id && previous?.states[profile.entity_id] !== hass.states[profile.entity_id]) {
+            this.renderSource(profile);
+            this.updateSourceThumbnail();
+        }
         const output = this.selected?.output_entity_id;
         if (output && previous?.states[output]?.attributes.friendly_name !== hass.states[output]?.attributes.friendly_name)
             this.publication.setEntity(output, hass.states[output]?.attributes.friendly_name);
@@ -394,6 +410,7 @@ class ImageLabPanel extends HTMLElement {
     }
     disconnectedCallback() {
         this.analysisList.clear();
+        void this.sourceThumbnail.show();
         this.images.clear();
         this.optionsScope?.abort();
         this.closeModuleSettings();
@@ -512,6 +529,7 @@ class ImageLabPanel extends HTMLElement {
         this.element("resultPane").hidden = tab !== "result";
         this.element("historyPane").hidden = tab !== "history";
         this.element("settingsPane").hidden = tab !== "settings";
+        this.updateSourceThumbnail();
         if (tab === "result" && refresh && returning && this.selected?.module !== "comparison")
             void this.loadPreview();
         if (tab === "settings")
@@ -548,13 +566,13 @@ class ImageLabPanel extends HTMLElement {
         this.previewETag = undefined;
         this.element("copyStatus").hidden = true;
     }
-    analysisTrigger(profile) {
+    analysisTrigger(profile, manual = this.strings.manualTrigger) {
         const labels = this.strings;
         if (profile.source_type === "media_player" && profile.output_entity_id)
             return labels.artworkTrigger;
         if (profile.source_type === "camera" && profile.interval_minutes)
             return labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes));
-        return labels.manualTrigger;
+        return manual;
     }
     renderAnalysisRows() {
         const labels = this.strings;
@@ -643,7 +661,7 @@ class ImageLabPanel extends HTMLElement {
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
-        this.element("editSource").title = labels.editSource;
+        this.element("editSource").setAttribute("label", labels.editSource);
         this.element("copy").setAttribute("label", labels.copy);
         this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
         const profile = this.selected;
@@ -685,6 +703,7 @@ class ImageLabPanel extends HTMLElement {
         this.element("resultPane").hidden = isComparison || tab !== "result";
         this.element("historyPane").hidden = isComparison || tab !== "history";
         this.element("settingsPane").hidden = isComparison || tab !== "settings";
+        this.updateSourceThumbnail();
         if (!isComparison && tab === "settings")
             this.showModuleSettings();
         if (!profile)
@@ -693,15 +712,7 @@ class ImageLabPanel extends HTMLElement {
         const schedule = this.element("scheduleHint");
         schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
         schedule.textContent = labels.frequencyMediaInactive;
-        const sourceName = profile.entity_id
-            ? this._hass?.states[profile.entity_id]?.attributes.friendly_name || profile.entity_id
-            : undefined;
-        const trigger = camera ? undefined : profile.output_entity_id && profile.source_type === "media_player"
-            ? labels.artworkTrigger : labels.onDemand;
-        this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[profile.source_type]}`);
-        this.element("sourceKind").textContent = camera ? labels.cameraLabel : labels[profile.source_type];
-        this.element("sourceSummary").textContent =
-            [sourceName ?? (profile.source_type !== "upload" ? labels.missingSource : undefined), trigger].filter(Boolean).join(" · ");
+        this.renderSource(profile);
         this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
         this.element("meterSettings").hidden = profile.module !== "meter";
         this.element("meterSettings").toggleAttribute("disabled", !profile.available);
@@ -715,6 +726,39 @@ class ImageLabPanel extends HTMLElement {
             title.focus({ preventScroll: true });
             if (!isComparison)
                 void this.loadPreview();
+        }
+    }
+    renderSource(profile) {
+        const labels = this.strings;
+        const kind = profile.source_type;
+        const entity = profile.entity_id;
+        const name = entity ? this._hass?.states[entity]?.attributes.friendly_name || entity : labels.missingSource;
+        this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[kind]}`);
+        this.element("sourceKind").textContent = kind === "camera" ? labels.cameraLabel : labels[kind];
+        this.element("sourceSummary").textContent = [
+            kind === "upload" ? undefined : name, this.analysisTrigger(profile, labels.onDemand),
+        ].filter(Boolean).join(" · ");
+    }
+    updateSourceThumbnail() {
+        const profile = this.selected;
+        const settingsOpen = profile?.module === "comparison" ? this.comparison.settingsOpen :
+            this.element("profileNav").getAttribute("active") === "settings";
+        if (!profile || !this._hass || !settingsOpen || !this.isConnected) {
+            void this.sourceThumbnail.show();
+        }
+        else if (profile.source_type === "upload") {
+            const path = `/api/image_lab/upload_thumbnail/${encodeURIComponent(profile.profile_id)}`;
+            void this.sourceThumbnail.show(`${path}?revision=${encodeURIComponent(profile.image_revision ?? "")}`, this._hass);
+        }
+        else {
+            let picture = profile.entity_id ? this._hass.states[profile.entity_id]?.attributes.entity_picture : undefined;
+            if (profile.source_type === "camera" && picture?.startsWith("/api/camera_proxy/")) {
+                const url = new URL(picture, location.origin);
+                url.searchParams.set("width", "240");
+                url.searchParams.set("height", "144");
+                picture = url.href;
+            }
+            void this.sourceThumbnail.show(picture);
         }
     }
     async savePublication(profileId, changes) {

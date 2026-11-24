@@ -15,7 +15,6 @@ from zipfile import ZipFile
 from aiohttp import ClientError, ClientTimeout
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.requirements import RequirementsNotFound, async_process_requirements
 from homeassistant.util.file import WriteError, write_utf8_file_atomic
 from PIL import Image, ImageOps
 
@@ -127,7 +126,6 @@ _MODEL_FILES = (
         "f7555ca6cb9650ee41e2f0a53fdf46b6e187a2a09792208d8c3eec033b6ac615",
     ),
 )
-_REQUIREMENT = "ncnn>=1.0.20261020"
 _SIZE = 416
 _STRIDES = (8, 16, 32, 64)
 _BINS = 8
@@ -366,13 +364,6 @@ class ObjectDetector:
         )
 
     async def _async_load(self, hass: HomeAssistant) -> _NanoDet:
-        try:
-            await async_process_requirements(
-                hass, DOMAIN, [_REQUIREMENT], is_built_in=False
-            )
-        except RequirementsNotFound as err:
-            raise ImageError("object_engine_unavailable") from err
-
         directory = Path(
             hass.config.path(".storage", f"{DOMAIN}.models", "nanodet-plus-m_416")
         )

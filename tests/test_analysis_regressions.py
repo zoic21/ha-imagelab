@@ -550,7 +550,6 @@ def test_analysis_worker_does_not_block_the_home_assistant_loop(tmp_path, monkey
             hass.data["image_lab.object_detector"] = engine
         else:
             entry.data["meter_settings"] = {"source": meter.meter_source(entry.data)}
-            monkeypatch.setattr(meter, "async_ensure_tarsius", AsyncMock())
             monkeypatch.setattr(meter, "_read", processor)
 
         result = await analysis.async_analyze(hass, entry.entry_id)

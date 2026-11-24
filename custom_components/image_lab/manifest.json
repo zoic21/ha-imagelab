@@ -21,5 +21,9 @@
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/zoic21/ha-imagelab/issues",
-  "version": "0.3.1"
+  "requirements": [
+    "ncnn>=1.0.20261020",
+    "tarsius==0.5.3"
+  ],
+  "version": "0.3.2"
 }

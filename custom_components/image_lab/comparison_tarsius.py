@@ -7,29 +7,14 @@ from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant
-from homeassistant.requirements import RequirementsNotFound, async_process_requirements
 from PIL import Image, ImageOps
 
 from .comparison import ComparisonData
-from .const import DOMAIN
 from .images import Bounds, ImageError, ImageFrame, read_image_file, validate_image
 from .models import ModuleResult
 
 if TYPE_CHECKING:
     from tarsius import Result, StateDetector
-
-TARSIUS_REQUIREMENT = "tarsius==0.5.3"
-
-
-async def async_ensure_tarsius(hass: HomeAssistant) -> None:
-    try:
-        await async_process_requirements(
-            hass, DOMAIN, [TARSIUS_REQUIREMENT], is_built_in=False
-        )
-    except RequirementsNotFound as err:
-        raise ImageError("tarsius_unavailable") from err
-
 
 def oriented_for_tarsius(content: bytes, max_side: int) -> bytes:
     """Apply the displayed orientation before Tarsius interprets the crop."""

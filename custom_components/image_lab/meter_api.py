@@ -12,7 +12,6 @@ from homeassistant.util.file import WriteError
 
 from .analysis import resolve_entity_id
 from .comparison_api import ID, REGION, cache_capture, cached_capture
-from .comparison_tarsius import async_ensure_tarsius
 from .const import CONF_IMAGE_KEY, CONF_SOURCE_TYPE, DOMAIN, SourceType
 from .http import RESPONSE_HEADERS, admin_profile
 from .images import ImageError, async_get_frame
@@ -136,7 +135,6 @@ class MeterView(HomeAssistantView):
             return self._error("meter_invalid_settings", 400)
         hass = request.app[KEY_HASS]
         try:
-            await async_ensure_tarsius(hass)
             result, calibration = await hass.async_add_executor_job(calibrate_meter, frame, settings)
         except ImageError as err:
             return self._error(err.reason)

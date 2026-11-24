@@ -1,5 +1,10 @@
 # Nouveautés d’Image Lab
 
+## 0.3.2
+
+- **Installation.** Home Assistant installe Tarsius et ncnn avec Image Lab avant le chargement de l’intégration, au lieu de les installer lors de la première analyse.
+- **HACS.** La recherche dans le catalogue est le premier parcours documenté ; le dépôt personnalisé reste indiqué si Image Lab n’y figure pas encore.
+
 ## 0.3.1
 
 - **Comparaison d’images.** La ligne « Référence la plus proche » affiche la vignette, le libellé et le lien vers la référence. La pastille d’état apparaît une seule fois, sur la ligne qui déplie les scores.

@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.file import write_utf8_file_atomic
 
 from .comparison import ComparisonData, Settings, compare
-from .comparison_tarsius import async_ensure_tarsius, compare_tarsius
+from .comparison_tarsius import compare_tarsius
 from .const import CONF_MODULE, DOMAIN
 from .images import (
     ImageError, ImageFrame, read_image_file, read_thumbnail, read_upload, validate_image,
@@ -289,8 +289,6 @@ class ComparisonStore(ResultStore):
                 gallery = await self.hass.async_add_executor_job(self.load)
                 if settings is not None:
                     gallery["settings"].update(settings)
-                if gallery["settings"]["engine"] == "tarsius" and not gallery.get("reference_review"):
-                    await async_ensure_tarsius(self.hass)
                 return await self.hass.async_add_executor_job(
                     self._run, frame, gallery
                 )

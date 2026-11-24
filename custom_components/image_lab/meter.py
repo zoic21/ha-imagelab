@@ -13,7 +13,7 @@ from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from PIL import Image, ImageOps
 
-from .comparison_tarsius import async_ensure_tarsius, oriented_for_tarsius
+from .comparison_tarsius import oriented_for_tarsius
 from .const import CONF_SOURCE_TYPE
 from .images import ImageError, ImageFrame, Region
 from .models import ModuleResult
@@ -176,7 +176,6 @@ async def async_read_meter(
     hass: HomeAssistant, frame: ImageFrame, settings: dict, state: dict | None
 ) -> ModuleResult:
     """Return the observation and proposed persistent state."""
-    await async_ensure_tarsius(hass)
     result, updated = await hass.async_add_executor_job(_read, frame, settings, state, False)
     return ModuleResult(result.data, result.reason, updated)
 

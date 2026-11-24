@@ -6,7 +6,7 @@ Image Lab est une intégration Home Assistant pour comparer des images à des r�
 
 Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur** et [HACS installé](https://www.hacs.dev/docs/use/download/download/).
 
-1. Dans **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**. Ouvrir **Image Lab**, sélectionner **Télécharger**, puis redémarrer Home Assistant.
+1. Dans **HACS**, rechercher **Image Lab**, ouvrir l’intégration et sélectionner **Télécharger**, puis redémarrer Home Assistant. Tant qu’Image Lab n’apparaît pas dans le catalogue, ouvrir **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**, puis télécharger Image Lab.
 2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, ajouter **Image Lab**. Cette étape ouvre l’accès au panneau dans la barre latérale.
 3. Ouvrir **Image Lab**, puis **Ajouter une analyse**. Choisir un nom, le type d’analyse et sa source. Pour une image importée, utiliser un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
 
@@ -106,7 +106,7 @@ Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s
 2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
 3. Dans Image Lab, sélectionner **Tester** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Réglages** dans la fiche de l’analyse.
 
-NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
+NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`, installé par Home Assistant lors de l’installation de l’intégration. La première analyse nécessite un accès à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
 
 ### Lire un compteur mécanique
 
@@ -116,7 +116,7 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 4. Sélectionner **Tester** en bas de la fenêtre. Une lecture acceptée remplit l’index de départ. Vérifier cette valeur, régler une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
 5. Lancer **Tester** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 
-Le moteur local [Tarsius](https://github.com/RaHehl/tarsius), également utilisé par [Local Vision](https://github.com/RaHehl/local-vision), est installé lors du premier test. Une hausse incohérente, une baisse ou une lecture douteuse conserve le dernier index validé, y compris après un redémarrage. L’historique affiche la lecture et son éventuel motif de rejet. Pour reprendre les lectures à partir d’un index vérifié, ouvrir **Index → Recaler l’index** et confirmer la valeur affichée sur le compteur. Le cumul du capteur est conservé au moment du recalage et augmente à nouveau avec les lectures suivantes. L’attribut `meter_index` expose l’index du compteur. Recalibrer si la position de la caméra change. Utiliser une nouvelle analyse pour un nouveau compteur, une autre unité ou un autre nombre de chiffres avant la virgule.
+Le moteur local [Tarsius](https://github.com/RaHehl/tarsius), également utilisé par [Local Vision](https://github.com/RaHehl/local-vision), est installé par Home Assistant avec l’intégration. Une hausse incohérente, une baisse ou une lecture douteuse conserve le dernier index validé, y compris après un redémarrage. L’historique affiche la lecture et son éventuel motif de rejet. Pour reprendre les lectures à partir d’un index vérifié, ouvrir **Index → Recaler l’index** et confirmer la valeur affichée sur le compteur. Le cumul du capteur est conservé au moment du recalage et augmente à nouveau avec les lectures suivantes. L’attribut `meter_index` expose l’index du compteur. Recalibrer si la position de la caméra change. Utiliser une nouvelle analyse pour un nouveau compteur, une autre unité ou un autre nombre de chiffres avant la virgule.
 
 ## Architecture
 

@@ -66,11 +66,11 @@ template.innerHTML = `
       padding-block: var(--ha-space-3, 12px);
     }
     .settingsTitle { font-size: 1rem; margin: 0 0 8px; }
-    .settingsInfo {
+    .resultHeader, .settingsInfo {
       display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-2, 8px);
     }
-    .settingsInfo p { margin: 0; }
+    .resultHeader p, .settingsInfo p { margin: 0; }
     .sourceRow {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-3, 12px); overflow-wrap: anywhere;
@@ -167,8 +167,10 @@ template.innerHTML = `
       <section class="content">
         <div id="profile">
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
-            <ha-button id="test" variant="brand"></ha-button>
-            <p id="status" class="secondary" role="status"></p>
+            <div class="resultHeader">
+              <p id="status" class="secondary" role="status"></p>
+              <ha-button id="test" variant="brand"></ha-button>
+            </div>
             <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
             <section id="palette" aria-labelledby="paletteTitle" hidden>
               <h3 id="paletteTitle"></h3>

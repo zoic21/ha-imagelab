@@ -22,7 +22,9 @@ from .result_store import observation_response
 
 RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _CAPTURE_SECONDS = 300
-_CAPTURE_SLOTS = 4
+_CAPTURE_SLOTS_PER_USER_PROFILE = 4
+_CAPTURE_MAX_COUNT = 64
+_CAPTURE_MAX_BYTES = 64 * 1024 * 1024
 _CACHE_KEY = f"{DOMAIN}.captures"
 _HEX_ID = re.compile(r"[a-f0-9]{32}\Z")
 
@@ -160,13 +162,28 @@ def drop_captures(hass: HomeAssistant, profile_id: str) -> None:
 def cache_capture(
     request: web.Request, profile_id: str, frame: ImageFrame, revision: str | None = None
 ) -> str:
-    """Keep a bounded, short-lived snapshot tied to the requesting admin."""
+    """Keep a short-lived snapshot within the per-owner and global limits."""
+    frame_bytes = len(frame.content)
+    if frame_bytes > _CAPTURE_MAX_BYTES:
+        raise ImageError("image_too_large")
+
     image_id = uuid4().hex
     captures = _captures(request.app[KEY_HASS])
-    while len(captures) >= _CAPTURE_SLOTS:
-        del captures[next(iter(captures))]
+    user_id = request[KEY_HASS_USER].id
+    own_captures = [
+        key for key, capture in captures.items()
+        if capture.profile_id == profile_id and capture.user_id == user_id
+    ]
+    if len(own_captures) >= _CAPTURE_SLOTS_PER_USER_PROFILE:
+        del captures[own_captures[0]]
+
+    total_bytes = frame_bytes + sum(len(capture.frame.content) for capture in captures.values())
+    while len(captures) >= _CAPTURE_MAX_COUNT or total_bytes > _CAPTURE_MAX_BYTES:
+        oldest = captures.pop(next(iter(captures)))
+        total_bytes -= len(oldest.frame.content)
+
     captures[image_id] = Capture(
-        profile_id, request[KEY_HASS_USER].id, frame, monotonic() + _CAPTURE_SECONDS, revision
+        profile_id, user_id, frame, monotonic() + _CAPTURE_SECONDS, revision
     )
     return image_id
 

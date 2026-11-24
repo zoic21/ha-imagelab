@@ -103,16 +103,17 @@ class MeterView(HomeAssistantView):
                 hass, SourceType(data[CONF_SOURCE_TYPE]),
                 resolve_entity_id(hass, data.get(CONF_ENTITY_ID)), data[CONF_IMAGE_KEY],
             )
+            if entry.data is not data or hass.config_entries.async_get_entry(profile_id) is not entry:
+                return self._error("meter_settings_changed", 409)
+            revision = entry.modified_at.isoformat()
+            capture_id = cache_capture(request, profile_id, frame, revision)
         except ImageError as err:
             return self._error(err.reason)
-        if entry.data is not data or hass.config_entries.async_get_entry(profile_id) is not entry:
-            return self._error("meter_settings_changed", 409)
-        revision = entry.modified_at.isoformat()
         return web.Response(
             body=frame.content, content_type=frame.content_type,
             headers={
                 **RESPONSE_HEADERS,
-                "X-Image-Lab-Capture": cache_capture(request, profile_id, frame, revision),
+                "X-Image-Lab-Capture": capture_id,
                 "X-Image-Lab-Revision": revision,
             },
         )

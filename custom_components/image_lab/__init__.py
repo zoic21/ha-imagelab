@@ -61,7 +61,10 @@ from .meter import METER, METER_SEED
 from .meter_api import MeterView
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
-from .result_store import SIGNAL_CAPTURE_SAVED, Observation, async_remove_results, get_result_store
+from .result_store import (
+    SIGNAL_CAPTURE_SAVED, Observation, async_remove_results, get_result_store,
+    observation_response,
+)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -90,6 +93,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     websocket_api.async_register_command(hass, async_subscribe_captures)
     websocket_api.async_register_command(hass, async_set_schedule)
+    websocket_api.async_register_command(hass, async_test_source)
     websocket_api.async_register_command(hass, async_module_settings)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
@@ -329,6 +333,32 @@ async def async_set_schedule(
     connection.send_result(msg["id"])
 
 
+@websocket_api.websocket_command({
+    probatio.Required("type"): f"{DOMAIN}/test_source",
+    probatio.Required(CONF_PROFILE_ID): cv.string,
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def async_test_source(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Wait for confirmation over the panel's WebSocket and return the exact observation."""
+    entry = hass.config_entries.async_get_entry(msg[CONF_PROFILE_ID])
+    if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
+        response = {"status": "error", "reason": "profile_not_found", "image_id": None}
+    elif entry.state is not ConfigEntryState.LOADED or entry.runtime_data is None:
+        response = {"status": "error", "reason": "profile_unavailable", "image_id": None}
+    else:
+        result, observation = await entry.runtime_data.async_run_manual()
+        if observation is not None:
+            response = observation_response(observation)
+        elif result.frame is not None:
+            response = {"status": "error", "reason": "storage_error", "image_id": None}
+        else:
+            response = {**result.response, "image_id": None}
+    connection.send_result(msg["id"], response)
+
+
 class ImageLabPreviewView(HomeAssistantView):
     """Serve the exact frame processed by the analysis, to an admin only."""
 
@@ -364,6 +394,13 @@ class ImageLabPreviewView(HomeAssistantView):
                 return self.json(await store.async_history(), headers=self.headers)
             if item == "history_settings":
                 return self.json(await store.async_history_settings(), headers=self.headers)
+            if request.query.get("metadata") == "1":
+                if item is None or entry.data[CONF_MODULE] != "object_detection":
+                    raise web.HTTPNotFound
+                observation = await store.async_observation(item)
+                if observation is None:
+                    raise web.HTTPNotFound
+                return self.json(observation_response(observation), headers=self.headers)
             thumbnail = request.query.get("thumbnail") == "1"
             if item is None and (etag := request.headers.get("If-None-Match")):
                 latest = await store.async_latest()
@@ -434,24 +471,6 @@ class ImageLabPreviewView(HomeAssistantView):
             headers["X-Image-Lab-Palette-Rgb"] = dumps(
                 result["data"]["palette_rgb"], separators=(",", ":")
             )
-        elif result.get(CONF_MODULE) == "object_detection":
-            # Compact rows keep the preview header below HTTP field-size limits.
-            data = result["data"]
-            headers["X-Image-Lab-Objects"] = dumps(
-                [
-                    [
-                        item["label"],
-                        item["confidence"],
-                        *(
-                            item["box"][key]
-                            for key in ("x_min", "y_min", "x_max", "y_max")
-                        ),
-                    ]
-                    for item in data["objects"]
-                ],
-                separators=(",", ":"),
-            )
-            headers["X-Image-Lab-Objects-Truncated"] = "1" if data["truncated"] else "0"
         return web.Response(
             body=frame.content,
             content_type=frame.content_type,

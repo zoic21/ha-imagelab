@@ -170,6 +170,10 @@ template.innerHTML = `
   <ha-progress-bar id="progress" indeterminate hidden></ha-progress-bar>
   <p class="secondary" id="progressText" role="status" hidden></p>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
+  <ha-alert id="referenceReview" alert-type="warning" hidden>
+    <span id="referenceReviewMessage"></span>
+    <ha-button id="confirmReferences" slot="action" appearance="plain"></ha-button>
+  </ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
     <div class="resultHeader">
@@ -294,6 +298,11 @@ export class ImageLabComparison extends HTMLElement {
         });
         this.onClick("reload", () => this.load());
         this.onClick("test", () => this.evaluate());
+        this.onClick("confirmReferences", () => this.task(async (signal) => {
+            const review_id = this.gallery?.reference_review;
+            if (review_id)
+                await this.update("confirm_references", { review_id }, signal);
+        }));
         this.onClick("openCapture", () => this.openCapture());
         this.onClick("matchLink", () => this.openMatch());
         const captureDialog = this.get("captureDialog");
@@ -468,6 +477,11 @@ export class ImageLabComparison extends HTMLElement {
     refresh() {
         const hasFrame = !this.get("comparisonImages").hidden;
         const busy = Boolean(this.activity);
+        this.get("referenceReview").hidden = !this.gallery?.reference_review;
+        this.get("referenceReviewMessage").textContent = this.labels.references_need_review;
+        const confirmReferences = this.get("confirmReferences");
+        confirmReferences.textContent = this.labels.confirm_references;
+        confirmReferences.toggleAttribute("disabled", busy);
         this.get("preview").setAttribute("aria-busy", String(busy));
         const test = this.get("test");
         test.toggleAttribute("disabled", !this.gallery || busy || !this.available);
@@ -626,7 +640,10 @@ export class ImageLabComparison extends HTMLElement {
     }
     async evaluate() {
         await this.task(async (signal) => {
-            const result = await this.request("/test", signal, {});
+            const result = await this.client.connection.sendMessagePromise({
+                type: "image_lab/test_source", profile_id: this.profile,
+            });
+            signal.throwIfAborted();
             if (result.status === "error")
                 throw new Error(result.reason ?? "failed");
             await this.displayObservation(result, signal);

@@ -32,6 +32,16 @@ class Observation(TypedDict):
     height: int
 
 
+def observation_response(observation: Observation) -> dict:
+    """Return the analysis metadata keyed to the exact saved image."""
+    return {
+        **observation["response"],
+        "image_id": observation["id"],
+        "time": observation["time"],
+        "manual": observation["manual"],
+    }
+
+
 class ResultStore:
     """Keep a latest observation independently of the bounded history."""
 
@@ -193,12 +203,21 @@ class ResultStore:
                 ]
             )
 
-    def _read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
+    def _observation(self, image_id: str | None, *, include_latest: bool = False) -> Observation | None:
         data = self.load()
-        observation = (
-            self._latest(data) if image_id is None else
-            next((item for item in data["history"] if item["id"] == image_id), None)
-        )
+        if image_id is None:
+            return self._latest(data)
+        if include_latest and (latest := self._latest(data)) and latest["id"] == image_id:
+            return latest
+        return next((item for item in data["history"] if item["id"] == image_id), None)
+
+    async def async_observation(self, image_id: str) -> Observation | None:
+        """Read metadata for a capture without loading its image."""
+        async with self.lock:
+            return await self.hass.async_add_executor_job(lambda: self._observation(image_id, include_latest=True))
+
+    def _read(self, image_id: str | None, thumbnail: bool = False) -> tuple[Observation, ImageFrame] | None:
+        observation = self._observation(image_id)
         if observation is None:
             return None
         path = self.images / observation["id"]

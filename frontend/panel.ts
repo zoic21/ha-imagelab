@@ -38,6 +38,14 @@ type HistoryItem = Capture & { dominant_hex: string | null; count: number | null
 const panelPath = "/image-lab";
 const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
 
+function detectionColor(label: string): string {
+  if (label === "car") return "#77baff";
+  if (label === "person") return "#be93ea";
+  let hueTenths = 0;
+  for (const char of label) hueTenths = (31 * hueTenths + char.charCodeAt(0)) % 3600;
+  return `hsl(${hueTenths / 10} 75% 70%)`;
+}
+
 interface Profile {
   profile_id: string;
   title: string;
@@ -186,7 +194,7 @@ template.innerHTML = `
     }
     .objects-overlay { position: absolute; inset: 0; pointer-events: none; }
     .object-box {
-      position: absolute; box-sizing: border-box; border: 2px solid white;
+      position: absolute; box-sizing: border-box; border: 2px solid var(--object-color);
       box-shadow: 0 0 0 1px #131a22, inset 0 0 0 1px #131a22;
     }
     .object-box span {
@@ -199,6 +207,10 @@ template.innerHTML = `
       display: flex; flex-wrap: wrap; gap: var(--ha-space-2, 8px); margin-top: 12px;
     }
     ${resultStyles}
+    .object-list .resultBadge {
+      background: color-mix(in srgb, var(--object-color) 22%, transparent);
+      box-shadow: inset 0 0 0 1px var(--object-color);
+    }
     ha-alert { margin-top: 8px; }
     #palette {
       display: flex; flex-wrap: wrap; row-gap: 8px; column-gap: 0; margin-top: 12px;
@@ -1075,6 +1087,8 @@ class ImageLabPanel extends HTMLElement {
       const confidence = score.toLocaleString(language, { style: "percent" });
       const box = document.createElement("div");
       box.className = "object-box";
+      const color = detectionColor(label);
+      box.style.setProperty("--object-color", color);
       box.style.setProperty("--label-left", `${x_min * 100}cqw`);
       box.style.left = `${x_min * 100}%`;
       box.style.top = `${y_min * 100}%`;
@@ -1085,6 +1099,7 @@ class ImageLabPanel extends HTMLElement {
       box.append(caption);
       const item = document.createElement("li");
       item.className = "resultBadge";
+      item.style.setProperty("--object-color", color);
       item.textContent = `${name} · ${confidence}`;
       list.push(item);
       return box;

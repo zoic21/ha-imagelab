@@ -47,17 +47,20 @@ template.innerHTML = `
       border-top:1px solid var(--divider-color); margin-top:var(--ha-space-3, 12px);
       padding-block:var(--ha-space-3, 12px);
     }
-    #preview { display:grid; gap:var(--ha-space-3, 12px); }
+    :host(:has(#preview:not([hidden]))) { margin-top:0; }
+    #preview { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--ha-space-3, 12px); padding-block-start:var(--ha-space-2, 8px); }
     #previewHint, #testHint, #result p, #resultDetails p { margin:0; }
-    #previewHint:empty, #resultDetails:empty { display:none; }
+    #previewHint:empty, #result:empty, #resultTime:empty, #resultDetails:empty { display:none; }
     ${resultStyles}
-    .resultBadge ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
     #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
-    #comparisonImages { min-width:0; }
-    #comparisonImages figure { margin:0 auto; width:min(100%, max(220px, calc(52dvh * var(--ratio, 1)))); }
-    #captureCaption { margin:0 0 var(--ha-space-1, 4px); font-weight:var(--ha-font-weight-medium, 500); }
-    .previewButton { display:block; width:100%; --ha-button-height:auto; }
-    .previewButton::part(base) { padding:0; }
+    #comparisonImages {
+      margin:0 calc(-1 * var(--result-inset, 16px)); min-width:0;
+      background:var(--secondary-background-color);
+    }
+    #imagebox { width:min(100%, calc(72dvh * var(--ratio, 1))); }
+    #frame { border-radius:0; }
+    .previewButton { display:block; width:100%; --ha-button-height:auto; --ha-button-border-radius:0; }
+    .previewButton::part(base) { width:100%; padding:0; }
     .previewButton::part(label) { display:block; width:100%; padding:0; }
     .imagebox { display:block; position:relative; width:min(100%, calc(var(--capture-height, 52dvh) * var(--ratio, 1))); margin:auto; }
     .imagebox img { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
@@ -67,9 +70,8 @@ template.innerHTML = `
     .matchRow {
       display:grid; grid-template-columns:56px minmax(0,1fr) auto; align-items:center;
       gap:var(--ha-space-2, 8px); padding:var(--ha-space-2, 8px);
-      border-bottom:1px solid var(--divider-color); text-align:start;
+      border-top:1px solid var(--divider-color); text-align:start;
     }
-    figure:has(.matchRow:not([hidden])) #frame { border-end-start-radius:0; border-end-end-radius:0; }
     .matchLabel {
       display:flex; flex-wrap:wrap; align-items:center; gap:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
       overflow-wrap:anywhere;
@@ -157,30 +159,28 @@ template.innerHTML = `
   </ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel">
-    <div id="result" class="resultMeta" aria-live="polite" hidden></div>
+    <div id="resultTime" class="resultMeta"></div>
     <p class="secondary" id="previewHint" role="status"></p>
     <p class="secondary" id="testHint" hidden></p>
-    <div id="resultDetails"></div>
     <div id="comparisonImages" hidden>
-      <div id="captureCaption"></div>
-      <figure>
-        <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
-          <span id="openCaptureLabel" class="accessibleLabel"></span>
-          <span class="imagebox" id="imagebox">
-            <img id="frame" alt="" draggable="false">
-            <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
-          </span>
-        </ha-button>
-        <figcaption id="matchRow" class="matchRow" hidden>
-          <span class="matchThumbnail" aria-hidden="true">
-            <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
-          </span>
-          <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
-          <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
-        </figcaption>
-      </figure>
+      <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
+        <span id="openCaptureLabel" class="accessibleLabel"></span>
+        <span class="imagebox" id="imagebox">
+          <img id="frame" alt="" draggable="false">
+          <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
+        </span>
+      </ha-button>
     </div>
+    <div id="result" class="resultMeta" slot="header" aria-live="polite" hidden></div>
     <ha-expansion-panel id="scoreDetails" hidden><div id="scores"></div></ha-expansion-panel>
+    <div id="resultDetails"></div>
+    <div id="matchRow" class="matchRow" hidden>
+      <span class="matchThumbnail" aria-hidden="true">
+        <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
+      </span>
+      <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
+      <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
+    </div>
   </section>
   <section id="references" role="tabpanel" hidden>
     <form id="stateForm" class="row fieldRow">
@@ -398,7 +398,7 @@ export class ImageLabComparison extends HTMLElement {
             captureAdd: "classify",
             addState: "add_state",
             reload: "reload",
-            matchCaption: "closest", captureCaption: "currentCapture",
+            matchCaption: "closest",
             openCaptureLabel: "open_capture",
             save: "save", editZone: "edit_zone",
         };
@@ -415,7 +415,6 @@ export class ImageLabComparison extends HTMLElement {
         }
         this.get("matchLink").setAttribute("label", this.labels.view_reference);
         this.get("matchLink").title = this.labels.view_reference;
-        this.get("scoreDetails").setAttribute("header", this.labels.state_scores);
         this.get("captureDialog").setAttribute("header-title", this.labels.currentCapture);
         this.get("stateName").setAttribute("label", this.labels.new_state);
         const engine = this.get("engine");
@@ -474,7 +473,7 @@ export class ImageLabComparison extends HTMLElement {
         this.get("openCapture").toggleAttribute("disabled", busy);
         const reference = this.gallery?.references.find(ref => ref.id === this.matchId);
         const state = this.gallery?.states.find(item => item.id === reference?.state_id);
-        this.get("matchRow").hidden = !reference;
+        this.get("matchRow").hidden = !reference || !hasFrame;
         this.get("matchMeta").hidden = !state;
         this.get("matchMeta").textContent = state?.name ?? "";
         this.refreshSettings();
@@ -729,14 +728,20 @@ export class ImageLabComparison extends HTMLElement {
         scoresPanel.replaceChildren();
         expansion.hidden = true;
         const result = this.result;
+        this.get("resultTime").replaceChildren(...(result?.time ? [analysisTime(result.time, this.client)] : []));
         panel.hidden = !result;
         if (!result)
             return;
+        const scores = result.data.scores;
+        const hasScores = scores && Object.keys(scores).length > 0;
+        if (hasScores && panel.parentElement !== expansion)
+            expansion.prepend(panel);
+        if (!hasScores && panel.parentElement === expansion)
+            expansion.before(panel);
         if (result.status === "ok" && result.data.state) {
             const state = document.createElement("span");
             state.className = "resultBadge";
-            state.innerHTML = `<ha-icon icon="mdi:check" aria-hidden="true"></ha-icon><span></span>`;
-            state.lastElementChild.textContent = result.data.state;
+            state.textContent = result.data.state;
             panel.append(state);
         }
         else if (result.status !== "error") {
@@ -750,16 +755,12 @@ export class ImageLabComparison extends HTMLElement {
                 : this.labels.failed;
             details.append(message);
         }
-        if (result.time)
-            panel.append(analysisTime(result.time, this.client));
         if (result.confirmation === "disagreed") {
             const retained = document.createElement("p");
             retained.className = "secondary";
             retained.textContent = this.labels.notConfirmed;
             details.append(retained);
         }
-        const scores = result.data.scores;
-        const hasScores = scores && Object.keys(scores).length > 0;
         if (result.data.engine) {
             const engine = document.createElement("p");
             engine.className = "secondary";
@@ -770,14 +771,20 @@ export class ImageLabComparison extends HTMLElement {
             const similarity = result.data.engine === "tarsius";
             const order = (state) => Object.hasOwn(scores, state)
                 ? (similarity ? -scores[state] : scores[state]) : Infinity;
-            const rows = Object.entries(result.data.ref_counts ?? {})
-                .sort(([a], [b]) => order(a) - order(b))
-                .map(([state, count]) => [
+            const counts = result.data.ref_counts ?? {};
+            const states = new Set([...Object.keys(counts), ...Object.keys(scores)]);
+            const rows = [...states]
+                .sort((a, b) => order(a) - order(b))
+                .map(state => [
                 state,
                 Object.hasOwn(scores, state) ? String(scores[state]) : "–",
-                String(count),
+                String(counts[state] ?? "–"),
             ]);
             scoresPanel.append(this.resultTable([this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows));
+            const description = document.createElement("span");
+            description.className = "accessibleLabel";
+            description.textContent = this.labels.state_scores;
+            panel.append(description);
             expansion.hidden = false;
         }
     }

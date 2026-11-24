@@ -27,4 +27,8 @@ export const resultStyles = `
     border-radius: var(--ha-border-radius-pill, 999px);
     background: color-mix(in srgb, var(--success-color, var(--primary-color)) 18%, transparent);
     font-weight: var(--ha-font-weight-medium, 500);
+  }
+  .resultMeta .resultBadge, #meterReading {
+    font-size: 15px; line-height: 1.4;
+    min-height: 30px; padding-inline: 10px;
   }`;

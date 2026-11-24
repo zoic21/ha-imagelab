@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
 from io import BytesIO
 from types import SimpleNamespace
@@ -41,16 +42,21 @@ def camera_jpeg() -> bytes:
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize("scheduled", [False, True])
-def test_zone_analysis_decodes_camera_jpeg_once(monkeypatch, scheduled):
-    async def run():
-        from homeassistant.components import camera
+@pytest.fixture
+def camera_capture(monkeypatch):
+    capture = AsyncMock()
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.components.camera", SimpleNamespace(async_get_image=capture)
+    )
+    return capture
 
+
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_zone_analysis_decodes_camera_jpeg_once(monkeypatch, camera_capture, scheduled):
+    async def run():
         entry = loaded_entry("palette")
         entry.data["region"] = {"x": 0.5, "y": 0, "width": 0.5, "height": 1}
-        content = camera_jpeg()
-        capture = AsyncMock(return_value=SimpleNamespace(content=content))
-        monkeypatch.setattr(camera, "async_get_image", capture)
+        camera_capture.return_value = SimpleNamespace(content=camera_jpeg())
         monkeypatch.setattr(analysis, "resolve_entity_id", lambda _, value: value)
         hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_get_entry=lambda _: entry),
@@ -71,21 +77,19 @@ def test_zone_analysis_decodes_camera_jpeg_once(monkeypatch, scheduled):
         assert result.response["status"] == "ok"
         assert result.frame.width == 160
         assert decodes == [(320, 240)]
-        capture.assert_awaited_once()
+        camera_capture.assert_awaited_once()
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize("module", ["palette", "object_detection", "comparison", "meter"])
-def test_truncated_capture_never_produces_an_observation(tmp_path, monkeypatch, module):
+def test_truncated_capture_never_produces_an_observation(tmp_path, monkeypatch, camera_capture, module):
     async def run():
-        from homeassistant.components import camera
-
         content = camera_jpeg()[:-100]
         with pytest.raises(ImageError, match="invalid_image"):
             validate_image(content)
         entry = loaded_entry(module)
-        monkeypatch.setattr(camera, "async_get_image", AsyncMock(return_value=SimpleNamespace(content=content)))
+        camera_capture.return_value = SimpleNamespace(content=content)
         monkeypatch.setattr(analysis, "resolve_entity_id", lambda _, value: value)
         hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_get_entry=lambda _: entry),

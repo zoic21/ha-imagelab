@@ -19,6 +19,7 @@ template.innerHTML = `
     [hidden] { display: none !important; }
     ha-top-app-bar-fixed { height: 100%; }
     .heading { display: inline-flex; align-items: center; gap: var(--ha-space-3, 12px); max-width: 100%; }
+    #profile > .heading { display:flex; font-size:var(--ha-font-size-xl, 20px); }
     .heading img { flex: none; width: 26px; height: 26px; background: none; }
     h1 { display: inline-block; margin: 0; font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
     #title:focus { outline: none; }
@@ -132,7 +133,13 @@ template.innerHTML = `
 
   <ha-top-app-bar-fixed id="appBar">
   <ha-icon-button-arrow-prev id="back" hidden></ha-icon-button-arrow-prev>
-  <div class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
+  <div id="heading" class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
+  <ha-tab-group id="profileNav" class="profileTabs" active="result" hidden>
+    ${profileTab("resultTab", "result", "resultPane", "image-outline")}
+    ${profileTab("referencesTab", "references", "comparisonSlot", "image-multiple-outline")}
+    ${profileTab("historyTab", "history", "historyPane", "history")}
+    ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
+  </ha-tab-group>
   <ha-dropdown id="profileMenu" slot="actionItems" placement="bottom-end" hidden>
     <ha-icon-button id="profileMenuButton" slot="trigger" aria-haspopup="menu">
       <ha-icon icon="mdi:dots-vertical" aria-hidden="true"></ha-icon>
@@ -160,11 +167,6 @@ template.innerHTML = `
       <section class="content">
         <div id="profile">
           <p class="secondary" id="source"></p>
-          <ha-tab-group id="profileNav" class="profileTabs" active="result">
-            ${profileTab("resultTab", "result", "resultPane", "image-outline")}
-            ${profileTab("historyTab", "history", "historyPane", "history")}
-            ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
-          </ha-tab-group>
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <ha-button id="test" variant="brand"></ha-button>
             <p id="status" class="secondary" role="status"></p>
@@ -281,7 +283,10 @@ class ImageLabPanel extends HTMLElement {
                 this.refreshSettingsSave();
         }, () => this.comparison.openReferences());
         this.element("comparisonSlot").append(this.comparison);
-        this.comparison.addEventListener("analysis-tab-changed", () => {
+        this.comparison.addEventListener("analysis-tab-changed", (event) => {
+            if (this.selected?.module !== "comparison")
+                return;
+            this.element("profileNav").setAttribute("active", event.detail);
             this.resetMobileTabScroll();
             this.updateSourceThumbnail();
         });
@@ -305,7 +310,13 @@ class ImageLabPanel extends HTMLElement {
         });
         this.renderAnalysisControls();
         this.element("profileNav").addEventListener("wa-tab-show", event => {
-            this.showTab(event.detail.name);
+            const tab = event.detail.name;
+            if (this.selected?.module === "comparison") {
+                this.comparison.selectTab(tab === "result" ? "preview" : tab);
+            }
+            else if (tab !== "references") {
+                this.showTab(tab);
+            }
         });
         this.element("outputEntity").addEventListener("click", () => {
             const entityId = this.selected?.output_entity_id;
@@ -656,7 +667,7 @@ class ImageLabPanel extends HTMLElement {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
             idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
-            "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
+            "referencesTab-label": labels.referencesTab, "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
             analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
             renameAction: labels.rename,
         })) {
@@ -709,7 +720,20 @@ class ImageLabPanel extends HTMLElement {
         const target = isComparison ? this.comparison : this.element("settingsPane");
         if (settings.parentElement !== target)
             target.append(settings);
-        this.element("profileNav").hidden = isComparison;
+        const nav = this.element("profileNav");
+        const wideDetail = Boolean(profile) && !this.hasAttribute("narrow");
+        nav.slot = wideDetail ? "title" : "";
+        nav.hidden = !profile;
+        nav.setAttribute("aria-label", profile?.title ?? "Image Lab");
+        for (const [id, pane] of [["resultTab", "resultPane"], ["historyTab", "historyPane"], ["settingsTab", "settingsPane"]])
+            this.element(id).setAttribute("aria-controls", isComparison ? "comparisonSlot" : pane);
+        const referencesTab = this.element("referencesTab");
+        referencesTab.hidden = !isComparison;
+        referencesTab.toggleAttribute("disabled", !isComparison);
+        const heading = this.element("heading");
+        const headingParent = this.element(wideDetail ? "profile" : "appBar");
+        if (heading.parentElement !== headingParent)
+            headingParent.prepend(heading);
         const tab = this.element("profileNav").getAttribute("active");
         this.element("resultPane").hidden = isComparison || tab !== "result";
         this.element("historyPane").hidden = isComparison || tab !== "history";

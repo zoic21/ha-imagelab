@@ -4,7 +4,7 @@ import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, 
 import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
 import { paintRegion } from "./region.js";
-import { profileTab, profileTabsStyles } from "./profile-tabs.js";
+import { profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
 const engines = ["pillow", "tarsius"];
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
@@ -160,12 +160,6 @@ template.innerHTML = `
     #captureState { flex:1 1 100px; }
     #stateMessage { margin-bottom:9px; }
   </style>
-  <ha-tab-group id="nav" class="profileTabs" active="preview">
-    ${profileTab("tab-preview", "preview", "preview", "image-outline")}
-    ${profileTab("tab-references", "references", "references", "image-multiple-outline")}
-    ${profileTab("tab-history", "history", "history", "history")}
-    ${profileTab("tab-settings", "settings", "settings", "cog-outline")}
-  </ha-tab-group>
   <ha-progress-bar id="progress" indeterminate hidden></ha-progress-bar>
   <p class="secondary" id="progressText" role="status" hidden></p>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
@@ -174,7 +168,7 @@ template.innerHTML = `
     <ha-button id="confirmReferences" slot="action" appearance="plain"></ha-button>
   </ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
-  <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
+  <section id="preview" role="tabpanel">
     <div class="resultHeader">
       <div id="result" aria-live="polite" hidden></div>
       <ha-button id="test" variant="brand"></ha-button>
@@ -203,7 +197,7 @@ template.innerHTML = `
     </div>
     <ha-expansion-panel id="scoreDetails" hidden><div id="scores"></div></ha-expansion-panel>
   </section>
-  <section id="references" role="tabpanel" aria-labelledby="tab-references" hidden>
+  <section id="references" role="tabpanel" hidden>
     <form id="stateForm" class="row fieldRow">
       <ha-input id="stateName" required maxlength="120" enterkeyhint="done"></ha-input>
       <div class="row fieldActions"><ha-button id="addState" variant="brand"></ha-button></div>
@@ -211,10 +205,10 @@ template.innerHTML = `
     <p id="stateMessage" class="secondary"></p>
     <div id="gallery"></div>
   </section>
-  <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
+  <section id="history" role="tabpanel" hidden>
     ${historyMarkup}
   </section>
-  <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+  <section id="settings" role="tabpanel" hidden>
     <div id="settingsFields">
       <div class="analysisHeading">
         <h3 id="analysisSettingsTitle"></h3>
@@ -274,13 +268,6 @@ export class ImageLabComparison extends HTMLElement {
         this.historySettings = new HistorySettings(historySettings, true);
         historySettings.addEventListener("selected", () => this.refreshSettings());
         historySettings.addEventListener("input", () => this.refreshSettings());
-        this.get("nav").addEventListener("wa-tab-show", (event) => {
-            const tab = event.detail.name;
-            if (tab !== this.tab) {
-                this.show(tab);
-                this.dispatchEvent(new Event("analysis-tab-changed"));
-            }
-        });
         this.shadowRoot.addEventListener("selected", (event) => {
             const select = event.target;
             if (select instanceof HTMLElement && select.localName === "ha-select") {
@@ -429,7 +416,7 @@ export class ImageLabComparison extends HTMLElement {
             save: "save", editZone: "edit_zone",
         };
         for (const tab of tabs)
-            names["tab-" + tab + "-label"] = tab;
+            this.get(tab).setAttribute("aria-label", this.labels[tab]);
         for (const key of ["max_distance", "min_margin"])
             this.get(key).setAttribute("label", this.labels[key]);
         for (const [id, label] of Object.entries(names)) {
@@ -450,7 +437,6 @@ export class ImageLabComparison extends HTMLElement {
         this.renderEngine();
         this.get("captureState").label = this.labels.state;
         this.get("captureDialogImage").alt = this.labels.currentCapture;
-        this.get("nav").setAttribute("aria-label", "Image Lab");
     }
     reset() {
         this.scope?.abort();
@@ -508,10 +494,14 @@ export class ImageLabComparison extends HTMLElement {
         this.get("matchMeta").textContent = state?.name ?? "";
         this.refreshSettings();
     }
+    selectTab(tab) {
+        if (tab !== this.tab)
+            this.show(tab);
+    }
     show(tab) {
+        const changed = tab !== this.tab;
         this.refreshPreview = tab === "preview" && this.tab !== tab && Boolean(this.gallery);
         this.tab = tab;
-        this.get("nav").setAttribute("active", tab);
         for (const key of tabs)
             this.get(key).hidden = tab !== key;
         if (tab !== "history")
@@ -525,6 +515,10 @@ export class ImageLabComparison extends HTMLElement {
         }
         this.refresh();
         this.loadLatestIfNeeded();
+        if (changed)
+            this.dispatchEvent(new CustomEvent("analysis-tab-changed", {
+                detail: tab === "preview" ? "result" : tab,
+            }));
     }
     loadLatestIfNeeded() {
         if (!this.refreshPreview || this.activity)
@@ -853,7 +847,6 @@ export class ImageLabComparison extends HTMLElement {
     }
     openReferences() {
         this.show("references");
-        this.dispatchEvent(new Event("analysis-tab-changed"));
         this.get("stateName").focus({ preventScroll: true });
     }
     renderEngine() {

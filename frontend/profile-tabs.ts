@@ -7,7 +7,16 @@ export const profileTabsStyles = `
     --ha-button-box-shadow:var(--ha-box-shadow-l);
   }
   :host([narrow]) .settingsSave { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
-  .profileTabIcon { display: none; }
+  .profileTabLabel {
+    display:flex; align-items:center; gap:var(--ha-space-2, 8px);
+  }
+  .profileTabIcon { display:block; flex:none; --mdc-icon-size:20px; }
+  :host(:not([narrow])) .profileTabs {
+    --ha-tab-active-text-color:var(--app-header-text-color, currentColor);
+    --ha-tab-indicator-color:var(--app-header-text-color, currentColor);
+    --ha-tab-track-color:transparent;
+    line-height:normal;
+  }
   :host([narrow]) .profileTabs {
     position: fixed; z-index: 2; box-sizing: border-box;
     inset: auto 0 0;
@@ -29,10 +38,9 @@ export const profileTabsStyles = `
     justify-content: center; padding: 0 var(--ha-space-1, 4px);
   }
   :host([narrow]) .profileTabLabel {
-    display: flex; flex-direction: column; align-items: center;
+    flex-direction: column;
     gap: var(--ha-space-1, 4px); min-width: 0; max-width: 100%;
   }
-  :host([narrow]) .profileTabIcon { display: block; }
   :host([narrow]) .profileTabText {
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }

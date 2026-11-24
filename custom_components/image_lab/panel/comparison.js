@@ -88,17 +88,21 @@ template.innerHTML = `
       border-radius:var(--ha-border-radius-pill, 999px); font-size:var(--ha-font-size-s, 12px);
     }
     #scoreDetails { --expansion-panel-summary-padding:0; --expansion-panel-content-padding:0; }
+    #scoreDetails, .state { --input-fill-color:transparent; }
+    #scoreDetails::part(summary), .state::part(summary) {
+      background:transparent; -webkit-tap-highlight-color:transparent;
+    }
     #scores > p { margin:0 0 var(--ha-space-1, 4px); }
     .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
     table { width:100%; border-collapse:collapse; }
     td, th { padding:8px; text-align:start; border-bottom:1px solid var(--divider-color); overflow-wrap:anywhere; }
     td:nth-child(n+2), th:nth-child(n+2) { text-align:end; }
-    #gallery { display:grid; gap:8px; margin-top:12px; }
+    #gallery { --reference-input-fill:var(--input-fill-color); display:grid; gap:8px; margin-top:12px; }
     .state {
       --expansion-panel-summary-padding: 0 12px;
       --expansion-panel-content-padding: 0 12px;
     }
-    .stateContent { padding-block: 4px 12px; }
+    .stateContent { --input-fill-color:var(--reference-input-fill); padding-block: 4px 12px; }
     .stateEditor {
       display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:start;
       gap:var(--ha-space-1, 4px);

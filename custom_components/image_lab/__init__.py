@@ -5,20 +5,10 @@ from typing import Any, ClassVar
 
 import probatio
 from aiohttp import web
-from homeassistant.components import panel_custom, websocket_api
+from homeassistant.components import panel_custom
 from homeassistant.components.config.config_entries import ConfigManagerFlowIndexView
-from homeassistant.components.http import (
-    KEY_HASS,
-    KEY_HASS_USER,
-    HomeAssistantView,
-    StaticPathConfig,
-)
-from homeassistant.config_entries import (
-    SIGNAL_CONFIG_ENTRY_CHANGED,
-    ConfigEntry,
-    ConfigEntryChange,
-    ConfigEntryState,
-)
+from homeassistant.components.http import KEY_HASS, HomeAssistantView, StaticPathConfig
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import (
     HomeAssistant,
@@ -29,7 +19,6 @@ from homeassistant.core import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
@@ -41,12 +30,9 @@ from .comparison_api import HISTORY_SETTINGS, REGION, ComparisonImageView, Compa
 from .comparison_store import async_remove_comparison, get_comparison_store
 from .const import (
     CONF_IMAGE_KEY,
-    CONF_IMAGE_REVISION,
     CONF_MODULE,
-    CONF_PALETTE_SIZE,
     CONF_PROFILE_ID,
     CONF_SOURCE_TYPE,
-    DEFAULT_PALETTE_SIZE,
     DOMAIN,
     PANEL_PATH,
     SERVICE_ANALYZE,
@@ -54,16 +40,14 @@ from .const import (
     SOURCE_RENAME,
     SourceType,
 )
+from .http import RESPONSE_HEADERS, admin_profile
 from .images import ImageError, async_get_frame, get_image_storage
-from .meter import METER_SEED
+from .meter import METER
 from .meter_api import MeterView
-from .module_settings import async_module_settings
-from .output import OUTPUTS, CameraSchedule, OutputCoordinator
-from .publication import async_set_publication, publication_settings
-from .result_store import (
-    SIGNAL_CAPTURE_SAVED, async_remove_results, get_result_store,
-    observation_response,
-)
+from .meter_output import MeterCoordinator
+from .output import OUTPUTS, CameraSchedule, ConfirmingOutputCoordinator
+from .result_store import async_remove_results, get_result_store, observation_response
+from .websocket import async_register_commands
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -89,11 +73,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=probatio.Schema({probatio.Required(CONF_PROFILE_ID): cv.string}),
         supports_response=SupportsResponse.ONLY,
     )
-    websocket_api.async_register_command(hass, async_subscribe_profiles)
-    websocket_api.async_register_command(hass, async_subscribe_captures)
-    websocket_api.async_register_command(hass, async_set_publication)
-    websocket_api.async_register_command(hass, async_test_source)
-    websocket_api.async_register_command(hass, async_module_settings)
+    async_register_commands(hass)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
     hass.http.register_view(ImageLabPreviewView)
     hass.http.register_view(CameraZoneView)
@@ -142,7 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if camera and not entry.pref_disable_polling
         else 0
     )
-    coordinator = OutputCoordinator(hass, entry, kind)
+    coordinator_class = MeterCoordinator if entry.data[CONF_MODULE] == METER else ConfirmingOutputCoordinator
+    coordinator = coordinator_class(hass, entry, kind)
     entry.runtime_data = coordinator
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
@@ -198,93 +179,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         await async_remove_results(hass, entry.entry_id)
 
 
-@websocket_api.websocket_command(
-    {probatio.Required("type"): f"{DOMAIN}/subscribe_profiles"}
-)
-@websocket_api.require_admin
-@callback
-def async_subscribe_profiles(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Send the initial list and keep the panel in sync with native config flows."""
-
-    @callback
-    def async_send_profiles() -> None:
-        profiles = [
-            {
-                CONF_PROFILE_ID: entry.entry_id,
-                CONF_IMAGE_REVISION: entry.data.get(CONF_IMAGE_REVISION),
-                "region": entry.data.get("region"),
-                "meter_initialized": METER_SEED in entry.data,
-                "modified_at": entry.modified_at.isoformat(),
-                "title": entry.title,
-                "output_entity_id": (
-                    er.async_get(hass).async_get_entity_id(
-                        entry.runtime_data.platform,
-                        DOMAIN,
-                        entry.runtime_data.unique_id,
-                    )
-                    if entry.state is ConfigEntryState.LOADED
-                    and entry.runtime_data and entry.runtime_data.platform
-                    else None
-                ),
-                "interval_minutes": (
-                    0 if entry.pref_disable_polling else entry.options.get("interval_minutes", 0)
-                ),
-                "publication": publication_settings(entry),
-                CONF_MODULE: entry.data[CONF_MODULE],
-                CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
-                CONF_PALETTE_SIZE: (
-                    entry.data.get(CONF_PALETTE_SIZE, DEFAULT_PALETTE_SIZE)
-                    if entry.data[CONF_MODULE] == "palette"
-                    else None
-                ),
-                CONF_ENTITY_ID: resolve_entity_id(hass, entry.data.get(CONF_ENTITY_ID)),
-                "available": entry.state is ConfigEntryState.LOADED
-                and entry.disabled_by is None,
-            }
-            for entry in sorted(
-                hass.config_entries.async_entries(DOMAIN),
-                key=lambda item: item.title.casefold(),
-            )
-            if CONF_MODULE in entry.data
-        ]
-        connection.send_message(websocket_api.event_message(msg["id"], profiles))
-
-    @callback
-    def async_entry_changed(change: ConfigEntryChange, entry: ConfigEntry) -> None:
-        if entry.domain == DOMAIN:
-            async_send_profiles()
-
-    connection.subscriptions[msg["id"]] = async_dispatcher_connect(
-        hass, SIGNAL_CONFIG_ENTRY_CHANGED, async_entry_changed
-    )
-    connection.send_result(msg["id"])
-    async_send_profiles()
-
-
-@websocket_api.websocket_command({probatio.Required("type"): f"{DOMAIN}/subscribe_captures"})
-@websocket_api.require_admin
-@callback
-def async_subscribe_captures(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Notify the mobile list when a new image is available."""
-
-    @callback
-    def async_capture_saved(profile_id: str, image_id: str) -> None:
-        connection.send_message(websocket_api.event_message(
-            msg["id"], {CONF_PROFILE_ID: profile_id, "image_id": image_id}
-        ))
-
-    connection.subscriptions[msg["id"]] = async_dispatcher_connect(
-        hass, SIGNAL_CAPTURE_SAVED, async_capture_saved
-    )
-    connection.send_result(msg["id"])
-    # A reconnect can have missed captures. Existing lists revalidate visible thumbnails.
-    connection.send_message(websocket_api.event_message(msg["id"], None))
-
-
 class AnalysisFlowView(ConfigManagerFlowIndexView):
     """Start an analysis creation or rename flow from Image Lab."""
 
@@ -299,55 +193,18 @@ class AnalysisFlowView(ConfigManagerFlowIndexView):
         return {**context, "source": source}
 
 
-@websocket_api.websocket_command({
-    probatio.Required("type"): f"{DOMAIN}/test_source",
-    probatio.Required(CONF_PROFILE_ID): cv.string,
-})
-@websocket_api.require_admin
-@websocket_api.async_response
-async def async_test_source(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
-) -> None:
-    """Run an on-demand analysis and return the exact saved observation."""
-    entry = hass.config_entries.async_get_entry(msg[CONF_PROFILE_ID])
-    if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
-        response = {"status": "error", "reason": "profile_not_found", "image_id": None}
-    elif entry.state is not ConfigEntryState.LOADED or entry.runtime_data is None:
-        response = {"status": "error", "reason": "profile_unavailable", "image_id": None}
-    else:
-        result, observation = await entry.runtime_data.async_run_manual()
-        if observation is not None:
-            response = observation_response(observation)
-        elif result.frame is not None:
-            response = {"status": "error", "reason": "storage_error", "image_id": None}
-        else:
-            response = {**result.response, "image_id": None}
-    connection.send_result(msg["id"], response)
-
-
 class ImageLabPreviewView(HomeAssistantView):
     """Serve the exact frame processed by the analysis, to an admin only."""
 
     url = f"/api/{DOMAIN}/preview/{{profile_id}}"
     extra_urls: ClassVar[list[str]] = [f"{url}/{{item}}"]
     name = f"api:{DOMAIN}:preview"
-    headers: ClassVar[dict[str, str]] = {
-        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-    }
-
-    def _entry(self, request: web.Request, profile_id: str) -> ConfigEntry:
-        if not request[KEY_HASS_USER].is_admin:
-            raise web.HTTPForbidden
-        entry = request.app[KEY_HASS].config_entries.async_get_entry(profile_id)
-        if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
-            raise web.HTTPNotFound
-        return entry
 
     async def get(
         self, request: web.Request, profile_id: str, item: str | None = None
     ) -> web.Response:
         """Read the last result or a retained capture."""
-        entry = self._entry(request, profile_id)
+        entry = admin_profile(request, profile_id)
         hass = request.app[KEY_HASS]
         if entry.data[CONF_MODULE] == "comparison":
             if item is not None:
@@ -357,41 +214,41 @@ class ImageLabPreviewView(HomeAssistantView):
             store = get_result_store(hass, profile_id)
         try:
             if item == "history":
-                return self.json(await store.async_history(), headers=self.headers)
+                return self.json(await store.async_history(), headers=RESPONSE_HEADERS)
             if item == "history_settings":
-                return self.json(await store.async_history_settings(), headers=self.headers)
+                return self.json(await store.async_history_settings(), headers=RESPONSE_HEADERS)
             if request.query.get("metadata") == "1":
                 if item is None:
                     raise web.HTTPNotFound
                 observation = await store.async_observation(item)
                 if observation is None:
                     raise web.HTTPNotFound
-                return self.json(observation_response(observation), headers=self.headers)
+                return self.json(observation_response(observation), headers=RESPONSE_HEADERS)
             thumbnail = request.query.get("thumbnail") == "1"
             if item is None and (etag := request.headers.get("If-None-Match")):
                 latest = await store.async_latest()
                 if latest and etag == f'"{latest["id"]}"':
-                    return web.Response(status=304, headers={**self.headers, "ETag": etag})
+                    return web.Response(status=304, headers={**RESPONSE_HEADERS, "ETag": etag})
             saved = await store.async_read(item, thumbnail)
         except OSError:
-            return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
+            return self.json({"reason": "storage_error"}, status_code=422, headers=RESPONSE_HEADERS)
         except ImageError as err:
-            return self.json({"reason": err.reason}, status_code=422, headers=self.headers)
+            return self.json({"reason": err.reason}, status_code=422, headers=RESPONSE_HEADERS)
         if saved is None:
             if item is not None:
                 raise web.HTTPNotFound
-            return web.Response(status=204, headers=self.headers)
+            return web.Response(status=204, headers=RESPONSE_HEADERS)
         observation, frame = saved
         return web.Response(
             body=frame.content, content_type=frame.content_type,
-            headers=self.headers if thumbnail else {**self.headers, "ETag": f'"{observation["id"]}"'},
+            headers=RESPONSE_HEADERS if thumbnail else {**RESPONSE_HEADERS, "ETag": f'"{observation["id"]}"'},
         )
 
     async def post(
         self, request: web.Request, profile_id: str, item: str | None = None
     ) -> web.Response:
         """Save history settings for a non-comparison profile."""
-        entry = self._entry(request, profile_id)
+        entry = admin_profile(request, profile_id)
         if item is None:
             raise web.HTTPMethodNotAllowed("POST", ["GET"])
         if item != "history_settings" or entry.data[CONF_MODULE] == "comparison":
@@ -406,8 +263,8 @@ class ImageLabPreviewView(HomeAssistantView):
         try:
             await store.async_set_history_settings(settings)
         except (ImageError, OSError, WriteError):
-            return self.json({"reason": "storage_error"}, status_code=422, headers=self.headers)
-        return self.json(settings, headers=self.headers)
+            return self.json({"reason": "storage_error"}, status_code=422, headers=RESPONSE_HEADERS)
+        return self.json(settings, headers=RESPONSE_HEADERS)
 
 
 class CameraZoneView(HomeAssistantView):
@@ -418,13 +275,9 @@ class CameraZoneView(HomeAssistantView):
 
     @staticmethod
     def _entry(request: web.Request, profile_id: str) -> ConfigEntry:
-        if not request[KEY_HASS_USER].is_admin:
-            raise web.HTTPForbidden
-        entry = request.app[KEY_HASS].config_entries.async_get_entry(profile_id)
+        entry = admin_profile(request, profile_id)
         if (
-            entry is None
-            or entry.domain != DOMAIN
-            or entry.data.get(CONF_MODULE) not in ("comparison", "palette", "object_detection")
+            entry.data[CONF_MODULE] not in ("comparison", "palette", "object_detection")
             or (entry.data[CONF_MODULE] != "comparison" and entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA)
         ):
             raise web.HTTPNotFound

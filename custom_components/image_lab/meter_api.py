@@ -5,15 +5,16 @@ from typing import ClassVar
 
 import probatio
 from aiohttp import web
-from homeassistant.components.http import KEY_HASS, KEY_HASS_USER, HomeAssistantView
+from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.util.file import WriteError
 
 from .analysis import resolve_entity_id
-from .comparison_api import ID, REGION, RESPONSE_HEADERS, cache_capture, cached_capture
+from .comparison_api import ID, REGION, cache_capture, cached_capture
 from .comparison_tarsius import async_ensure_tarsius
-from .const import CONF_IMAGE_KEY, CONF_MODULE, CONF_SOURCE_TYPE, DOMAIN, SourceType
+from .const import CONF_IMAGE_KEY, CONF_SOURCE_TYPE, DOMAIN, SourceType
+from .http import RESPONSE_HEADERS, admin_profile
 from .images import ImageError, async_get_frame
 from .meter import METER, METER_SEED, METER_SETTINGS, METER_UNITS, calibrate_meter, meter_source, seed_state
 
@@ -60,15 +61,6 @@ _REBASE = probatio.Schema({
 })
 
 
-def _entry(request: web.Request, profile_id: str) -> ConfigEntry:
-    if not request[KEY_HASS_USER].is_admin:
-        raise web.HTTPForbidden
-    entry = request.app[KEY_HASS].config_entries.async_get_entry(profile_id)
-    if entry is None or entry.domain != DOMAIN or entry.data.get(CONF_MODULE) != METER:
-        raise web.HTTPNotFound
-    return entry
-
-
 class MeterView(HomeAssistantView):
     """Access the meter editor, its fixed reference image and calibration test."""
 
@@ -82,7 +74,7 @@ class MeterView(HomeAssistantView):
     async def get(
         self, request: web.Request, profile_id: str, operation: str | None = None
     ) -> web.Response:
-        entry = _entry(request, profile_id)
+        entry = admin_profile(request, profile_id, module=METER)
         hass = request.app[KEY_HASS]
         data = entry.data
         if operation is None:
@@ -121,7 +113,7 @@ class MeterView(HomeAssistantView):
     async def post(
         self, request: web.Request, profile_id: str, operation: str | None = None
     ) -> web.Response:
-        entry = _entry(request, profile_id)
+        entry = admin_profile(request, profile_id, module=METER)
         if operation == "rebase":
             return await self._rebase(request, entry)
         if operation not in ("test", "save"):

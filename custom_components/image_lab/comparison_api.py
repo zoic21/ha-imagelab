@@ -16,11 +16,11 @@ from homeassistant.util.file import WriteError
 
 from .analysis import async_analyze
 from .comparison_store import ComparisonStore, get_comparison_store
-from .const import CONF_MODULE, DOMAIN
+from .const import DOMAIN
+from .http import RESPONSE_HEADERS, admin_profile
 from .images import ImageError, ImageFrame, thumbnail_frame
 from .result_store import observation_response
 
-RESPONSE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 _CAPTURE_SECONDS = 300
 _CAPTURE_SLOTS_PER_USER_PROFILE = 4
 _CAPTURE_MAX_COUNT = 64
@@ -203,17 +203,8 @@ def cached_capture(
 
 
 def _store(request: web.Request, profile_id: str) -> ComparisonStore:
-    if not request[KEY_HASS_USER].is_admin:
-        raise web.HTTPForbidden
-    hass = request.app[KEY_HASS]
-    entry = hass.config_entries.async_get_entry(profile_id)
-    if (
-        entry is None
-        or entry.domain != DOMAIN
-        or entry.data.get(CONF_MODULE) != "comparison"
-    ):
-        raise web.HTTPNotFound
-    return get_comparison_store(hass, profile_id)
+    entry = admin_profile(request, profile_id, module="comparison")
+    return get_comparison_store(request.app[KEY_HASS], entry.entry_id)
 
 
 class ComparisonView(HomeAssistantView):

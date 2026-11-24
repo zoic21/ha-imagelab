@@ -239,7 +239,6 @@ template.innerHTML = `
     <ha-card id="detailCard" hidden>
       <section class="content">
         <div id="profile">
-          <p class="secondary" id="source"></p>
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <ha-button id="test" variant="brand"></ha-button>
             <p id="status" class="secondary" role="status"></p>
@@ -832,7 +831,6 @@ class ImageLabPanel extends HTMLElement {
     this.element("meterSettings").hidden = profile.module !== "meter";
     this.element("meterSettings").toggleAttribute("disabled", !profile.available);
     this.element("profileId").textContent = profile.profile_id;
-    this.element("source").textContent = labels[profile.module];
     this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
     if (opened) {
       const scroller = this.scrollTarget;

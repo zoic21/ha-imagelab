@@ -425,3 +425,102 @@ def test_admin_views_check_permissions_and_profile_type():
             await ImageLabPreviewView().get(request, "profile")
 
     asyncio.run(run())
+
+
+def test_panel_forms_are_user_flows_and_do_not_appear_in_discovery(tmp_path, monkeypatch):
+    from homeassistant import config_entries
+    from homeassistant.components.config.config_entries import (
+        ConfigManagerFlowIndexView, config_entries_flow_progress,
+    )
+
+    from custom_components.image_lab import AnalysisFlowView
+
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        hass.config_entries = config_entries.ConfigEntries(hass, {})
+        manager = hass.config_entries.flow
+        entry = loaded_entry("palette")
+        entry.title = "Cover colors"
+        monkeypatch.setattr(hass.config_entries, "async_get_entry", lambda _: entry)
+        monkeypatch.setattr(config_entries, "_async_get_flow_handler", AsyncMock(
+            return_value=config_flow.ImageLabConfigFlow,
+        ))
+        panel = AnalysisFlowView(manager)
+        standard = ConfigManagerFlowIndexView(manager)
+        create = {"handler": "image_lab"}
+        edit = {**create, "entry_id": entry.entry_id}
+        for context, expected in [
+            (panel.get_context(create), "analysis"),
+            (panel.get_context(edit), "rename"),
+            (standard.get_context(edit), "source"),
+        ]:
+            result = await manager.async_init("image_lab", context=context)
+            assert result["step_id"] == expected
+
+        assert len(manager.async_progress()) == 3
+        connection = Mock(user=SimpleNamespace(is_admin=True))
+        config_entries_flow_progress(hass, connection, {"id": 1})
+        connection.send_result.assert_called_once_with(1, [])
+        for flow in manager.async_progress():
+            manager.async_abort(flow["flow_id"])
+
+        # The native Add Integration action still installs the empty workspace.
+        monkeypatch.setattr(hass.config_entries, "async_get_entry", lambda _: None)
+        monkeypatch.setattr(hass.config_entries, "async_add", AsyncMock())
+        installed = await manager.async_init("image_lab", context=standard.get_context(create))
+        assert installed["type"] == "create_entry"
+        assert installed["result"].unique_id == config_flow.INSTALLATION_ID
+        assert installed["result"].data == {}
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("module", ["comparison", "palette", "object_detection", "meter"])
+def test_analysis_worker_does_not_block_the_home_assistant_loop(tmp_path, monkeypatch, module):
+    import threading
+
+    from custom_components.image_lab import comparison_store, meter
+    from custom_components.image_lab.images import get_image_storage
+
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        entry = loaded_entry(module)
+        entry.data.update(source_type="upload", image_key="12345678123456781234567812345678")
+        entry.data.pop("entity_id")
+        hass.config_entries = SimpleNamespace(async_get_entry=lambda _: entry)
+        storage = get_image_storage(hass)
+        storage.directory.mkdir(parents=True)
+        (storage.directory / entry.data["image_key"]).write_bytes(camera_jpeg())
+
+        main_thread = threading.get_ident()
+        loop_ran = threading.Event()
+
+        def processor(frame, *_):
+            assert threading.get_ident() != main_thread
+            hass.loop.call_soon_threadsafe(loop_ran.set)
+            assert loop_ran.wait(timeout=2), "Event loop stalled during processing"
+            result = ModuleResult({})
+            if module == "comparison":
+                return result
+            if module == "meter":
+                return result, None
+            return result, frame
+
+        if module == "comparison":
+            monkeypatch.setattr(comparison_store, "compare", processor)
+        elif module == "palette":
+            monkeypatch.setattr(analysis, "extract_palette", processor)
+        elif module == "object_detection":
+            engine = object_detection.ObjectDetector()
+            engine._detector = SimpleNamespace(detect=processor)
+            hass.data["image_lab.object_detector"] = engine
+        else:
+            entry.data["meter_settings"] = {"source": meter.meter_source(entry.data)}
+            monkeypatch.setattr(meter, "async_ensure_tarsius", AsyncMock())
+            monkeypatch.setattr(meter, "_read", processor)
+
+        result = await analysis.async_analyze(hass, entry.entry_id)
+        assert result.response["status"] == "ok"
+        assert loop_ran.is_set()
+
+    asyncio.run(run())

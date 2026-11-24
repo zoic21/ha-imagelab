@@ -23,8 +23,7 @@ from .const import (
     DOMAIN,
     IMAGE_TYPES,
     INSTALLATION_ID,
-    SOURCE_ANALYSIS,
-    SOURCE_RENAME,
+    PANEL_FLOW,
     SourceType,
 )
 from .images import ImageError, get_image_storage
@@ -57,7 +56,9 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Install Image Lab with an empty workspace."""
+        """Install the workspace or start an analysis requested from its panel."""
+        if self.context.get(PANEL_FLOW):
+            return await self.async_step_analysis(user_input)
         await self.async_set_unique_id(INSTALLATION_ID)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title="Image Lab", data={})
@@ -80,7 +81,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_source()
 
         return self.async_show_form(
-            step_id=SOURCE_ANALYSIS,
+            step_id="analysis",
             data_schema=self.add_suggested_values_to_schema(
                 PROFILE_SCHEMA, user_input or {}
             ),
@@ -91,6 +92,8 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Edit the source while keeping the analysis ID and module."""
+        if self.context.get(PANEL_FLOW):
+            return await self.async_step_rename(user_input)
         self._entry = self._get_reconfigure_entry()
         if CONF_MODULE not in self._entry.data:
             return self.async_abort(reason="profile_not_found")
@@ -114,7 +117,7 @@ class ImageLabConfigFlow(ConfigFlow, domain=DOMAIN):
                 reload_even_if_entry_is_unchanged=False,
             )
         return self.async_show_form(
-            step_id=SOURCE_RENAME,
+            step_id="rename",
             data_schema=probatio.Schema(
                 {probatio.Required(CONF_NAME, default=entry.title): selector.TextSelector()}
             ),

@@ -40,15 +40,12 @@ template.innerHTML = `
     ha-card { min-width: 0; }
     .content { padding: 16px; }
     ul { list-style: none; margin: 0; padding: 0; }
-    ha-data-table { display: block; width: 100%; }
     .analysisControls {
       display: flex;
       align-items: center;
       gap: var(--ha-space-2, 8px);
-      padding: var(--ha-space-3, 12px);
-      border-bottom: 1px solid var(--divider-color);
+      padding-block-end: var(--ha-space-3, 12px);
     }
-    :host([narrow]) .analysisControls { border: 0; padding: 0 0 var(--ha-space-3, 12px); }
     ${analysisListStyles}
     ${profileTabsStyles}
     #analysisSearch { flex: 1; min-width: 0; }
@@ -146,7 +143,7 @@ template.innerHTML = `
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-      <div id="analysisControls" class="analysisControls" slot="header" hidden>
+      <div id="analysisControls" class="analysisControls" hidden>
         <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
         <ha-dropdown id="analysisSort" placement="bottom-end">
           <ha-icon-button id="analysisSortButton" slot="trigger" aria-haspopup="menu">
@@ -154,7 +151,6 @@ template.innerHTML = `
           </ha-icon-button>
         </ha-dropdown>
       </div>
-      <ha-data-table clickable auto-height hidden></ha-data-table>
       <div id="analysisGroups" hidden></div>
     </section>
     <ha-card id="detailCard" hidden>
@@ -250,10 +246,10 @@ class ImageLabPanel extends HTMLElement {
     comparison;
     publication;
     analysisList;
+    sort;
     constructor() {
         super();
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
-        this.analysisTable.append(this.element("analysisControls"));
         this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
         this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
         this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
@@ -284,25 +280,15 @@ class ImageLabPanel extends HTMLElement {
             else
                 this.navigate(panelPath, true);
         });
-        this.analysisTable.addEventListener("row-click", event => {
-            const { id } = event.detail;
-            this.select(id);
-        });
-        const search = this.element("analysisSearch");
-        search.addEventListener("input", () => {
-            this.analysisTable.filter = search.value;
-            this.renderAnalysisGroups();
-        });
+        this.element("analysisSearch").addEventListener("input", () => this.renderAnalysisRows());
         this.element("analysisSort").addEventListener("wa-select", event => {
             const { item: { value } } = event.detail;
             const [column, direction] = value.split(":");
-            this.analysisTable.sortDirection = direction === "asc" || direction === "desc" ? direction : null;
-            this.analysisTable.sortColumn = this.analysisTable.sortDirection ? column : undefined;
+            this.sort = direction === "asc" || direction === "desc" ? { column: column, direction } : undefined;
             this.updateAnalysisSort();
-            this.renderAnalysisGroups();
+            this.renderAnalysisRows();
         });
-        this.analysisTable.addEventListener("sorting-changed", () => this.updateAnalysisSort());
-        this.renderAnalysisColumns();
+        this.renderAnalysisControls();
         this.element("profileNav").addEventListener("wa-tab-show", event => {
             this.showTab(event.detail.name);
         });
@@ -355,7 +341,7 @@ class ImageLabPanel extends HTMLElement {
         if (languageChanged) {
             this.strings = language;
             this.closeModuleSettings();
-            this.renderAnalysisColumns();
+            this.renderAnalysisControls();
             this.render();
         }
         if (languageChanged || Boolean(previous?.entities) !== Boolean(hass.entities) ||
@@ -380,15 +366,6 @@ class ImageLabPanel extends HTMLElement {
         this.toggleAttribute("narrow", value);
         this.element("appBar").toggleAttribute("narrow", value);
         this.comparison.toggleAttribute("narrow", value);
-        const controls = this.element("analysisControls");
-        if (value) {
-            this.analysisTable.before(controls);
-            this.renderAnalysisGroups();
-        }
-        else {
-            this.analysisTable.append(controls);
-            this.analysisList.clear();
-        }
         this.render();
     }
     set route({ path }) {
@@ -425,9 +402,6 @@ class ImageLabPanel extends HTMLElement {
     }
     element(id) {
         return this.shadowRoot.getElementById(id);
-    }
-    get analysisTable() {
-        return this.shadowRoot.querySelector("ha-data-table");
     }
     get scrollTarget() {
         const { scrollTarget } = this.element("appBar");
@@ -519,21 +493,7 @@ class ImageLabPanel extends HTMLElement {
         this.closest("ha-panel-custom")?.navigate(path, { replace });
     }
     async focusListAction(id) {
-        if (this.hasAttribute("narrow")) {
-            const action = (this.shadowRoot.getElementById(`analysis-${id}`) ?? this.element("add"));
-            await action.updateComplete;
-            if (!this.selectedId && action.isConnected)
-                action.focus({ preventScroll: true });
-            return;
-        }
-        const table = this.analysisTable;
-        await table.updateComplete;
-        const findAction = () => table.shadowRoot?.getElementById(`analysis-${id}`);
-        if (!findAction() && table.data.some(row => row.id === id)) {
-            const list = table.shadowRoot?.querySelector("lit-virtualizer");
-            await list?.layoutComplete?.catch(() => { });
-        }
-        const action = (findAction() ?? this.element("add"));
+        const action = (this.shadowRoot.getElementById(`analysis-${id}`) ?? this.element("add"));
         await action.updateComplete;
         if (!this.selectedId && action.isConnected)
             action.focus({ preventScroll: true });
@@ -599,12 +559,19 @@ class ImageLabPanel extends HTMLElement {
     renderAnalysisRows() {
         const labels = this.strings;
         const hass = this._hass;
-        const rows = (this.profiles ?? []).map(profile => {
+        if (!hass || !this.profiles?.length) {
+            this.analysisList.clear();
+            return;
+        }
+        const search = this.element("analysisSearch");
+        const normalize = (value) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+        const terms = normalize((search.value ?? "").trim()).split(/\s+/).filter(Boolean);
+        const rows = this.profiles.map(profile => {
             const id = profile.entity_id;
-            const state = id ? hass?.states[id] : undefined;
+            const state = id ? hass.states[id] : undefined;
             const source = state?.attributes.friendly_name || id || labels[profile.source_type];
             const sourceMissing = profile.source_type !== "upload" &&
-                (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
+                (!id || Boolean(hass.entities && !hass.entities[id] && !state));
             const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable :
                 profile.module === "meter" && !profile.meter_initialized ? this.meterLabels.reasons.meter_unconfirmed : "";
             const trigger = this.analysisTrigger(profile);
@@ -613,52 +580,24 @@ class ImageLabPanel extends HTMLElement {
                 trigger, schedule: profile.source_type === "camera" && profile.interval_minutes
                     ? `${profile.interval_minutes} min` : trigger === labels.manualTrigger ? "" : trigger,
             };
-        });
-        rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
-        this.analysisTable.data = rows;
-        this.renderAnalysisGroups();
-    }
-    renderAnalysisGroups() {
-        if (!this.hasAttribute("narrow") || !this._hass || !this.profiles?.length) {
-            this.analysisList.clear();
-            return;
-        }
-        const { data, filter, sortColumn, sortDirection } = this.analysisTable;
-        const normalize = (value) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-        const terms = normalize(filter.trim()).split(/\s+/).filter(Boolean);
-        const rows = data.filter(row => {
+        }).filter(row => {
             const searchable = normalize([row.name, row.type, row.source, row.trigger, row.warning].join(" "));
             return terms.every(term => searchable.includes(term));
         });
-        if (sortColumn && sortDirection) {
-            const direction = sortDirection === "asc" ? 1 : -1;
-            const collator = new Intl.Collator(this._hass.locale.language, { sensitivity: "base", numeric: true });
-            rows.sort((a, b) => direction * collator.compare(a[sortColumn], b[sortColumn]));
+        if (this.sort) {
+            const { column, direction } = this.sort;
+            const collator = new Intl.Collator(hass.locale.language, { sensitivity: "base", numeric: true });
+            rows.sort((a, b) => (direction === "asc" ? 1 : -1) * collator.compare(a[column], b[column]));
         }
-        this.analysisList.render(rows, this._hass, this.strings.noMatchingAnalyses);
+        else {
+            rows.sort((a, b) => Number(Boolean(b.warning)) - Number(Boolean(a.warning)));
+        }
+        this.analysisList.render(rows, hass, labels.noMatchingAnalyses);
     }
-    renderAnalysisColumns() {
+    renderAnalysisControls() {
         const labels = this.strings;
         this.element("analysisList").setAttribute("aria-label", labels.analyses);
         this.element("analysisSearch").setAttribute("label", labels.searchAnalyses);
-        const columnDefaults = { minWidth: "0", filterable: true, sortable: true };
-        this.analysisTable.columns = {
-            name: {
-                ...columnDefaults, title: labels.nameColumn, flex: 1.6,
-                template: row => this.analysisNameCell(row),
-            },
-            type: {
-                ...columnDefaults, title: labels.typeColumn,
-                template: row => {
-                    const type = document.createElement("span");
-                    type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
-                    type.textContent = row.type;
-                    return type;
-                },
-            },
-            source: { ...columnDefaults, title: labels.sourceColumn },
-            trigger: { ...columnDefaults, title: labels.triggerColumn },
-        };
         this.element("analysisSortButton").setAttribute("label", labels.sortBy);
         const sort = this.element("analysisSort");
         const options = [
@@ -681,39 +620,9 @@ class ImageLabPanel extends HTMLElement {
         this.updateAnalysisSort();
     }
     updateAnalysisSort() {
-        const { sortColumn, sortDirection } = this.analysisTable;
-        const active = sortDirection ? `${sortColumn}:${sortDirection}` : "warnings";
+        const active = this.sort ? `${this.sort.column}:${this.sort.direction}` : "warnings";
         for (const item of this.element("analysisSort").querySelectorAll("ha-dropdown-item"))
             item.checked = item.getAttribute("value") === active;
-    }
-    analysisNameCell(row) {
-        // Keep a native keyboard target on Home Assistant versions that only handle row clicks.
-        const name = document.createElement("div");
-        name.style.cssText = "min-width:0;max-width:100%;line-height:1.2";
-        const action = document.createElement("ha-button");
-        action.id = `analysis-${row.id}`;
-        action.style.cssText = "display:block;width:fit-content;max-width:100%;text-align:start";
-        action.setAttribute("appearance", "plain");
-        action.setAttribute("size", "s");
-        action.textContent = row.name;
-        action.title = row.name;
-        action.onclick = () => this.select(row.id);
-        name.append(action);
-        if (row.warning) {
-            const details = document.createElement("span");
-            details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                + "font-size:var(--ha-font-size-s,12px);line-height:var(--ha-line-height-normal,1.4);"
-                + "color:var(--secondary-text-color)";
-            details.textContent = row.warning;
-            details.title = row.warning;
-            const icon = document.createElement("ha-icon");
-            icon.setAttribute("icon", "mdi:alert-outline");
-            icon.setAttribute("aria-hidden", "true");
-            icon.style.cssText = "--mdc-icon-size:14px;color:var(--warning-color);margin-inline-end:4px";
-            details.prepend(icon);
-            name.append(details);
-        }
-        return name;
     }
     render(moveFocus = false) {
         const labels = this.strings;
@@ -754,9 +663,7 @@ class ImageLabPanel extends HTMLElement {
         title.textContent = profile?.title ?? "Image Lab";
         title.title = title.textContent;
         const hasProfiles = Boolean(this.profiles?.length);
-        const narrow = this.hasAttribute("narrow");
-        this.analysisTable.hidden = !hasProfiles || narrow;
-        this.element("analysisGroups").hidden = !hasProfiles || !narrow;
+        this.element("analysisGroups").hidden = !hasProfiles;
         this.element("analysisControls").hidden = !hasProfiles;
         this.element("retry").hidden = !this.failed;
         const message = this.element("listMessage");

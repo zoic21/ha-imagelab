@@ -34,10 +34,9 @@ from .const import (
     CONF_PROFILE_ID,
     CONF_SOURCE_TYPE,
     DOMAIN,
+    PANEL_FLOW,
     PANEL_PATH,
     SERVICE_ANALYZE,
-    SOURCE_ANALYSIS,
-    SOURCE_RENAME,
     SourceType,
 )
 from .http import RESPONSE_HEADERS, admin_profile
@@ -189,8 +188,8 @@ class AnalysisFlowView(ConfigManagerFlowIndexView):
         if data["handler"] != DOMAIN:
             raise web.HTTPBadRequest
         context = super().get_context(data)
-        source = SOURCE_RENAME if "entry_id" in context else SOURCE_ANALYSIS
-        return {**context, "source": source}
+        # Keep HA's user/reconfigure source so unfinished forms stay out of discovery.
+        return {**context, PANEL_FLOW: True}
 
 
 class ImageLabPreviewView(HomeAssistantView):

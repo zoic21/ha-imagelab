@@ -20,6 +20,8 @@ from PIL import Image, ImageOps
 
 from .const import DOMAIN, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, SourceType
 
+_THUMBNAIL_SIZE = (240, 144)
+
 
 class ImageError(HomeAssistantError):
     """An expected failure with a reason safe to show in the panel or an action."""
@@ -89,24 +91,26 @@ def analysis_pixels(
 
 def thumbnail_frame(frame: ImageFrame) -> ImageFrame:
     """Render a small, oriented image for lists and galleries."""
-    with Image.open(BytesIO(frame.content)) as source:
-        return _thumbnail(source)
+    return _thumbnail(BytesIO(frame.content))
 
 
-def _thumbnail(image: Image.Image) -> ImageFrame:
-    ImageOps.exif_transpose(image, in_place=True)
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-    image.thumbnail((240, 144))
-    buffer = BytesIO()
-    image.save(buffer, "JPEG", quality=80)
-    return ImageFrame(buffer.getvalue(), "image/jpeg", *image.size)
+def _thumbnail(source: Path | BytesIO) -> ImageFrame:
+    with open_validated_image(source, thumbnail=True) as image:
+        ImageOps.exif_transpose(image, in_place=True)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.thumbnail(_THUMBNAIL_SIZE)
+        buffer = BytesIO()
+        image.save(buffer, "JPEG", quality=80)
+        return ImageFrame(buffer.getvalue(), "image/jpeg", *image.size)
 
 
 @contextmanager
-def open_validated_image(content: bytes | Path) -> Iterator[Image.Image]:
+def open_validated_image(
+    content: bytes | Path | BytesIO, *, thumbnail: bool = False
+) -> Iterator[Image.Image]:
     """Open, validate and decode an image for immediate pixel processing."""
-    # Archived crops are private files generated from already validated inputs.
+    # Stored images and in-memory frames came from already validated inputs.
     if isinstance(content, bytes):
         if not content:
             raise ImageError("invalid_image")
@@ -122,6 +126,12 @@ def open_validated_image(content: bytes | Path) -> Iterator[Image.Image]:
                 raise ImageError("image_too_large")
             if getattr(image, "is_animated", False):
                 raise ImageError("invalid_image")
+            if thumbnail and image.format == "JPEG":
+                # Let Pillow request a reduced JPEG decode before EXIF rotation loads pixels.
+                bounds = _THUMBNAIL_SIZE
+                if image.getexif().get(Image.ExifTags.Base.Orientation) in (5, 6, 7, 8):
+                    bounds = bounds[::-1]
+                image.thumbnail(bounds, reducing_gap=1.0)
             image.load()
         except Image.DecompressionBombError as err:
             raise ImageError("image_too_large") from err
@@ -150,8 +160,7 @@ def read_thumbnail(path: Path) -> ImageFrame:
 
 @lru_cache(maxsize=256)
 def _read_thumbnail(path: Path, _revision: tuple[int, int, int, int]) -> ImageFrame:
-    with open_validated_image(path) as image:
-        return _thumbnail(image)
+    return _thumbnail(path)
 
 
 def read_upload(hass: HomeAssistant, upload_id: str) -> ImageFrame:

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from PIL import Image
+from PIL import Image, JpegImagePlugin
 
-from custom_components.image_lab import output
+from custom_components.image_lab import images, output
 from custom_components.image_lab.comparison_store import ComparisonStore
 from custom_components.image_lab.images import ImageError, analysis_pixels, validate_image
 from custom_components.image_lab.result_store import ResultStore
@@ -190,6 +190,42 @@ def test_reuses_thumbnail_until_original_changes(tmp_path):
         store._read(image_id, thumbnail=True)
 
 
+@pytest.mark.parametrize(("orientation", "size"), [(1, (240, 135)), (6, (81, 144))])
+def test_jpeg_thumbnails_decode_at_reduced_size(tmp_path, monkeypatch, orientation, size):
+    path = tmp_path / "capture"
+    source = Image.new("RGB", (1601, 903), "red")
+    source.paste("blue", (800, 0, 1601, 903))
+    exif = Image.Exif()
+    exif[Image.ExifTags.Base.Orientation] = orientation
+    source.save(path, "JPEG", exif=exif)
+    frame = validate_image(path.read_bytes())
+    assert (frame.width, frame.height) == source.size
+
+    with patch.object(images, "MAX_IMAGE_PIXELS", 1_000_000):
+        with pytest.raises(ImageError, match="image_too_large"):
+            images.read_thumbnail(path)
+
+    decoded_sizes = []
+    load = JpegImagePlugin.JpegImageFile.load
+
+    def track_load(image):
+        if image.tile:
+            decoded_sizes.append(image.size)
+        return load(image)
+
+    monkeypatch.setattr(JpegImagePlugin.JpegImageFile, "load", track_load)
+    stored = images.read_thumbnail(path)
+    assert stored == images.thumbnail_frame(frame)
+    assert len(decoded_sizes) == 2
+    assert all(width < source.width and height < source.height for width, height in decoded_sizes)
+    assert (stored.width, stored.height) == size
+    with Image.open(BytesIO(stored.content)) as thumbnail:
+        assert thumbnail.size == size
+        assert thumbnail.getpixel((10, 10))[0] > 240
+        blue_point = (10, thumbnail.height - 10) if orientation == 6 else (thumbnail.width - 10, 10)
+        assert thumbnail.getpixel(blue_point)[2] > 240
+
+
 def test_latest_comparison_can_use_an_older_history_format(tmp_path):
     hass = SimpleNamespace(config=SimpleNamespace(path=tmp_path.joinpath))
     store = ComparisonStore(hass, "camera")
@@ -249,7 +285,6 @@ def test_classifying_the_same_capture_from_result_and_history_moves_it(tmp_path)
 
 
 def test_stored_zone_thumbnail_uses_pixel_limit_and_imports_keep_byte_limit(tmp_path, monkeypatch):
-    from custom_components.image_lab import images
     from custom_components.image_lab.palette import extract_palette
 
     source = two_colors()

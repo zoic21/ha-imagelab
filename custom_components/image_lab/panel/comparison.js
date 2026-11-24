@@ -221,7 +221,9 @@ template.innerHTML = `
       <slot name="profile-settings"></slot>
     </div>
     <p id="dirty" class="secondary" role="status" hidden></p>
-    <ha-button id="save" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+    <div class="settingsSavePosition">
+      <ha-button id="save" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+    </div>
   </section>
   <ha-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">

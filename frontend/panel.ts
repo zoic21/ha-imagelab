@@ -261,7 +261,9 @@ template.innerHTML = `
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
-            <ha-button id="settingsSave" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+            <div class="settingsSavePosition">
+              <ha-button id="settingsSave" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+            </div>
             <p id="settingsStatus" class="secondary" role="status" hidden></p>
             <section aria-labelledby="analysisSettingsTitle">
               <h3 id="analysisSettingsTitle" class="settingsTitle"></h3>

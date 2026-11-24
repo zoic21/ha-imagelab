@@ -109,7 +109,7 @@ def test_artwork_signature_ignores_token_rotation_and_playback_attributes():
 
 def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entity():
     import asyncio
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock, Mock, patch
 
     from custom_components.image_lab.output import OutputCoordinator
 
@@ -121,23 +121,31 @@ def test_confirmation_compares_state_ids_and_keeps_rejected_changes_out_of_entit
         coord.config_entry = SimpleNamespace(
             entry_id="profile",
             options={"on_state": "a", "off_state": "b", "confirmation_seconds": 0.001},
-            data={"source_type": "camera"},
+            data={"source_type": "camera", "module": "comparison", "entity_id": "camera.door"},
         )
         coord._unloaded = asyncio.Event()
         coord._confirmed = None
         coord._retained = None
         coord.data = None
+        coord._save_observation = AsyncMock()
+        frame = asyncio.get_running_loop().create_future()
+        confirmation_frame = asyncio.get_running_loop().create_future()
 
         def observation(state=None, status="ok"):
             return AnalysisResult({"status": status, "data": {"state_id": state}})
 
         async def measure(*observations):
-            with patch(
-                "custom_components.image_lab.output.async_analyze",
-                AsyncMock(side_effect=observations),
-            ) as analyze:
-                coord.data = (await coord._measure()).response
+            with (
+                patch("custom_components.image_lab.output.async_analyze", AsyncMock(side_effect=observations)) as analyze,
+                patch("custom_components.image_lab.output.resolve_entity_id", return_value="camera.door"),
+                patch("custom_components.image_lab.output.scheduled_frame", Mock(return_value=confirmation_frame)) as capture,
+            ):
+                coord.data = (await coord._measure(frame)).response
                 assert analyze.await_count == len(observations)
+                assert analyze.await_args_list[0].kwargs["scheduled_capture"] is frame
+                if len(observations) == 2:
+                    capture.assert_called_once_with(coord.hass, "camera.door")
+                    assert analyze.await_args_list[1].kwargs["scheduled_capture"] is confirmation_frame
             return coord.data.get("confirmation")
 
         assert await measure(observation("a")) is None

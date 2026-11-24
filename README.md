@@ -60,9 +60,9 @@ Une palette publiée par un lecteur multimédia se recalcule au changement de po
 
 Dans la fiche de l’analyse, ouvrir **Réglages → Publication**. Avec une caméra, choisir une fréquence ou **Personnalisé** dans le champ **Intervalle**. Choisir **Manuel** pour lancer les analyses à la demande. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
-Dans **Publication**, le champ **Confirmation** des profils caméra de comparaison, de palette et de détection accepte de 1 à 60 secondes. La valeur 0 désactive la confirmation. Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
+Dans **Publication**, le champ **Confirmation** s’applique aux analyses caméra lancées selon l’intervalle configuré dans Image Lab. Le délai accepte de 1 à 60 secondes. La valeur 0 désactive la confirmation. Le premier état connu est publié immédiatement. Lorsqu’une analyse planifiée détecte un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
 
-L’action renvoie la dernière observation et, lorsqu’une seconde capture a été demandée, le champ `confirmation` vaut `confirmed`, `disagreed` ou `failed`. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
+Le bouton **Tester la source** et l’action `image_lab.analyze` traitent une seule capture et publient son résultat immédiatement, y compris quand Home Assistant exécute l’action dans une automatisation. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
 
 ### Suivre plusieurs zones sur une caméra
 

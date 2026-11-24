@@ -1,4 +1,4 @@
-"""Cover manual confirmation, source edits and detection previews."""
+"""Cover on-demand analysis, source edits and detection previews."""
 
 import asyncio
 import json
@@ -12,7 +12,7 @@ from homeassistant.components.http import KEY_HASS, KEY_HASS_USER
 from homeassistant.config_entries import ConfigEntryState
 
 from custom_components.image_lab import ImageLabPreviewView, async_test_source
-from custom_components.image_lab import analysis, config_flow, object_detection
+from custom_components.image_lab import analysis, config_flow, object_detection, output
 from custom_components.image_lab.comparison_store import ComparisonStore
 from custom_components.image_lab.images import ImageError, ImageFrame
 from custom_components.image_lab.models import ModuleResult
@@ -131,32 +131,46 @@ def test_detector_shares_cooldown_and_recovers(monkeypatch):
     asyncio.run(run())
 
 
-def test_test_source_waits_for_confirmation_over_websocket():
+def test_test_source_publishes_the_first_capture_over_websocket(monkeypatch):
     async def run():
         entry = loaded_entry("comparison")
-        started, confirmed = asyncio.Event(), asyncio.Event()
-        response = {"status": "ok", "confirmation": "confirmed", "data": {"state_id": "open"}}
-
-        async def manual():
-            started.set()
-            await confirmed.wait()
-            return None, {"id": "capture", "time": "now", "manual": True, "response": response}
-
-        entry.runtime_data = SimpleNamespace(async_run_manual=manual)
+        entry.options = {"confirmation_seconds": 60}
+        frame = ImageFrame(b"new capture", "image/jpeg", 1, 1)
+        response = {"status": "ok", "data": {"state_id": "open"}}
+        result = analysis.AnalysisResult(response, frame)
+        analyze = AsyncMock(return_value=result)
+        monkeypatch.setattr(output, "async_analyze", analyze)
         tasks = []
 
         def schedule(coro, _name, *, eager_start):
             tasks.append(asyncio.create_task(coro))
 
         hass = SimpleNamespace(
-            config_entries=SimpleNamespace(async_get_entry=lambda _: entry), async_create_background_task=schedule,
+            config_entries=SimpleNamespace(async_get_entry=lambda _: entry),
+            async_create_background_task=schedule,
+            async_create_task=lambda coro, name: asyncio.create_task(coro, name=name),
         )
+        coordinator = object.__new__(OutputCoordinator)
+        coordinator.hass = hass
+        coordinator.name = "Door analysis"
+        coordinator.kind = "enum"
+        coordinator.is_meter = False
+        coordinator.config_entry = entry
+        coordinator.analysis_lock = asyncio.Lock()
+        coordinator._unloaded = asyncio.Event()
+        coordinator._confirmed = coordinator._retained = {"status": "ok", "data": {"state_id": "closed"}}
+        coordinator._save_observation = AsyncMock(return_value={
+            "id": "capture", "time": "now", "manual": True, "response": response,
+        })
+        coordinator.async_set_updated_data = Mock(side_effect=lambda data: setattr(coordinator, "data", data))
+        entry.runtime_data = coordinator
         connection = Mock(user=SimpleNamespace(is_admin=True))
         async_test_source(hass, connection, {"id": 1, "profile_id": entry.entry_id})
-        await started.wait()
-        connection.send_result.assert_not_called()
-        confirmed.set()
-        await tasks[0]
+        await asyncio.wait_for(tasks[0], timeout=1)
+        analyze.assert_awaited_once_with(hass, entry.entry_id, scheduled_capture=None)
+        coordinator._save_observation.assert_awaited_once_with(result, True)
+        coordinator.async_set_updated_data.assert_called_once_with(response)
+        assert coordinator.entity_response == coordinator._confirmed == response
         connection.send_result.assert_called_once_with(1, {
             **response, "image_id": "capture", "time": "now", "manual": True,
         })
@@ -204,7 +218,7 @@ def test_large_detection_metadata_is_json_for_exact_image(tmp_path):
     asyncio.run(run())
 
 
-def test_scheduled_frame_is_skipped_during_manual_confirmation():
+def test_scheduled_frame_is_skipped_during_another_analysis():
     async def run():
         coordinator = object.__new__(OutputCoordinator)
         coordinator.analysis_lock = asyncio.Lock()

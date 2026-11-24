@@ -236,7 +236,8 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         first = await async_analyze(self.hass, entry.entry_id, scheduled_capture=frame)
         if self.is_meter:
             return first
-        delay = entry.options.get("confirmation_seconds", 0)
+        # Only the recurring camera schedule supplies a shared capture.
+        delay = entry.options.get("confirmation_seconds", 0) if frame is not None else 0
         candidate = self._state_key(first.response)
         baseline = self._state_key(self._confirmed)
         if (
@@ -251,7 +252,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             self._retained = None
             return first
 
-        if frame is not None and entry.data[CONF_MODULE] == "comparison":
+        if entry.data[CONF_MODULE] == "comparison":
             await self._save_observation(first, manual=False)
 
         # Unloading the profile wakes the delay without taking another snapshot.
@@ -267,10 +268,8 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
                 "reason": "profile_unavailable",
             })
 
-        confirmation_frame = None
-        if frame is not None:
-            camera = resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID])
-            confirmation_frame = scheduled_frame(self.hass, camera)
+        camera = resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID])
+        confirmation_frame = scheduled_frame(self.hass, camera)
         second = await async_analyze(
             self.hass, entry.entry_id, scheduled_capture=confirmation_frame
         )
@@ -329,7 +328,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             return result.response
 
     async def async_run_manual(self) -> tuple[AnalysisResult, Observation | None]:
-        """Use the same confirmation and entity publication as automatic analyses."""
+        """Record and publish the first observation from an on-demand analysis."""
 
         async def run() -> tuple[AnalysisResult, Observation | None]:
             async with self.analysis_lock:
@@ -358,7 +357,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
     async def async_process_capture(self, frame: asyncio.Task[ImageFrame]) -> None:
         # A shared camera frame is already being captured. Don't process it
-        # later as though it were newer than a test that is still confirming.
+        # later as though it were newer than an analysis already in progress.
         if self.analysis_lock.locked():
             return
         async with self.analysis_lock:

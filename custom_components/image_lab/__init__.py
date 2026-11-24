@@ -345,7 +345,7 @@ async def async_set_schedule(
 async def async_test_source(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Wait for confirmation over the panel's WebSocket and return the exact observation."""
+    """Run an on-demand analysis and return the exact saved observation."""
     entry = hass.config_entries.async_get_entry(msg[CONF_PROFILE_ID])
     if entry is None or entry.domain != DOMAIN or CONF_MODULE not in entry.data:
         response = {"status": "error", "reason": "profile_not_found", "image_id": None}

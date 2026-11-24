@@ -37,6 +37,8 @@ def observation_response(observation: Observation) -> dict:
     return {
         **observation["response"],
         "image_id": observation["id"],
+        "width": observation["width"],
+        "height": observation["height"],
         "time": observation["time"],
         "manual": observation["manual"],
     }

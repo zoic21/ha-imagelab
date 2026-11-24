@@ -215,7 +215,7 @@ export class CaptureHistory {
     }
     async thumbnail(target, options, signal) {
         try {
-            const { blob } = await options.image(target.dataset.captureId, signal, true);
+            const blob = await options.image(target.dataset.captureId, signal, true);
             if (signal.aborted || !target.isConnected)
                 return;
             const url = URL.createObjectURL(blob);
@@ -235,7 +235,7 @@ export class CaptureHistory {
         const { signal } = controller;
         button.setAttribute("loading", "");
         try {
-            const { blob, headers } = await options.image(item.id, signal, false);
+            const blob = await options.image(item.id, signal, false);
             signal.throwIfAborted();
             const dialog = document.createElement("ha-dialog");
             dialog.setAttribute("header-title", this.labels.capture);
@@ -248,7 +248,7 @@ export class CaptureHistory {
             stamp.className = "history-detail-meta";
             stamp.textContent = metadata;
             content.append(image, stamp);
-            await options.details(item, content, image, headers, signal);
+            await options.details(item, content, image, signal);
             signal.throwIfAborted();
             const url = URL.createObjectURL(blob);
             image.src = url;

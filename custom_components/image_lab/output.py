@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_PICTURE, CONF_ENTITY_ID, STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant, ServiceResponse, State, callback
 from homeassistant.helpers.event import (
@@ -26,9 +26,7 @@ from .analysis import AnalysisResult, async_analyze, resolve_entity_id
 from .comparison_store import get_comparison_store
 from .const import CONF_MODULE, CONF_PROFILE_ID, CONF_SOURCE_TYPE, DOMAIN, SourceType
 from .images import ImageError, ImageFrame, async_get_frame
-from .meter import (
-    METER, METER_OUTPUT, METER_SEED, METER_SETTINGS, meter_entity_values, rebase_meter_state,
-)
+from .meter import METER, METER_OUTPUT
 from .result_store import Observation, get_result_store
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,7 +76,7 @@ def scheduled_frame(
     task = pending.get(camera)
     if task is None or task.done():
         task = hass.async_create_task(
-            async_get_frame(hass, SourceType.CAMERA, camera, "")
+            async_get_frame(hass, SourceType.CAMERA, camera, "", for_analysis=True)
         )
         pending[camera] = task
 
@@ -95,7 +93,6 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, kind: str | None) -> None:
         self.kind = kind
-        self.is_meter = entry.data[CONF_MODULE] == METER
         self.platform = (
             Platform.BINARY_SENSOR
             if kind in ("binary", "occupancy")
@@ -108,7 +105,6 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             if entry.data[CONF_MODULE] == "comparison"
             else get_result_store(hass, entry.entry_id)
         )
-        self._confirmed: ServiceResponse | None = None
         self._retained: ServiceResponse | None = None
         self._unloaded = asyncio.Event()
         entry.async_on_unload(self._unloaded.set)
@@ -122,61 +118,17 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
     @property
     def entity_response(self) -> ServiceResponse | None:
-        """Keep a rejected transition out of the entity while returning the observation."""
+        """Return the retained entity value when it differs from the latest observation."""
         return self._retained if self._retained is not None else self.data
 
     async def async_initialize(self) -> None:
         """Publish a first observation without delaying setup or replacing a newer one."""
         async with self.analysis_lock:
-            if self._unloaded.is_set():
+            if self._unloaded.is_set() or self.data is not None:
                 return
-            if self.is_meter:
-                if self._retained is not None:
-                    return
-                try:
-                    state = await self.store.async_meter_state()
-                except (ImageError, OSError):
-                    _LOGGER.exception("Could not restore the meter index for %s", self.name)
-                    return
-                if state := state or self.config_entry.data.get(METER_SEED):
-                    self._retained = {"status": "ok", "data": meter_entity_values(state)}
-                response = self._retained
-            elif self.data is None:
-                result, _ = await self._observe()
-                response = result.response
-            else:
-                return
-            if not self._unloaded.is_set() and response is not None:
-                self.async_set_updated_data(response)
-
-    async def async_rebase_meter(self, value: float, revision: str) -> None:
-        """Apply a verified meter reading between analyses."""
-        async def run() -> None:
-            entry = self.config_entry
-            async with self.analysis_lock:
-                if (
-                    self._unloaded.is_set()
-                    or entry.state is not ConfigEntryState.LOADED
-                    or entry.runtime_data is not self
-                    or entry.modified_at.isoformat() != revision
-                ):
-                    raise ImageError("meter_settings_changed")
-                if (seed := entry.data.get(METER_SEED)) is None:
-                    raise ImageError("meter_unconfirmed")
-                settings = entry.data[METER_SETTINGS]
-                if value >= 10 ** (settings["wheels"] - settings["decimal_wheels"]):
-                    raise ImageError("meter_invalid_settings")
-                previous = await self.store.async_meter_state() or seed
-                state = rebase_meter_state(previous, value)
-                await self.store.async_set_meter_state(state)
-                if not self._unloaded.is_set():
-                    self._retained = {
-                        "status": "ok",
-                        "data": {**meter_entity_values(state), "reading_status": "rebased"},
-                    }
-                    self.async_set_updated_data(self._retained)
-
-        await asyncio.shield(self.hass.async_create_task(run(), f"{self.name} rebase"))
+            result, _ = await self._observe()
+            if not self._unloaded.is_set():
+                self.async_set_updated_data(result.response)
 
     @callback
     def async_watch_artwork(self) -> None:
@@ -213,87 +165,19 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             subscribe(entity_id)
             entry.async_on_unload(unsubscribe)
 
-    def _state_key(self, response: ServiceResponse | None) -> str | int | bool | None:
-        if not response or response["status"] != "ok":
-            return None
-        data = response["data"]
-        if self.kind in ("binary", "enum"):
-            state = data.get("state_id")
-            if self.kind == "binary" and state not in (
-                self.config_entry.options["on_state"],
-                self.config_entry.options["off_state"],
-            ):
-                return None
-            return state
-        if self.kind == "count":
-            return None if data.get("truncated") else data.get("count")
-        return data.get("detected" if self.kind == "occupancy" else "dominant_hex")
-
     async def _measure(
         self, frame: asyncio.Task[ImageFrame] | None = None
     ) -> AnalysisResult:
-        entry = self.config_entry
-        first = await async_analyze(self.hass, entry.entry_id, scheduled_capture=frame)
-        if self.is_meter:
-            return first
-        delay = entry.options.get("confirmation_seconds", 0)
-        candidate = self._state_key(first.response)
-        baseline = self._state_key(self._confirmed)
-        if (
-            not delay
-            or entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA
-            or candidate is None
-            or baseline is None
-            or candidate == baseline
-        ):
-            if candidate is not None:
-                self._confirmed = first.response
-            self._retained = None
-            return first
-
-        if frame is not None and entry.data[CONF_MODULE] == "comparison":
-            await self._save_observation(first, manual=False)
-
-        # Unloading the profile wakes the delay without taking another snapshot.
-        try:
-            await asyncio.wait_for(self._unloaded.wait(), delay)
-        except TimeoutError:
-            pass
-        if self._unloaded.is_set():
-            return AnalysisResult({
-                **first.response,
-                "status": "error",
-                "data": {},
-                "reason": "profile_unavailable",
-            })
-
-        confirmation_frame = None
-        if frame is not None:
-            camera = resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID])
-            confirmation_frame = scheduled_frame(self.hass, camera)
-        second = await async_analyze(
-            self.hass, entry.entry_id, scheduled_capture=confirmation_frame
-        )
-        if second.response["status"] == "error":
-            self._retained = None
-            return replace(second, response={**second.response, "confirmation": "failed"})
-        if self._state_key(second.response) != candidate:
-            self._retained = self._confirmed
-            return replace(second, response={**second.response, "confirmation": "disagreed"})
-        self._confirmed = second.response
-        self._retained = None
-        return replace(second, response={**second.response, "confirmation": "confirmed"})
+        return await async_analyze(self.hass, self.config_entry.entry_id, scheduled_capture=frame)
 
     async def _save_observation(
         self, result: AnalysisResult, manual: bool
     ) -> Observation | None:
         if result.frame is not None and not self._unloaded.is_set():
             try:
-                if self.is_meter:
-                    return await self.store.async_record(
-                        result.frame, result.response, manual, meter_state=result.meter_state
-                    )
-                return await self.store.async_record(result.frame, result.response, manual)
+                return await self.store.async_record(
+                    result.frame, result.response, manual, meter_state=result.meter_state
+                )
             except (ImageError, OSError, WriteError):
                 _LOGGER.exception("Could not save analysis for %s", self.name)
         return None
@@ -302,26 +186,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
         self, frame: asyncio.Task[ImageFrame] | None = None, *, manual: bool = False
     ) -> tuple[AnalysisResult, Observation | None]:
         result = await self._measure(frame)
-        observation = await self._save_observation(result, manual)
-        if self.is_meter:
-            previous = (self._retained or {}).get("data", {})
-            values = {key: previous[key] for key in ("meter_value", "meter_total") if key in previous}
-            if observation is not None and result.meter_state is not None:
-                values = meter_entity_values(result.meter_state)
-            if values:
-                data = {
-                    **result.response["data"],
-                    **values,
-                    "reading_status": result.response.get("reason", "accepted"),
-                }
-                if result.frame is not None and observation is None:
-                    data = {**values, "reading_status": "storage_error"}
-                self._retained = {"status": "ok", "data": data}
-            if result.frame is not None and observation is None:
-                return AnalysisResult({
-                    **result.response, "status": "error", "data": {}, "reason": "storage_error",
-                }), None
-        return result, observation
+        return result, await self._save_observation(result, manual)
 
     async def _async_update_data(self) -> ServiceResponse:
         async with self.analysis_lock:
@@ -329,7 +194,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             return result.response
 
     async def async_run_manual(self) -> tuple[AnalysisResult, Observation | None]:
-        """Use the same confirmation and entity publication as automatic analyses."""
+        """Record and publish the first observation from an on-demand analysis."""
 
         async def run() -> tuple[AnalysisResult, Observation | None]:
             async with self.analysis_lock:
@@ -358,7 +223,7 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
 
     async def async_process_capture(self, frame: asyncio.Task[ImageFrame]) -> None:
         # A shared camera frame is already being captured. Don't process it
-        # later as though it were newer than a test that is still confirming.
+        # later as though it were newer than an analysis already in progress.
         if self.analysis_lock.locked():
             return
         async with self.analysis_lock:
@@ -367,6 +232,80 @@ class OutputCoordinator(DataUpdateCoordinator[ServiceResponse]):
             result, _ = await self._observe(frame)
             if not self._unloaded.is_set():
                 self.async_set_updated_data(result.response)
+
+
+class ConfirmingOutputCoordinator(OutputCoordinator):
+    """Confirm recurring state changes for comparison, palette and object profiles."""
+
+    _confirmed: ServiceResponse | None = None
+
+    def _state_key(self, response: ServiceResponse | None) -> str | int | bool | None:
+        if not response or response["status"] != "ok":
+            return None
+        data = response["data"]
+        if self.kind in ("binary", "enum"):
+            state = data.get("state_id")
+            if self.kind == "binary" and state not in (
+                self.config_entry.options["on_state"],
+                self.config_entry.options["off_state"],
+            ):
+                return None
+            return state
+        if self.kind == "count":
+            return None if data.get("truncated") else data.get("count")
+        return data.get("detected" if self.kind == "occupancy" else "dominant_hex")
+
+    async def _measure(
+        self, frame: asyncio.Task[ImageFrame] | None = None
+    ) -> AnalysisResult:
+        entry = self.config_entry
+        first = await super()._measure(frame)
+        # Only the recurring camera schedule supplies a shared capture.
+        delay = entry.options.get("confirmation_seconds", 0) if frame is not None else 0
+        candidate = self._state_key(first.response)
+        baseline = self._state_key(self._confirmed)
+        if (
+            not delay
+            or entry.data[CONF_SOURCE_TYPE] != SourceType.CAMERA
+            or candidate is None
+            or baseline is None
+            or candidate == baseline
+        ):
+            if candidate is not None:
+                self._confirmed = first.response
+            self._retained = None
+            return first
+
+        if entry.data[CONF_MODULE] == "comparison":
+            await self._save_observation(first, manual=False)
+
+        # Unloading the profile wakes the delay without taking another snapshot.
+        try:
+            await asyncio.wait_for(self._unloaded.wait(), delay)
+        except TimeoutError:
+            pass
+        if self._unloaded.is_set():
+            return AnalysisResult({
+                **first.response,
+                "status": "error",
+                "data": {},
+                "reason": "profile_unavailable",
+            })
+
+        camera = resolve_entity_id(self.hass, entry.data[CONF_ENTITY_ID])
+        confirmation_frame = scheduled_frame(self.hass, camera)
+        second = await async_analyze(
+            self.hass, entry.entry_id, scheduled_capture=confirmation_frame
+        )
+        if second.response["status"] == "error":
+            self._retained = None
+            return replace(second, response={**second.response, "confirmation": "failed"})
+        if self._state_key(second.response) != candidate:
+            self._retained = self._confirmed
+            return replace(second, response={**second.response, "confirmation": "disagreed"})
+        self._confirmed = second.response
+        self._retained = None
+        return replace(second, response={**second.response, "confirmation": "confirmed"})
 
 
 class CameraSchedule:

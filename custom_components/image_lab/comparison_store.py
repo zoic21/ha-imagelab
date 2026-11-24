@@ -266,6 +266,7 @@ class ComparisonStore(ResultStore):
         assert frame is not None
         engine = gallery["settings"]["engine"]
         if gallery.get("reference_review"):
+            validate_image(frame.content)
             return ModuleResult(
                 {"engine": engine, "region": gallery["settings"]["region"]},
                 "references_need_review",

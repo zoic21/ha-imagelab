@@ -1,7 +1,6 @@
 """Compare normalized grayscale crops against labelled image references."""
 
 from functools import lru_cache
-from io import BytesIO
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 
@@ -87,7 +86,7 @@ def compare(frame: ImageFrame, gallery: ComparisonData, images: Path) -> ModuleR
         if region
         else None
     )
-    with Image.open(BytesIO(frame.content)) as image:
+    with open_validated_image(frame.content) as image:
         crop = crop_image(image, bounds)
         width, height = crop.size
         scale = min(1, MAX_COMPARE_SIZE[0] / width, MAX_COMPARE_SIZE[1] / height)

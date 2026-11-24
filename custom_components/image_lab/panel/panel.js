@@ -8,6 +8,7 @@ import { editMeter, meterStyles, meterText } from "./meter.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { PublicationSettings, publicationMarkup, publicationStyles } from "./publication.js";
+import { SourceThumbnail } from "./source-thumbnail.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
 const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
@@ -40,15 +41,12 @@ template.innerHTML = `
     ha-card { min-width: 0; }
     .content { padding: 16px; }
     ul { list-style: none; margin: 0; padding: 0; }
-    ha-data-table { display: block; width: 100%; }
     .analysisControls {
       display: flex;
       align-items: center;
       gap: var(--ha-space-2, 8px);
-      padding: var(--ha-space-3, 12px);
-      border-bottom: 1px solid var(--divider-color);
+      padding-block-end: var(--ha-space-3, 12px);
     }
-    :host([narrow]) .analysisControls { border: 0; padding: 0 0 var(--ha-space-3, 12px); }
     ${analysisListStyles}
     ${profileTabsStyles}
     #analysisSearch { flex: 1; min-width: 0; }
@@ -71,19 +69,20 @@ template.innerHTML = `
       gap: var(--ha-space-2, 8px);
     }
     .settingsInfo p { margin: 0; }
-    #editSource { display: block; width: 100%; --ha-button-height: auto; }
-    #editSource::part(base) { padding: 0; border-radius: var(--ha-border-radius-md, 8px); }
-    #editSource::part(label) { width: 100%; padding: 0; }
     .sourceRow {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
-      gap: var(--ha-space-2, 8px); padding: var(--ha-space-2, 8px); min-height: var(--ha-space-12, 48px);
-      box-sizing: border-box; border-radius: var(--ha-border-radius-md, 8px);
-      background: var(--secondary-background-color); color: var(--primary-text-color);
-      text-align: start; white-space: normal; overflow-wrap: anywhere;
+      gap: var(--ha-space-3, 12px); overflow-wrap: anywhere;
     }
-    .sourceRow ha-icon { --mdc-icon-size: 20px; }
-    .sourceRow ha-icon:last-child { color: var(--primary-color); }
-    #sourceKind { display: block; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-normal, 400); }
+    .sourcePreview {
+      display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center;
+      width: 84px; height: 56px; overflow: hidden;
+      border-radius: var(--ha-border-radius-md, 8px); background: var(--secondary-background-color);
+    }
+    #sourceImage { width: 100%; height: 100%; object-fit: cover; }
+    #sourceImage:not([hidden]) + ha-icon { display: none; }
+    #sourceKind { display: block; font-weight: var(--ha-font-weight-medium, 500); }
+    #sourceSummary { font-size: var(--ha-font-size-s, 12px); }
+    #editSource { color: var(--primary-color); }
     ${publicationStyles}
     #profileId { font-size: var(--ha-font-size-s, 12px); }
     #analysisId { padding-block-end: 0; }
@@ -146,7 +145,7 @@ template.innerHTML = `
     <section id="analysisList">
       <p id="listMessage" class="secondary" role="status" hidden></p>
       <ha-button id="retry" appearance="plain" variant="neutral" hidden></ha-button>
-      <div id="analysisControls" class="analysisControls" slot="header" hidden>
+      <div id="analysisControls" class="analysisControls" hidden>
         <ha-input-search id="analysisSearch" appearance="outlined" enterkeyhint="search"></ha-input-search>
         <ha-dropdown id="analysisSort" placement="bottom-end">
           <ha-icon-button id="analysisSortButton" slot="trigger" aria-haspopup="menu">
@@ -154,7 +153,6 @@ template.innerHTML = `
           </ha-icon-button>
         </ha-dropdown>
       </div>
-      <ha-data-table clickable auto-height hidden></ha-data-table>
       <div id="analysisGroups" hidden></div>
     </section>
     <ha-card id="detailCard" hidden>
@@ -199,13 +197,16 @@ template.innerHTML = `
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
-                <ha-button id="editSource" appearance="plain" variant="neutral">
-                  <span class="sourceRow">
+                <div class="sourceRow">
+                  <span class="sourcePreview" aria-hidden="true">
+                    <img id="sourceImage" alt="" referrerpolicy="no-referrer" hidden>
                     <ha-icon id="sourceIcon" class="secondary" aria-hidden="true"></ha-icon>
-                    <span><span id="sourceKind" class="secondary"></span><span id="sourceSummary"></span></span>
-                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
                   </span>
-                </ha-button>
+                  <span><span id="sourceKind"></span><span id="sourceSummary" class="secondary"></span></span>
+                  <ha-icon-button id="editSource">
+                    <ha-icon icon="mdi:pencil-outline" aria-hidden="true"></ha-icon>
+                  </ha-icon-button>
+                </div>
                 <p id="scheduleHint" class="secondary" hidden></p>
               </section>
               ${publicationMarkup}
@@ -247,13 +248,15 @@ class ImageLabPanel extends HTMLElement {
     zoneScope;
     strings = strings.en;
     images = new ImageCache();
+    sourceThumbnail;
     comparison;
     publication;
     analysisList;
+    sort;
     constructor() {
         super();
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
-        this.analysisTable.append(this.element("analysisControls"));
+        this.sourceThumbnail = new SourceThumbnail(this.element("sourceImage"), this.images);
         this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
         this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
         this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
@@ -273,7 +276,10 @@ class ImageLabPanel extends HTMLElement {
         });
         this.publication = new PublicationSettings(this.element("publication"), () => this.comparison.refreshSettings(), (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences());
         this.element("comparisonSlot").append(this.comparison);
-        this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
+        this.comparison.addEventListener("analysis-tab-changed", () => {
+            this.resetMobileTabScroll();
+            this.updateSourceThumbnail();
+        });
         this.element("add").addEventListener("click", () => this.openFlow("create"));
         this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
         this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
@@ -284,25 +290,15 @@ class ImageLabPanel extends HTMLElement {
             else
                 this.navigate(panelPath, true);
         });
-        this.analysisTable.addEventListener("row-click", event => {
-            const { id } = event.detail;
-            this.select(id);
-        });
-        const search = this.element("analysisSearch");
-        search.addEventListener("input", () => {
-            this.analysisTable.filter = search.value;
-            this.renderAnalysisGroups();
-        });
+        this.element("analysisSearch").addEventListener("input", () => this.renderAnalysisRows());
         this.element("analysisSort").addEventListener("wa-select", event => {
             const { item: { value } } = event.detail;
             const [column, direction] = value.split(":");
-            this.analysisTable.sortDirection = direction === "asc" || direction === "desc" ? direction : null;
-            this.analysisTable.sortColumn = this.analysisTable.sortDirection ? column : undefined;
+            this.sort = direction === "asc" || direction === "desc" ? { column: column, direction } : undefined;
             this.updateAnalysisSort();
-            this.renderAnalysisGroups();
+            this.renderAnalysisRows();
         });
-        this.analysisTable.addEventListener("sorting-changed", () => this.updateAnalysisSort());
-        this.renderAnalysisColumns();
+        this.renderAnalysisControls();
         this.element("profileNav").addEventListener("wa-tab-show", event => {
             this.showTab(event.detail.name);
         });
@@ -344,18 +340,24 @@ class ImageLabPanel extends HTMLElement {
         const connectionChanged = previous?.connection !== hass.connection;
         if (connectionChanged) {
             this.analysisList.clear();
+            void this.sourceThumbnail.show();
             this.images.clear();
         }
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
         const languageChanged = this.strings !== language;
         this._hass = hass;
+        const profile = this.selected;
+        if (profile?.entity_id && previous?.states[profile.entity_id] !== hass.states[profile.entity_id]) {
+            this.renderSource(profile);
+            this.updateSourceThumbnail();
+        }
         const output = this.selected?.output_entity_id;
         if (output && previous?.states[output]?.attributes.friendly_name !== hass.states[output]?.attributes.friendly_name)
             this.publication.setEntity(output, hass.states[output]?.attributes.friendly_name);
         if (languageChanged) {
             this.strings = language;
             this.closeModuleSettings();
-            this.renderAnalysisColumns();
+            this.renderAnalysisControls();
             this.render();
         }
         if (languageChanged || Boolean(previous?.entities) !== Boolean(hass.entities) ||
@@ -380,15 +382,6 @@ class ImageLabPanel extends HTMLElement {
         this.toggleAttribute("narrow", value);
         this.element("appBar").toggleAttribute("narrow", value);
         this.comparison.toggleAttribute("narrow", value);
-        const controls = this.element("analysisControls");
-        if (value) {
-            this.analysisTable.before(controls);
-            this.renderAnalysisGroups();
-        }
-        else {
-            this.analysisTable.append(controls);
-            this.analysisList.clear();
-        }
         this.render();
     }
     set route({ path }) {
@@ -417,6 +410,7 @@ class ImageLabPanel extends HTMLElement {
     }
     disconnectedCallback() {
         this.analysisList.clear();
+        void this.sourceThumbnail.show();
         this.images.clear();
         this.optionsScope?.abort();
         this.closeModuleSettings();
@@ -425,9 +419,6 @@ class ImageLabPanel extends HTMLElement {
     }
     element(id) {
         return this.shadowRoot.getElementById(id);
-    }
-    get analysisTable() {
-        return this.shadowRoot.querySelector("ha-data-table");
     }
     get scrollTarget() {
         const { scrollTarget } = this.element("appBar");
@@ -519,21 +510,7 @@ class ImageLabPanel extends HTMLElement {
         this.closest("ha-panel-custom")?.navigate(path, { replace });
     }
     async focusListAction(id) {
-        if (this.hasAttribute("narrow")) {
-            const action = (this.shadowRoot.getElementById(`analysis-${id}`) ?? this.element("add"));
-            await action.updateComplete;
-            if (!this.selectedId && action.isConnected)
-                action.focus({ preventScroll: true });
-            return;
-        }
-        const table = this.analysisTable;
-        await table.updateComplete;
-        const findAction = () => table.shadowRoot?.getElementById(`analysis-${id}`);
-        if (!findAction() && table.data.some(row => row.id === id)) {
-            const list = table.shadowRoot?.querySelector("lit-virtualizer");
-            await list?.layoutComplete?.catch(() => { });
-        }
-        const action = (findAction() ?? this.element("add"));
+        const action = (this.shadowRoot.getElementById(`analysis-${id}`) ?? this.element("add"));
         await action.updateComplete;
         if (!this.selectedId && action.isConnected)
             action.focus({ preventScroll: true });
@@ -552,6 +529,7 @@ class ImageLabPanel extends HTMLElement {
         this.element("resultPane").hidden = tab !== "result";
         this.element("historyPane").hidden = tab !== "history";
         this.element("settingsPane").hidden = tab !== "settings";
+        this.updateSourceThumbnail();
         if (tab === "result" && refresh && returning && this.selected?.module !== "comparison")
             void this.loadPreview();
         if (tab === "settings")
@@ -588,23 +566,30 @@ class ImageLabPanel extends HTMLElement {
         this.previewETag = undefined;
         this.element("copyStatus").hidden = true;
     }
-    analysisTrigger(profile) {
+    analysisTrigger(profile, manual = this.strings.manualTrigger) {
         const labels = this.strings;
         if (profile.source_type === "media_player" && profile.output_entity_id)
             return labels.artworkTrigger;
         if (profile.source_type === "camera" && profile.interval_minutes)
             return labels.everyMinutes.replace("{minutes}", String(profile.interval_minutes));
-        return labels.manualTrigger;
+        return manual;
     }
     renderAnalysisRows() {
         const labels = this.strings;
         const hass = this._hass;
-        const rows = (this.profiles ?? []).map(profile => {
+        if (!hass || !this.profiles?.length) {
+            this.analysisList.clear();
+            return;
+        }
+        const search = this.element("analysisSearch");
+        const normalize = (value) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+        const terms = normalize((search.value ?? "").trim()).split(/\s+/).filter(Boolean);
+        const rows = this.profiles.map(profile => {
             const id = profile.entity_id;
-            const state = id ? hass?.states[id] : undefined;
+            const state = id ? hass.states[id] : undefined;
             const source = state?.attributes.friendly_name || id || labels[profile.source_type];
             const sourceMissing = profile.source_type !== "upload" &&
-                (!id || Boolean(hass?.entities && !hass.entities[id] && !state));
+                (!id || Boolean(hass.entities && !hass.entities[id] && !state));
             const warning = sourceMissing ? labels.missingSource : !profile.available ? labels.profile_unavailable :
                 profile.module === "meter" && !profile.meter_initialized ? this.meterLabels.reasons.meter_unconfirmed : "";
             const trigger = this.analysisTrigger(profile);
@@ -613,52 +598,24 @@ class ImageLabPanel extends HTMLElement {
                 trigger, schedule: profile.source_type === "camera" && profile.interval_minutes
                     ? `${profile.interval_minutes} min` : trigger === labels.manualTrigger ? "" : trigger,
             };
-        });
-        rows.sort((first, second) => Number(Boolean(second.warning)) - Number(Boolean(first.warning)));
-        this.analysisTable.data = rows;
-        this.renderAnalysisGroups();
-    }
-    renderAnalysisGroups() {
-        if (!this.hasAttribute("narrow") || !this._hass || !this.profiles?.length) {
-            this.analysisList.clear();
-            return;
-        }
-        const { data, filter, sortColumn, sortDirection } = this.analysisTable;
-        const normalize = (value) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-        const terms = normalize(filter.trim()).split(/\s+/).filter(Boolean);
-        const rows = data.filter(row => {
+        }).filter(row => {
             const searchable = normalize([row.name, row.type, row.source, row.trigger, row.warning].join(" "));
             return terms.every(term => searchable.includes(term));
         });
-        if (sortColumn && sortDirection) {
-            const direction = sortDirection === "asc" ? 1 : -1;
-            const collator = new Intl.Collator(this._hass.locale.language, { sensitivity: "base", numeric: true });
-            rows.sort((a, b) => direction * collator.compare(a[sortColumn], b[sortColumn]));
+        if (this.sort) {
+            const { column, direction } = this.sort;
+            const collator = new Intl.Collator(hass.locale.language, { sensitivity: "base", numeric: true });
+            rows.sort((a, b) => (direction === "asc" ? 1 : -1) * collator.compare(a[column], b[column]));
         }
-        this.analysisList.render(rows, this._hass, this.strings.noMatchingAnalyses);
+        else {
+            rows.sort((a, b) => Number(Boolean(b.warning)) - Number(Boolean(a.warning)));
+        }
+        this.analysisList.render(rows, hass, labels.noMatchingAnalyses);
     }
-    renderAnalysisColumns() {
+    renderAnalysisControls() {
         const labels = this.strings;
         this.element("analysisList").setAttribute("aria-label", labels.analyses);
         this.element("analysisSearch").setAttribute("label", labels.searchAnalyses);
-        const columnDefaults = { minWidth: "0", filterable: true, sortable: true };
-        this.analysisTable.columns = {
-            name: {
-                ...columnDefaults, title: labels.nameColumn, flex: 1.6,
-                template: row => this.analysisNameCell(row),
-            },
-            type: {
-                ...columnDefaults, title: labels.typeColumn,
-                template: row => {
-                    const type = document.createElement("span");
-                    type.style.cssText = "white-space:normal;overflow-wrap:anywhere;line-height:1.2";
-                    type.textContent = row.type;
-                    return type;
-                },
-            },
-            source: { ...columnDefaults, title: labels.sourceColumn },
-            trigger: { ...columnDefaults, title: labels.triggerColumn },
-        };
         this.element("analysisSortButton").setAttribute("label", labels.sortBy);
         const sort = this.element("analysisSort");
         const options = [
@@ -681,39 +638,9 @@ class ImageLabPanel extends HTMLElement {
         this.updateAnalysisSort();
     }
     updateAnalysisSort() {
-        const { sortColumn, sortDirection } = this.analysisTable;
-        const active = sortDirection ? `${sortColumn}:${sortDirection}` : "warnings";
+        const active = this.sort ? `${this.sort.column}:${this.sort.direction}` : "warnings";
         for (const item of this.element("analysisSort").querySelectorAll("ha-dropdown-item"))
             item.checked = item.getAttribute("value") === active;
-    }
-    analysisNameCell(row) {
-        // Keep a native keyboard target on Home Assistant versions that only handle row clicks.
-        const name = document.createElement("div");
-        name.style.cssText = "min-width:0;max-width:100%;line-height:1.2";
-        const action = document.createElement("ha-button");
-        action.id = `analysis-${row.id}`;
-        action.style.cssText = "display:block;width:fit-content;max-width:100%;text-align:start";
-        action.setAttribute("appearance", "plain");
-        action.setAttribute("size", "s");
-        action.textContent = row.name;
-        action.title = row.name;
-        action.onclick = () => this.select(row.id);
-        name.append(action);
-        if (row.warning) {
-            const details = document.createElement("span");
-            details.style.cssText = "display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                + "font-size:var(--ha-font-size-s,12px);line-height:var(--ha-line-height-normal,1.4);"
-                + "color:var(--secondary-text-color)";
-            details.textContent = row.warning;
-            details.title = row.warning;
-            const icon = document.createElement("ha-icon");
-            icon.setAttribute("icon", "mdi:alert-outline");
-            icon.setAttribute("aria-hidden", "true");
-            icon.style.cssText = "--mdc-icon-size:14px;color:var(--warning-color);margin-inline-end:4px";
-            details.prepend(icon);
-            name.append(details);
-        }
-        return name;
     }
     render(moveFocus = false) {
         const labels = this.strings;
@@ -734,7 +661,7 @@ class ImageLabPanel extends HTMLElement {
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
-        this.element("editSource").title = labels.editSource;
+        this.element("editSource").setAttribute("label", labels.editSource);
         this.element("copy").setAttribute("label", labels.copy);
         this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
         const profile = this.selected;
@@ -754,9 +681,7 @@ class ImageLabPanel extends HTMLElement {
         title.textContent = profile?.title ?? "Image Lab";
         title.title = title.textContent;
         const hasProfiles = Boolean(this.profiles?.length);
-        const narrow = this.hasAttribute("narrow");
-        this.analysisTable.hidden = !hasProfiles || narrow;
-        this.element("analysisGroups").hidden = !hasProfiles || !narrow;
+        this.element("analysisGroups").hidden = !hasProfiles;
         this.element("analysisControls").hidden = !hasProfiles;
         this.element("retry").hidden = !this.failed;
         const message = this.element("listMessage");
@@ -778,6 +703,7 @@ class ImageLabPanel extends HTMLElement {
         this.element("resultPane").hidden = isComparison || tab !== "result";
         this.element("historyPane").hidden = isComparison || tab !== "history";
         this.element("settingsPane").hidden = isComparison || tab !== "settings";
+        this.updateSourceThumbnail();
         if (!isComparison && tab === "settings")
             this.showModuleSettings();
         if (!profile)
@@ -786,15 +712,7 @@ class ImageLabPanel extends HTMLElement {
         const schedule = this.element("scheduleHint");
         schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
         schedule.textContent = labels.frequencyMediaInactive;
-        const sourceName = profile.entity_id
-            ? this._hass?.states[profile.entity_id]?.attributes.friendly_name || profile.entity_id
-            : undefined;
-        const trigger = camera ? undefined : profile.output_entity_id && profile.source_type === "media_player"
-            ? labels.artworkTrigger : labels.onDemand;
-        this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[profile.source_type]}`);
-        this.element("sourceKind").textContent = camera ? labels.cameraLabel : labels[profile.source_type];
-        this.element("sourceSummary").textContent =
-            [sourceName ?? (profile.source_type !== "upload" ? labels.missingSource : undefined), trigger].filter(Boolean).join(" · ");
+        this.renderSource(profile);
         this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
         this.element("meterSettings").hidden = profile.module !== "meter";
         this.element("meterSettings").toggleAttribute("disabled", !profile.available);
@@ -808,6 +726,39 @@ class ImageLabPanel extends HTMLElement {
             title.focus({ preventScroll: true });
             if (!isComparison)
                 void this.loadPreview();
+        }
+    }
+    renderSource(profile) {
+        const labels = this.strings;
+        const kind = profile.source_type;
+        const entity = profile.entity_id;
+        const name = entity ? this._hass?.states[entity]?.attributes.friendly_name || entity : labels.missingSource;
+        this.element("sourceIcon").setAttribute("icon", `mdi:${sourceIcons[kind]}`);
+        this.element("sourceKind").textContent = kind === "camera" ? labels.cameraLabel : labels[kind];
+        this.element("sourceSummary").textContent = [
+            kind === "upload" ? undefined : name, this.analysisTrigger(profile, labels.onDemand),
+        ].filter(Boolean).join(" · ");
+    }
+    updateSourceThumbnail() {
+        const profile = this.selected;
+        const settingsOpen = profile?.module === "comparison" ? this.comparison.settingsOpen :
+            this.element("profileNav").getAttribute("active") === "settings";
+        if (!profile || !this._hass || !settingsOpen || !this.isConnected) {
+            void this.sourceThumbnail.show();
+        }
+        else if (profile.source_type === "upload") {
+            const path = `/api/image_lab/upload_thumbnail/${encodeURIComponent(profile.profile_id)}`;
+            void this.sourceThumbnail.show(`${path}?revision=${encodeURIComponent(profile.image_revision ?? "")}`, this._hass);
+        }
+        else {
+            let picture = profile.entity_id ? this._hass.states[profile.entity_id]?.attributes.entity_picture : undefined;
+            if (profile.source_type === "camera" && picture?.startsWith("/api/camera_proxy/")) {
+                const url = new URL(picture, location.origin);
+                url.searchParams.set("width", "240");
+                url.searchParams.set("height", "144");
+                picture = url.href;
+            }
+            void this.sourceThumbnail.show(picture);
         }
     }
     async savePublication(profileId, changes) {
@@ -868,6 +819,8 @@ class ImageLabPanel extends HTMLElement {
         }
     }
     paletteSwatches(colors) {
+        if (!colors?.length)
+            throw new Error("Missing palette");
         return colors.map((rgb) => {
             const row = document.createElement("li");
             const swatch = document.createElement("div");
@@ -880,10 +833,8 @@ class ImageLabPanel extends HTMLElement {
             return row;
         });
     }
-    async showObjects(detection, headers, stage, overlay, results, hass, signal) {
-        const { objects, truncated } = detection;
-        const width = Number(headers.get("X-Image-Lab-Width"));
-        const height = Number(headers.get("X-Image-Lab-Height"));
+    async showObjects(metadata, stage, overlay, results, hass, signal) {
+        const { width, height, data: { objects, truncated } } = metadata;
         if (!Array.isArray(objects) || width <= 0 || height <= 0)
             throw new Error("Missing detection result");
         const language = hass.locale.language;
@@ -921,14 +872,14 @@ class ImageLabPanel extends HTMLElement {
         const summary = this.objectSummary(objects.length);
         return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
     }
-    async readDetection(hass, path, imageId, signal) {
-        if (!imageId)
-            throw new Error("Missing detection image ID");
+    async readMetadata(hass, path, imageId, signal) {
         const response = await hass.fetchWithAuth(`${path}/${encodeURIComponent(imageId)}?metadata=1`, { signal });
         if (!response.ok)
-            throw new Error("Missing detection result");
-        const { data } = await response.json();
-        return data;
+            throw new Error("Missing capture metadata");
+        const metadata = await response.json();
+        if (metadata.image_id !== imageId)
+            throw new Error("Unexpected capture ID");
+        return metadata;
     }
     objectSummary(count) {
         return count === 0 ? this.strings.noObjects :
@@ -984,18 +935,21 @@ class ImageLabPanel extends HTMLElement {
                         `${item.count} ${this.strings[plurals.select(item.count) === "one" ? "historyObject" : "historyObjects"]}`),
                     color: item.dominant_hex ?? undefined,
                 }),
-                details: async (item, content, image, headers, detailSignal) => {
-                    if (profile.module === "palette") {
-                        const colors = this.readPalette(headers);
+                details: async (item, content, image, detailSignal) => {
+                    const metadata = item.meter
+                        ? { module: "meter", data: item.meter, reason: item.reason }
+                        : await this.readMetadata(hass, path, item.id, detailSignal);
+                    detailSignal.throwIfAborted();
+                    if (metadata.module === "palette") {
                         const list = document.createElement("ul");
                         list.className = "swatches";
-                        list.append(...this.paletteSwatches(colors));
+                        list.append(...this.paletteSwatches(metadata.data.palette_rgb));
                         content.append(list);
                     }
-                    else if (profile.module === "meter") {
+                    else if (metadata.module === "meter") {
                         const status = document.createElement("p");
                         status.className = "meter-status";
-                        status.textContent = meterText(this.readMeter(headers), hass.locale.language);
+                        status.textContent = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
                         content.append(status);
                     }
                     else {
@@ -1008,8 +962,7 @@ class ImageLabPanel extends HTMLElement {
                         stage.append(image, overlay);
                         const results = document.createElement("ul");
                         results.className = "object-list";
-                        const detection = await this.readDetection(hass, path, item.id, detailSignal);
-                        const summary = await this.showObjects(detection, headers, stage, overlay, results, hass, detailSignal);
+                        const summary = await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
                         const status = document.createElement("p");
                         status.textContent = summary;
                         content.append(status, results);
@@ -1023,18 +976,6 @@ class ImageLabPanel extends HTMLElement {
                 this.captureHistory.failed();
             }
         }
-    }
-    readMeter(headers) {
-        const data = headers.get("X-Image-Lab-Meter");
-        if (!data)
-            throw new Error("Missing meter result");
-        return JSON.parse(data);
-    }
-    readPalette(headers) {
-        const colors = JSON.parse(headers.get("X-Image-Lab-Palette-Rgb") ?? "null");
-        if (!colors?.length)
-            throw new Error("Missing palette");
-        return colors;
     }
     async loadPreview(manual = false) {
         const profile = this.selected;
@@ -1055,7 +996,7 @@ class ImageLabPanel extends HTMLElement {
                 type: "image_lab/test_source", profile_id: profile.profile_id,
             }) : undefined;
             controller.signal.throwIfAborted();
-            if (result && !result.image_id)
+            if (result?.image_id === null)
                 throw new Error(result.reason);
             const path = this.previewPath(profile);
             const response = await hass.fetchWithAuth(result?.image_id ? `${path}/${encodeURIComponent(result.image_id)}` : path, {
@@ -1078,22 +1019,25 @@ class ImageLabPanel extends HTMLElement {
                 throw new Error("Preview response was not an image");
             }
             const etag = response.headers.get("ETag");
-            const [blob, detection] = await Promise.all([
+            const imageId = etag?.slice(1, -1);
+            if (!imageId || (result && result.image_id !== imageId))
+                throw new Error("Unexpected capture ID");
+            const [blob, metadata] = await Promise.all([
                 response.blob(),
-                isDetection ? result?.data ?? this.readDetection(hass, path, etag?.slice(1, -1) ?? "", controller.signal) : undefined,
+                result ?? this.readMetadata(hass, path, imageId, controller.signal),
             ]);
             controller.signal.throwIfAborted();
-            const width = response.headers.get("X-Image-Lab-Width");
-            const height = response.headers.get("X-Image-Lab-Height");
-            if (detection) {
-                summary = await this.showObjects(detection, response.headers, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
+            if (metadata.module !== profile.module)
+                throw new Error("Unexpected capture module");
+            if (metadata.module === "object_detection") {
+                summary = await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
                 controller.signal.throwIfAborted();
             }
-            else if (profile.module === "meter") {
-                summary = meterText(this.readMeter(response.headers), hass.locale.language);
+            else if (metadata.module === "meter") {
+                summary = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
             }
             else {
-                this.element("swatches").replaceChildren(...this.paletteSwatches(this.readPalette(response.headers)));
+                this.element("swatches").replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
                 this.element("palette").hidden = false;
                 summary = this.strings.paletteReady;
             }
@@ -1105,12 +1049,10 @@ class ImageLabPanel extends HTMLElement {
             image.src = this.previewUrl;
             image.alt = this.strings.preview;
             const format = blob.type.split("/")[1]?.toUpperCase();
-            const time = response.headers.get("X-Image-Lab-Time");
-            const details = `${width} × ${height} px · ${format}`;
-            this.element("dimensions").textContent = time ?
-                this.observationLabel(time, response.headers.get("X-Image-Lab-Manual") === "1") + " · " + details : details;
+            const details = `${metadata.width} × ${metadata.height} px · ${format}`;
+            this.element("dimensions").textContent = this.observationLabel(metadata.time, metadata.manual) + " · " + details;
             this.element("preview").hidden = false;
-            if (response.headers.get("X-Image-Lab-Confirmation") === "disagreed") {
+            if (metadata.confirmation === "disagreed") {
                 summary += " · " + this.strings.notConfirmed;
             }
         }

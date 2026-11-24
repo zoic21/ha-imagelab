@@ -36,7 +36,6 @@ class SourceType(StrEnum):
     MEDIA_PLAYER = "media_player"
     UPLOAD = "upload"
 
-SOURCE_ANALYSIS = "analysis"
-SOURCE_RENAME = "rename"
+PANEL_FLOW = "image_lab_panel"
 INSTALLATION_ID = "image_lab_installation"
 MAX_INTERVAL_MINUTES = timedelta.max.days * 1440 - 1

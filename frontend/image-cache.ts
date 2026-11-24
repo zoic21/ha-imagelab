@@ -1,5 +1,3 @@
-export type CaptureImage = { blob: Blob; headers: Headers };
-
 export type ImageClient = {
   fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
 };
@@ -9,12 +7,12 @@ const maxImages = 256;
 
 /** Reuse immutable image IDs within the current authenticated panel session. */
 export class ImageCache {
-  private readonly images = new Map<string, CaptureImage>();
-  private readonly pending = new Map<string, Promise<CaptureImage>>();
+  private readonly images = new Map<string, Blob>();
+  private readonly pending = new Map<string, Promise<Blob>>();
   private scope = new AbortController();
   private bytes = 0;
 
-  async get(client: ImageClient, path: string, signal: AbortSignal): Promise<CaptureImage> {
+  async get(client: ImageClient, path: string, signal: AbortSignal): Promise<Blob> {
     signal.throwIfAborted();
     const image = this.images.get(path);
     if (image) {
@@ -45,7 +43,7 @@ export class ImageCache {
     this.bytes = 0;
   }
 
-  private async load(client: ImageClient, path: string, signal: AbortSignal): Promise<CaptureImage> {
+  private async load(client: ImageClient, path: string, signal: AbortSignal): Promise<Blob> {
     const response = await client.fetchWithAuth(path, { signal, cache: "no-store" });
     if (!response.ok) {
       const problem = await response.json().catch(() => ({}));
@@ -53,16 +51,15 @@ export class ImageCache {
     }
     const blob = await response.blob();
     signal.throwIfAborted();
-    const image = { blob, headers: response.headers };
     if (blob.size <= maxBytes) {
-      this.images.set(path, image);
+      this.images.set(path, blob);
       this.bytes += blob.size;
       for (const [key, entry] of this.images) {
         if (this.images.size <= maxImages && this.bytes <= maxBytes) break;
         this.images.delete(key);
-        this.bytes -= entry.blob.size;
+        this.bytes -= entry.size;
       }
     }
-    return image;
+    return blob;
   }
 }

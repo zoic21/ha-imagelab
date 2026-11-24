@@ -122,7 +122,11 @@ def compare_tarsius(
         counts.update({names[key]: value for key, value in detector.counts().items()})
         prediction = predict(detector, frame)
     except ImageError as err:
-        if err.reason in ("tarsius_needs_references", "blank_region"):
+        if err.reason == "tarsius_needs_references":
+            # No prediction was run, but the capture is still archived.
+            validate_image(frame.content)
+            return ModuleResult(data, err.reason)
+        if err.reason == "blank_region":
             return ModuleResult(data, err.reason)
         raise
 

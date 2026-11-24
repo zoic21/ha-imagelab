@@ -1,5 +1,16 @@
 # Nouveautés d’Image Lab
 
+## 0.2.0
+
+- **Comparaison d’images.** La référence la plus proche apparaît en légende sous la capture analysée. Sa vignette, son état et un lien permettent de retrouver la photo dans la galerie.
+- **Réglages.** Le panneau affiche un aperçu de la source et regroupe les réglages de publication de l’entité. Sur mobile, les onglets sont accessibles en bas de l’écran.
+- **Confirmation des changements.** La seconde lecture, lorsqu’elle est configurée, s’applique aux analyses planifiées par Image Lab. Les tests depuis le panneau et les analyses lancées par une action ou une automatisation rendent leur résultat dès la première lecture.
+- Sur ordinateur et sur mobile, l’accueil regroupe les analyses par type avec leur dernière vignette. Les captures verticales restent dans leur ligne.
+- Les formulaires ouverts depuis le panneau pour créer ou renommer une analyse ne font plus apparaître Image Lab parmi les intégrations découvertes.
+- **Analyses de caméra.** Image Lab évite un décodage redondant à chaque analyse. Les zones de palette et de détection sont archivées à leur résolution d’origine, avec une compression sans perte plus rapide pour les captures en couleur.
+- **Métadonnées des captures.** Pour lire la palette, le relevé du compteur ou les objets détectés, utilisez `GET /api/image_lab/preview/{profile_id}/{image_id}?metadata=1`. Le JSON inclut les dimensions, la date et le résultat. Les clients qui lisaient les en-têtes `X-Image-Lab-*` de l’aperçu peuvent utiliser l’identifiant de capture fourni par son `ETag`.
+- **Clients externes.** L’ancien `POST /api/image_lab/preview/{profile_id}` est retiré. Pour lancer une analyse, utilisez l’action Home Assistant `image_lab.analyze` ou la commande WebSocket `image_lab/test_source` avec `profile_id`. Pour régler la fréquence d’une caméra, remplacez `image_lab/set_schedule` par `image_lab/set_publication`, avec `profile_id` et `settings.interval_minutes`.
+
 ## 0.1.0
 
 Première version stable d’Image Lab pour Home Assistant. Les images sont analysées localement et les résultats peuvent déclencher vos automatisations.

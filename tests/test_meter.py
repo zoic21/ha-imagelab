@@ -200,3 +200,94 @@ def test_rebased_sensor_publishes_the_continuous_total_and_exposes_the_index():
     ))
     assert sensor.native_value == 520.25
     assert sensor.extra_state_attributes == {"meter_index": 2500.125}
+
+
+def test_rebase_serializes_with_analysis_and_restores_the_persisted_total(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    from homeassistant.config_entries import ConfigEntryState
+    from homeassistant.core import HomeAssistant
+
+    from custom_components import image_lab
+    from custom_components.image_lab import output
+    from custom_components.image_lab.analysis import AnalysisResult
+    from custom_components.image_lab.images import ImageError
+
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        entry = SimpleNamespace(
+            entry_id="water", title="Water", state=ConfigEntryState.LOADED,
+            data={"module": "meter", "source_type": "camera", "meter_seed": seed_state(0),
+                  "meter_settings": settings()},
+            pref_disable_polling=False, options={}, async_on_unload=Mock(),
+            modified_at=datetime.now(UTC),
+        )
+        hass.config_entries = SimpleNamespace(async_get_entry=lambda _: entry)
+        analyze = AsyncMock()
+        monkeypatch.setattr(output, "async_analyze", analyze)
+        monkeypatch.setattr(image_lab.er, "async_get", Mock())
+        monkeypatch.setattr(image_lab.er, "async_entries_for_config_entry", lambda *_: [])
+
+        # A meter can record and rebase even when no sensor is exposed.
+        await image_lab.async_setup_entry(hass, entry)
+        coordinator = entry.runtime_data
+        await coordinator.async_initialize()
+        assert coordinator.entity_response["data"] == {"meter_value": 0, "meter_total": 0}
+        analyze.assert_not_awaited()
+
+        reading, finish = asyncio.Event(), asyncio.Event()
+        result = AnalysisResult({"status": "ok", "data": {"value": 2}}, frame(), seed_state(2))
+
+        async def read(*_, **__):
+            reading.set()
+            await finish.wait()
+            return result
+
+        monkeypatch.setattr(output, "async_analyze", read)
+        manual = asyncio.create_task(coordinator.async_run_manual())
+        await asyncio.wait_for(reading.wait(), timeout=2)
+        revision = entry.modified_at.isoformat()
+        rebase = asyncio.create_task(coordinator.async_rebase_meter(40, revision))
+        await asyncio.sleep(0)
+        assert not rebase.done()
+        finish.set()
+        _, observation = await manual
+        await rebase
+        assert observation["response"] == result.response
+        assert coordinator.entity_response["data"] == {
+            "meter_value": 40, "meter_total": 2, "reading_status": "rebased",
+        }
+        with pytest.raises(ImageError, match="meter_settings_changed"):
+            await coordinator.async_rebase_meter(99, "old revision")
+
+        await image_lab.async_setup_entry(hass, entry)
+        restored = entry.runtime_data
+        await restored.async_initialize()
+        assert restored.entity_response["data"] == {"meter_value": 40, "meter_total": 2}
+        with pytest.raises(ImageError, match="meter_settings_changed"):
+            await coordinator.async_rebase_meter(99, revision)
+
+        rejected = AnalysisResult({
+            "status": "unknown", "reason": "meter_fault", "data": {"candidate": 45},
+        }, result.frame)
+        monkeypatch.setattr(output, "async_analyze", AsyncMock(return_value=rejected))
+        attempted, observation = await restored.async_run_manual()
+        assert attempted.response == observation["response"] == rejected.response
+        assert restored.entity_response["data"] == {
+            "meter_value": 40, "meter_total": 2, "candidate": 45, "reading_status": "meter_fault",
+        }
+
+        # An accepted candidate whose observation cannot be saved must not advance the entity.
+        def fail_write(*_):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(restored.store, "_record", fail_write)
+        monkeypatch.setattr(output, "async_analyze", AsyncMock(return_value=result))
+        failure, observation = await restored.async_run_manual()
+        assert failure.response["reason"] == "storage_error"
+        assert observation is None
+        assert restored.entity_response["data"] == {
+            "meter_value": 40, "meter_total": 2, "reading_status": "storage_error",
+        }
+
+    asyncio.run(run())

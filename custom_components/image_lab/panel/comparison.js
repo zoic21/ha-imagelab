@@ -72,8 +72,8 @@ template.innerHTML = `
     .recognizedState ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
     #result .secondary { margin-block-start:var(--ha-space-1, 4px); font-size:var(--ha-font-size-s, 12px); }
     #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
-    #comparisonImages { display:grid; gap:var(--ha-space-3, 12px); }
-    #comparisonImages figure { margin:0; min-width:0; }
+    #comparisonImages { min-width:0; }
+    #comparisonImages figure { margin:0 auto; width:min(100%, max(220px, calc(52dvh * var(--ratio, 1)))); }
     #captureCaption { margin:0 0 var(--ha-space-1, 4px); font-weight:var(--ha-font-weight-medium, 500); }
     .previewButton { display:block; width:100%; --ha-button-height:auto; }
     .previewButton::part(base) { padding:0; }
@@ -86,18 +86,24 @@ template.innerHTML = `
     .matchRow {
       display:grid; grid-template-columns:56px minmax(0,1fr) auto; align-items:center;
       gap:var(--ha-space-2, 8px); padding:var(--ha-space-2, 8px);
-      background:var(--secondary-background-color); color:var(--primary-text-color);
-      border-radius:var(--ha-border-radius-md, 8px); text-align:start; white-space:normal;
+      border-bottom:1px solid var(--divider-color); text-align:start;
     }
-    #matchCaption { font-size:var(--ha-font-size-s, 12px); }
-    #matchLink { --ha-button-border-radius:var(--ha-border-radius-md, 8px); }
+    figure:has(.matchRow:not([hidden])) #frame { border-end-start-radius:0; border-end-end-radius:0; }
+    .matchLabel {
+      display:flex; flex-wrap:wrap; align-items:center; gap:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
+      overflow-wrap:anywhere;
+    }
+    #matchCaption { font-weight:var(--ha-font-weight-medium, 500); }
+    #matchLink { color:var(--primary-color); }
     .matchThumbnail { display:grid; place-items:center; aspect-ratio:16 / 9; position:relative;
-      border-radius:inherit; overflow:hidden; }
+      border-radius:var(--ha-border-radius-md, 8px); overflow:hidden; }
     #matchFrame { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
     .matchThumbnail ha-icon { color:var(--secondary-text-color); }
     .matchThumbnail img:not([src]), .matchThumbnail:has(img[src]) ha-icon { visibility:hidden; }
-    #matchMeta { display:block; font-size:var(--ha-font-size-s, 12px); font-weight:var(--ha-font-weight-normal, 400); }
-    .matchIcon { color:var(--primary-color); --mdc-icon-size:20px; }
+    #matchMeta {
+      box-sizing:border-box; max-width:100%; padding:2px var(--ha-space-2, 8px); border:1px solid var(--divider-color);
+      border-radius:var(--ha-border-radius-pill, 999px); font-size:var(--ha-font-size-s, 12px);
+    }
     #scoreDetails { --expansion-panel-summary-padding:0; --expansion-panel-content-padding:0; }
     #scores > p { margin:0 0 var(--ha-space-1, 4px); }
     .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
@@ -184,8 +190,8 @@ template.innerHTML = `
     <p class="secondary" id="testHint" hidden></p>
     <div id="resultDetails"></div>
     <div id="comparisonImages" hidden>
+      <div id="captureCaption"></div>
       <figure>
-        <figcaption id="captureCaption"></figcaption>
         <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
           <span id="openCaptureLabel" class="accessibleLabel"></span>
           <span class="imagebox" id="imagebox">
@@ -193,16 +199,14 @@ template.innerHTML = `
             <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
           </span>
         </ha-button>
-      </figure>
-      <ha-button id="matchLink" class="previewButton" appearance="plain" variant="neutral" hidden>
-        <span class="matchRow">
+        <figcaption id="matchRow" class="matchRow" hidden>
           <span class="matchThumbnail" aria-hidden="true">
             <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
           </span>
-          <span><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
-          <ha-icon class="matchIcon" icon="mdi:link-variant" aria-hidden="true"></ha-icon>
-        </span>
-      </ha-button>
+          <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
+          <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
+        </figcaption>
+      </figure>
     </div>
     <ha-expansion-panel id="scoreDetails" hidden><div id="scores"></div></ha-expansion-panel>
   </section>
@@ -358,6 +362,9 @@ export class ImageLabComparison extends HTMLElement {
         this.localize();
         this.refresh();
     }
+    get settingsOpen() {
+        return this.tab === "settings";
+    }
     configure(client, profile, sourceKey, available = false) {
         const sameProfile = profile === this.profile;
         const changed = !sameProfile ||
@@ -439,6 +446,7 @@ export class ImageLabComparison extends HTMLElement {
             else
                 this.get(id).textContent = this.labels[label];
         }
+        this.get("matchLink").setAttribute("label", this.labels.view_reference);
         this.get("matchLink").title = this.labels.view_reference;
         this.get("scoreDetails").setAttribute("header", this.labels.state_scores);
         this.get("captureDialog").setAttribute("header-title", this.labels.currentCapture);
@@ -502,9 +510,9 @@ export class ImageLabComparison extends HTMLElement {
         this.get("openCapture").toggleAttribute("disabled", busy);
         const reference = this.gallery?.references.find(ref => ref.id === this.matchId);
         const state = this.gallery?.states.find(item => item.id === reference?.state_id);
-        this.get("matchLink").hidden = !reference;
+        this.get("matchRow").hidden = !reference;
         this.get("matchMeta").hidden = !state;
-        this.get("matchMeta").textContent = state ? `${this.labels.state} ${state.name}` : "";
+        this.get("matchMeta").textContent = state?.name ?? "";
         this.refreshSettings();
     }
     show(tab) {
@@ -691,7 +699,7 @@ export class ImageLabComparison extends HTMLElement {
         }
         if (decodedMatch.status === "rejected")
             this.setMatch();
-        this.get("imagebox").style.setProperty("--ratio", String(frame.naturalWidth / frame.naturalHeight));
+        this.get("comparisonImages").style.setProperty("--ratio", String(frame.naturalWidth / frame.naturalHeight));
         this.get("comparisonImages").hidden = false;
         this.captured = true;
     }
@@ -712,10 +720,7 @@ export class ImageLabComparison extends HTMLElement {
         }
         return table;
     }
-    async fetchImage(id, signal, thumbnail = false) {
-        return (await this.readImage(id, signal, thumbnail)).blob;
-    }
-    readImage(id, signal, thumbnail) {
+    fetchImage(id, signal, thumbnail = false) {
         const suffix = thumbnail ? "?thumbnail=1" : "";
         return this.images.get(this.client, this.url("/image/" + id + suffix), signal);
     }
@@ -831,7 +836,7 @@ export class ImageLabComparison extends HTMLElement {
         else {
             dialog.removeAttribute("header-subtitle");
         }
-        this.get("captureDialogBox").style.setProperty("--ratio", this.get("imagebox").style.getPropertyValue("--ratio"));
+        this.get("captureDialogBox").style.setProperty("--ratio", this.get("comparisonImages").style.getPropertyValue("--ratio"));
         this.get("captureDialogImage").src = this.frameUrl;
         paintRegion(this.get("captureDialogRegion"), this.result.data.region ?? null);
         dialog.setAttribute("open", "");
@@ -1115,9 +1120,9 @@ export class ImageLabComparison extends HTMLElement {
             return;
         this.history.localize(this.client);
         this.history.render(this.gallery.history, {
-            image: (id, signal, thumbnail) => this.readImage(id, signal, thumbnail),
+            image: (id, signal, thumbnail) => this.fetchImage(id, signal, thumbnail),
             summary: item => ({ text: item.state_id ? item.state : this.labels.unknown, uncertain: !item.state_id }),
-            details: (item, content, _image, _response, signal) => this.historyDetails(item, content, signal),
+            details: (item, content, _image, signal) => this.historyDetails(item, content, signal),
         });
     }
     historyDetails(item, content, signal) {

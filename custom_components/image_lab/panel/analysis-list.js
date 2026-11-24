@@ -44,6 +44,7 @@ export const analysisListStyles = `
     font-weight: var(--ha-font-weight-normal, 400);
   }
   .analysisCaption.warning { color: var(--warning-color); }
+  .analysisCaption:not(:empty) { margin-block-start: var(--ha-space-1, 4px); }
   .analysisPreview {
     display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     width: 44px; height: 44px; overflow: hidden;

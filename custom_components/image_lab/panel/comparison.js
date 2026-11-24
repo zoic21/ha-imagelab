@@ -72,21 +72,13 @@ template.innerHTML = `
       gap:var(--ha-space-2, 8px); padding:var(--ha-space-2, 8px);
       border-top:1px solid var(--divider-color); text-align:start;
     }
-    .matchLabel {
-      display:flex; flex-wrap:wrap; align-items:center; gap:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
-      overflow-wrap:anywhere;
-    }
-    #matchCaption { font-weight:var(--ha-font-weight-medium, 500); }
+    #matchCaption { font-weight:var(--ha-font-weight-medium, 500); overflow-wrap:anywhere; }
     #matchLink { color:var(--primary-color); }
     .matchThumbnail { display:grid; place-items:center; aspect-ratio:16 / 9; position:relative;
       border-radius:var(--ha-border-radius-md, 8px); overflow:hidden; }
     #matchFrame { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
     .matchThumbnail ha-icon { color:var(--secondary-text-color); }
     .matchThumbnail img:not([src]), .matchThumbnail:has(img[src]) ha-icon { visibility:hidden; }
-    #matchMeta {
-      box-sizing:border-box; max-width:100%; padding:2px var(--ha-space-2, 8px); border:1px solid var(--divider-color);
-      border-radius:var(--ha-border-radius-pill, 999px); font-size:var(--ha-font-size-s, 12px);
-    }
     #scoreDetails { --expansion-panel-summary-padding:0; --expansion-panel-content-padding:0; }
     #scoreDetails, .state { --input-fill-color:transparent; }
     #scoreDetails::part(summary), .state::part(summary) {
@@ -182,7 +174,7 @@ template.innerHTML = `
       <span class="matchThumbnail" aria-hidden="true">
         <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
       </span>
-      <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
+      <span id="matchCaption"></span>
       <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
     </div>
   </section>
@@ -476,10 +468,7 @@ export class ImageLabComparison extends HTMLElement {
         this.get("captureAdd").toggleAttribute("disabled", busy || !this.get("captureState").value);
         this.get("openCapture").toggleAttribute("disabled", busy);
         const reference = this.gallery?.references.find(ref => ref.id === this.matchId);
-        const state = this.gallery?.states.find(item => item.id === reference?.state_id);
         this.get("matchRow").hidden = !reference || !hasFrame;
-        this.get("matchMeta").hidden = !state;
-        this.get("matchMeta").textContent = state?.name ?? "";
         this.refreshSettings();
     }
     selectTab(tab) {

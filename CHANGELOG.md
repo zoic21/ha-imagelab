@@ -1,5 +1,10 @@
 # Nouveautés d’Image Lab
 
+## 0.3.1
+
+- **Comparaison d’images.** La ligne « Référence la plus proche » affiche la vignette, le libellé et le lien vers la référence. La pastille d’état apparaît une seule fois, sur la ligne qui déplie les scores.
+- **Liste des analyses.** Un espace de 4 px sépare le nom de chaque analyse de son sous-titre.
+
 ## 0.3.0
 
 - **Résultats d’analyse.** Le bouton « Tester » est aligné avec le titre et la date apparaît juste en dessous. Les quatre types d’analyse présentent leurs résultats sous l’image.

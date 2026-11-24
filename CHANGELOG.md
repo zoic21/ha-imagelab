@@ -1,5 +1,9 @@
 # Nouveautés d’Image Lab
 
+## À venir
+
+- **Clients externes.** L’ancien `POST /api/image_lab/preview/{profile_id}` est retiré. Pour lancer une analyse, utilisez l’action Home Assistant `image_lab.analyze` ou la commande WebSocket `image_lab/test_source` avec `profile_id`. Pour régler la fréquence d’une caméra, remplacez `image_lab/set_schedule` par `image_lab/set_publication`, avec `profile_id` et `settings.interval_minutes`.
+
 ## 0.1.0
 
 Première version stable d’Image Lab pour Home Assistant. Les images sont analysées localement et les résultats peuvent déclencher vos automatisations.

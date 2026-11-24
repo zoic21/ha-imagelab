@@ -15,7 +15,7 @@ const actionIcons = {
     add_state: "plus", cancel: "close", classify: "tag-plus-outline",
     correct: "tag-edit-outline", edit_zone: "crop",
     move: "arrow-right", reload: "refresh", remove: "delete-outline",
-    rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
+    rename: "pencil-outline", save: "content-save-outline",
     upload: "file-upload",
 };
 const template = document.createElement("template");
@@ -48,15 +48,9 @@ template.innerHTML = `
       padding-block:var(--ha-space-3, 12px);
     }
     #preview { display:grid; gap:var(--ha-space-3, 12px); }
-    .resultHeader {
-      display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start;
-      gap:var(--ha-space-2, 8px);
-    }
-    #test { grid-column:2; justify-self:end; }
     #previewHint, #testHint, #result p, #resultDetails p { margin:0; }
     #previewHint:empty, #resultDetails:empty { display:none; }
     ${resultStyles}
-    #result { align-self:center; }
     .resultBadge ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
     #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
     #comparisonImages { min-width:0; }
@@ -163,10 +157,7 @@ template.innerHTML = `
   </ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel">
-    <div class="resultHeader">
-      <div id="result" class="resultMeta" aria-live="polite" hidden></div>
-      <ha-button id="test" variant="brand"></ha-button>
-    </div>
+    <div id="result" class="resultMeta" aria-live="polite" hidden></div>
     <p class="secondary" id="previewHint" role="status"></p>
     <p class="secondary" id="testHint" hidden></p>
     <div id="resultDetails"></div>
@@ -234,6 +225,7 @@ template.innerHTML = `
 export class ImageLabComparison extends HTMLElement {
     images;
     publication;
+    updateTestButton;
     client;
     profile;
     sourceKey;
@@ -254,10 +246,11 @@ export class ImageLabComparison extends HTMLElement {
     history;
     historySettings;
     expandedStates = new Set();
-    constructor(images = new ImageCache(), publication) {
+    constructor(images = new ImageCache(), publication, updateTestButton) {
         super();
         this.images = images;
         this.publication = publication;
+        this.updateTestButton = updateTestButton;
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
         this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
         const historySettings = this.get("historySettings");
@@ -277,7 +270,6 @@ export class ImageLabComparison extends HTMLElement {
             }
         });
         this.onClick("reload", () => this.load());
-        this.onClick("test", () => this.evaluate());
         this.onClick("confirmReferences", () => this.task(async (signal) => {
             const review_id = this.gallery?.reference_review;
             if (review_id)
@@ -403,7 +395,6 @@ export class ImageLabComparison extends HTMLElement {
         this.historySettings.localize(this.client?.locale.language);
         const names = {
             analysisSettingsTitle: "analysis",
-            test: "test",
             captureAdd: "classify",
             addState: "add_state",
             reload: "reload",
@@ -466,9 +457,7 @@ export class ImageLabComparison extends HTMLElement {
         confirmReferences.textContent = this.labels.confirm_references;
         confirmReferences.toggleAttribute("disabled", busy);
         this.get("preview").setAttribute("aria-busy", String(busy));
-        const test = this.get("test");
-        test.toggleAttribute("disabled", !this.gallery || busy || !this.available);
-        test.toggleAttribute("loading", this.activity === "analyzing");
+        this.updateTestButton?.(!this.gallery || busy || !this.available, this.activity === "analyzing");
         this.get("addState").toggleAttribute("disabled", !this.gallery || busy);
         this.get("references").setAttribute("aria-busy", String(busy));
         this.get("gallery").inert = busy;

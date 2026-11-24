@@ -24,6 +24,7 @@ template.innerHTML = `
     .heading img { flex: none; width: 26px; height: 26px; background: none; }
     h1 { display: inline-block; margin: 0; font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
     #title:focus { outline: none; }
+    #heading #test { flex: none; margin-inline-start: auto; }
     #add {
       position: absolute; z-index: 3;
       inset-inline-end: calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
@@ -67,11 +68,11 @@ template.innerHTML = `
       padding-block: var(--ha-space-3, 12px);
     }
     .settingsTitle { font-size: 1rem; margin: 0 0 8px; }
-    .resultHeader, .settingsInfo {
+    .settingsInfo {
       display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-2, 8px);
     }
-    .resultHeader p, .settingsInfo p { margin: 0; }
+    #status, .settingsInfo p { margin: 0; }
     .sourceRow {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-3, 12px); overflow-wrap: anywhere;
@@ -140,6 +141,7 @@ template.innerHTML = `
     ${profileTab("historyTab", "history", "historyPane", "history")}
     ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
   </ha-tab-group>
+  <ha-button id="test" variant="brand" slot="actionItems" hidden></ha-button>
   <ha-dropdown id="profileMenu" slot="actionItems" placement="bottom-end" hidden>
     <ha-icon-button id="profileMenuButton" slot="trigger" aria-haspopup="menu">
       <ha-icon icon="mdi:dots-vertical" aria-hidden="true"></ha-icon>
@@ -167,12 +169,9 @@ template.innerHTML = `
       <section class="content">
         <div id="profile">
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
-            <div class="resultHeader">
-              <div role="status">
-                <div class="resultMeta" id="resultMeta"></div>
-                <p id="status" class="secondary"></p>
-              </div>
-              <ha-button id="test" variant="brand"></ha-button>
+            <div role="status">
+              <div class="resultMeta" id="resultMeta"></div>
+              <p id="status" class="secondary"></p>
             </div>
             <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
             <ul id="palette" class="swatches" hidden></ul>
@@ -273,10 +272,16 @@ class ImageLabPanel extends HTMLElement {
         historyFields.addEventListener("selected", () => this.refreshSettingsSave());
         historyFields.addEventListener("input", () => this.refreshSettingsSave());
         this.element("settingsSave").addEventListener("click", () => void this.saveSettings());
+        const test = this.element("test");
         this.comparison = new ImageLabComparison(this.images, {
             draft: profile => this.publication.draft(profile),
             save: (profile, changes) => this.savePublication(profile, changes),
             setStates: states => this.publication.setStates(states),
+        }, (disabled, loading) => {
+            if (this.selected?.module !== "comparison")
+                return;
+            test.toggleAttribute("disabled", disabled);
+            test.toggleAttribute("loading", loading);
         });
         this.publication = new PublicationSettings(this.element("publication"), () => {
             if (this.selected?.module === "comparison")
@@ -288,7 +293,7 @@ class ImageLabPanel extends HTMLElement {
         this.comparison.addEventListener("analysis-tab-changed", (event) => {
             if (this.selected?.module !== "comparison")
                 return;
-            this.element("profileNav").setAttribute("active", event.detail);
+            this.setActiveTab(event.detail);
             this.resetMobileTabScroll();
             this.updateSourceThumbnail();
         });
@@ -327,7 +332,12 @@ class ImageLabPanel extends HTMLElement {
                     detail: { entityId }, bubbles: true, composed: true,
                 }));
         });
-        this.element("test").addEventListener("click", () => void this.loadPreview(true));
+        test.addEventListener("click", () => {
+            if (this.selected?.module === "comparison")
+                void this.comparison.evaluate();
+            else
+                void this.loadPreview(true);
+        });
         this.element("zone").addEventListener("click", () => {
             const profile = this.selected;
             if (!profile || !this._hass)
@@ -543,12 +553,16 @@ class ImageLabPanel extends HTMLElement {
         if (this.hasAttribute("narrow") && scroller)
             scroller.scrollTop = 0;
     }
+    setActiveTab(tab) {
+        this.element("profileNav").setAttribute("active", tab);
+        this.element("test").hidden = !this.selected || tab !== "result";
+    }
     showTab(tab, refresh = true) {
         const previous = this.element("profileNav").getAttribute("active");
         const returning = previous !== "result" || this.element("resultPane").hidden;
         if (refresh && previous !== tab)
             this.resetMobileTabScroll();
-        this.element("profileNav").setAttribute("active", tab);
+        this.setActiveTab(tab);
         this.element("resultPane").hidden = tab !== "result";
         this.element("historyPane").hidden = tab !== "history";
         this.element("settingsPane").hidden = tab !== "settings";
@@ -741,7 +755,17 @@ class ImageLabPanel extends HTMLElement {
         const headingParent = this.element(wideDetail ? "profile" : "appBar");
         if (heading.parentElement !== headingParent)
             headingParent.prepend(heading);
-        const tab = this.element("profileNav").getAttribute("active");
+        const test = this.element("test");
+        if (wideDetail && test.parentElement !== heading) {
+            test.removeAttribute("slot");
+            heading.append(test);
+        }
+        else if (!wideDetail && test.parentElement !== this.element("appBar")) {
+            test.slot = "actionItems";
+            this.element("appBar").insertBefore(test, this.element("profileMenu"));
+        }
+        const tab = nav.getAttribute("active");
+        test.hidden = !profile || tab !== "result";
         this.element("resultPane").hidden = isComparison || tab !== "result";
         this.element("historyPane").hidden = isComparison || tab !== "history";
         this.element("settingsPane").hidden = isComparison || tab !== "settings";
@@ -759,7 +783,8 @@ class ImageLabPanel extends HTMLElement {
         this.element("meterSettings").hidden = profile.module !== "meter";
         this.element("meterSettings").toggleAttribute("disabled", !profile.available);
         this.element("profileId").textContent = profile.profile_id;
-        this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
+        if (!isComparison)
+            test.toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
         if (opened) {
             const scroller = this.scrollTarget;
             if (scroller)

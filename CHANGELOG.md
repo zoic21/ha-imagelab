@@ -1,5 +1,13 @@
 # Nouveautés d’Image Lab
 
+## 0.3.0
+
+- **Résultats d’analyse.** Le bouton « Tester » est aligné avec le titre et la date apparaît juste en dessous. Les quatre types d’analyse présentent leurs résultats sous l’image.
+- **Détection d’objets.** Chaque type d’objet a sa couleur. Le cadre sur l’image et la pastille qui indique le nom de l’objet et son score utilisent la même couleur.
+- **Comparaison d’images.** Un clic sur la pastille d’état déplie les scores sous la capture. Les scores et les panneaux de référence se déplient sans surbrillance.
+- **Palette et compteur.** Les couleurs extraites et leurs codes s’affichent sous la capture. La lecture du compteur apparaît dans une pastille avec son unité.
+- **Configuration.** Sur ordinateur, les onglets avec icônes sont centrés en haut de la page et la flèche de retour reste à gauche. Le bouton flottant « Enregistrer » apparaît lorsqu’un réglage est modifié.
+
 ## 0.2.0
 
 - **Comparaison d’images.** La référence la plus proche apparaît en légende sous la capture analysée. Sa vignette, son état et un lien permettent de retrouver la photo dans la galerie.

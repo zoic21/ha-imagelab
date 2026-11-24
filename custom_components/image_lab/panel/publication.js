@@ -31,8 +31,6 @@ export const publicationMarkup = `
       <ha-input id="publicationCustom" type="number" min="1" max="${maxIntervalMinutes}" step="1" hidden></ha-input>
     </div>
     <ha-alert id="publicationError" alert-type="error" role="alert" hidden></ha-alert>
-    <p id="publicationStatus" class="secondary" role="status" hidden></p>
-    <ha-button id="publicationSave" variant="brand" size="l" hidden></ha-button>
   </section>`;
 export const publicationStyles = `
   .publicationFields, .publicationPair { display:grid; gap:var(--ha-space-2, 8px); min-width:0; }
@@ -55,32 +53,20 @@ export const publicationStyles = `
     white-space:normal; overflow-wrap:anywhere; text-align:start;
   }
   #outputEntity::part(base) { padding-inline:var(--ha-space-2, 8px); }
-  #publicationError, #publicationStatus { margin-block:var(--ha-space-2, 8px) 0; }
-  #settingsPane:has(#publicationSave:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
-  #publicationSave {
-    position:fixed; z-index:3;
-    inset-inline-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
-    inset-block-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px) + var(--save-tab-offset, 0px));
-    --ha-button-box-shadow:var(--ha-box-shadow-l);
-  }
-  :host([narrow]) #publicationSave { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
+  #publicationError { margin-block:var(--ha-space-2, 8px) 0; }
 `;
 export class PublicationSettings {
     root;
     changed;
-    save;
     profile;
     context;
     snapshot;
     states = [];
     labels = publicationStrings.en;
-    saving;
-    constructor(root, changed, save, openReferences) {
+    constructor(root, changed, openReferences) {
         this.root = root;
         this.changed = changed;
-        this.save = save;
         this.get("publicationReferences").addEventListener("click", openReferences);
-        this.get("publicationSave").addEventListener("click", () => void this.saveForm());
         const fields = this.get("publicationFields");
         fields.addEventListener("selected", event => {
             const target = event.target;
@@ -120,7 +106,7 @@ export class PublicationSettings {
             this.localize();
         if (contextChanged || savedChanged) {
             this.fill(profile.publication.settings);
-            this.status();
+            this.error("");
         }
         this.setEntity(entityId, entityName);
         this.refresh();
@@ -147,7 +133,6 @@ export class PublicationSettings {
             publicationReferencesHint: labels.need_two_states, publicationConfirmationHint: labels.confirmationHint,
         }))
             this.get(id).textContent = label;
-        actionLabel(this.get("publicationSave"), labels.save, "content-save-outline");
         actionLabel(this.get("publicationReferences"), labels.references, "image-multiple-outline");
         this.select("Output").label = labels.output;
         this.select("OnState").label = labels.on;
@@ -229,14 +214,8 @@ export class PublicationSettings {
         return Object.keys(changes).length ? changes : undefined;
     }
     edited() {
-        this.status();
-        this.refresh();
-    }
-    status(message = "") {
-        const element = this.get("publicationStatus");
-        element.textContent = message;
-        element.hidden = !message;
         this.error("");
+        this.refresh();
     }
     error(message) {
         const element = this.get("publicationError");
@@ -248,7 +227,6 @@ export class PublicationSettings {
         if (!profile || !this.snapshot)
             return;
         const comparison = profile.module === "comparison";
-        const busy = this.saving === profile.profile_id;
         const output = this.select("Output").value;
         this.get("publicationNeedsStates").hidden = !comparison || this.states.length >= 2;
         this.get("publicationMapping").hidden = output !== "binary";
@@ -258,50 +236,11 @@ export class PublicationSettings {
         this.field("Confirmation").toggleAttribute("disabled", output === "none");
         this.get("publicationConfirmationHint").hidden = !this.confirmation || output === "none";
         this.field("Custom").hidden = !this.camera || this.select("Interval").value !== "custom";
-        this.get("publicationFields").inert = busy;
-        let pending = false;
-        let invalid = false;
-        try {
-            pending = Boolean(this.draft(profile.profile_id));
-        }
-        catch (error) {
-            pending = invalid = true;
-            if (!comparison)
-                this.error(this.message(error));
-        }
-        const save = this.get("publicationSave");
-        save.hidden = comparison || (!pending && !busy);
-        save.toggleAttribute("disabled", invalid || busy);
-        save.toggleAttribute("loading", busy);
         this.changed();
     }
-    message(error) {
+    showError(error) {
         const key = error instanceof Error ? error.message : error?.code;
         const labels = this.labels;
-        return key && typeof labels[key] === "string" ? labels[key] : this.labels.failed;
-    }
-    async saveForm() {
-        const id = this.profile?.profile_id;
-        if (!id || this.saving === id)
-            return;
-        try {
-            const changes = this.draft(id);
-            if (!changes)
-                return;
-            this.saving = id;
-            this.refresh();
-            await this.save(id, changes);
-            if (this.profile?.profile_id === id)
-                this.status(this.labels.saved);
-        }
-        catch (error) {
-            if (this.profile?.profile_id === id)
-                this.error(this.message(error));
-        }
-        finally {
-            if (this.saving === id)
-                this.saving = undefined;
-            this.refresh();
-        }
+        this.error(key && typeof labels[key] === "string" ? labels[key] : this.labels.failed);
     }
 }

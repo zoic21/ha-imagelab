@@ -39,7 +39,7 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 L’accueil regroupe les analyses par type sur ordinateur comme sur mobile. Chaque ligne affiche le nom de l’analyse et la vignette de sa dernière capture quand elle existe. La recherche et le tri portent sur le nom, le type, la source et le déclenchement. Par défaut, les analyses qui demandent une intervention apparaissent en tête de leur groupe. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source** et **Publication**. Cliquer sur le nom de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. La comparaison dispose aussi de l’onglet **Références**. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
-**Résultat** affiche la dernière analyse manuelle ou automatique, avec l’image utilisée, le résultat et la date. Ouvrir la fiche ne déclenche aucune capture. Si l’analyse n’a encore jamais donné de résultat, sélectionner **Tester la source**. Ce bouton utilise les réglages enregistrés, ajoute la capture à l’historique et actualise l’entité configurée.
+**Résultat** affiche la dernière analyse manuelle ou automatique, avec l’image utilisée, le résultat et la date. Ouvrir la fiche ne déclenche aucune capture. Si l’analyse n’a encore jamais donné de résultat, sélectionner **Tester**. Ce bouton utilise les réglages enregistrés, ajoute la capture à l’historique et actualise l’entité configurée.
 
 ### Publier le résultat dans une entité
 
@@ -62,13 +62,13 @@ Dans la fiche de l’analyse, ouvrir **Réglages → Publication**. Avec une cam
 
 Dans **Publication**, le champ **Confirmation** s’applique aux analyses caméra lancées selon l’intervalle configuré dans Image Lab. Le délai accepte de 1 à 60 secondes. La valeur 0 désactive la confirmation. Le premier état connu est publié immédiatement. Lorsqu’une analyse planifiée détecte un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
 
-Le bouton **Tester la source** et l’action `image_lab.analyze` traitent une seule capture et publient son résultat immédiatement, y compris quand Home Assistant exécute l’action dans une automatisation. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
+Le bouton **Tester** et l’action `image_lab.analyze` traitent une seule capture et publient son résultat immédiatement, y compris quand Home Assistant exécute l’action dans une automatisation. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
 
 ### Suivre plusieurs zones sur une caméra
 
 Créer une analyse par zone, choisir la même entité caméra et nommer chaque analyse selon ce qu’elle surveille. Par exemple, **Portillon** peut publier un capteur d’ouverture par comparaison et **Allée** le nombre de voitures par détection d’objets. Chaque profil garde ses réglages, son entité et sa fréquence.
 
-Pour la comparaison, la palette et la détection, ouvrir **Réglages → Modifier la zone d’analyse**. Tracer le rectangle sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer dans la même fenêtre. **Tester la source** montre le résultat sur le cadrage choisi.
+Pour la comparaison, la palette et la détection, ouvrir **Réglages → Modifier la zone d’analyse**. Tracer le rectangle sur l’image entière ou saisir les coordonnées en pourcentage, puis enregistrer dans la même fenêtre. **Tester** montre le résultat sur le cadrage choisi.
 
 Quand plusieurs analyses automatiques de la même caméra arrivent à échéance ensemble, Home Assistant prend une seule image pour toutes ces zones. Avec des intervalles de 2 et 5 minutes, les deux zones partagent donc la capture toutes les 10 minutes. Un test ou une action manuelle demande sa propre capture.
 
@@ -83,7 +83,7 @@ Dans le détail d’une comparaison, choisir l’état attendu puis **Ajouter co
 ### Comparer des images
 
 1. Dans **Références**, créer un état par situation à reconnaître. Les états sont repliés à l’ouverture de la fiche. Déplier un état pour consulter ou importer ses images de référence. Les anciennes images de validation deviennent des références pour l’état auquel elles étaient associées.
-2. **Résultat** affiche la dernière capture et sa référence la plus proche côte à côte, si la référence est disponible. **Tester la source** relance l’analyse. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
+2. **Résultat** affiche la dernière capture avec sa référence la plus proche en légende, si elle est disponible. **Tester** relance l’analyse. **Ajouter comme référence** ajoute la capture affichée à l’état choisi.
 3. Dans **Réglages**, ajuster la distance maximale (25 par défaut) et l’écart minimal (3 par défaut) sur une échelle de 0 à 255. **Modifier la zone d’analyse** permet de cadrer à la souris, au doigt ou en pourcentage. Enregistrer les réglages avant de relancer un test.
 
 Un changement de caméra remet la zone à l’image entière et suspend la reconnaissance des états. Vérifier le cadrage et la galerie, puis sélectionner **Réutiliser les références** pour reprendre la comparaison.
@@ -97,14 +97,14 @@ Les originaux sont conservés dans la configuration Home Assistant. Le cadrage s
 ### Extraire une palette
 
 1. Créer une analyse **Palette de couleurs** et choisir un lecteur multimédia, une caméra ou une image importée. Régler le nombre de couleurs de 1 à 10. Les analyses existantes utilisent cinq couleurs par défaut.
-2. Dans Image Lab, choisir **Tester la source** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
+2. Dans Image Lab, choisir **Tester** pour afficher l’image analysée et les échantillons avec leurs codes hexadécimaux. Le premier échantillon indique la couleur dominante.
 3. Pour modifier le nombre de couleurs, ouvrir **Réglages** dans la fiche de l’analyse.
 
 ### Détecter des objets
 
 1. Créer une analyse **Détection d’objets** et choisir une caméra ou importer une image.
 2. Sélectionner les catégories à rechercher ou laisser le champ vide pour utiliser les 80 catégories COCO. Le seuil de confiance est de 40 % par défaut.
-3. Dans Image Lab, sélectionner **Tester la source** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Réglages** dans la fiche de l’analyse.
+3. Dans Image Lab, sélectionner **Tester** pour afficher les objets encadrés et leurs scores. Pour modifier les catégories ou le seuil, ouvrir **Réglages** dans la fiche de l’analyse.
 
 NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analyse nécessite un accès à PyPI pour installer le moteur et à GitHub pour télécharger le modèle officiel de 2,2 Mo. Le modèle est vérifié et conservé dans la configuration Home Assistant. Les analyses suivantes utilisent ce modèle local et les images restent sur Home Assistant. [NanoDet-Plus](https://github.com/RangiLyu/nanodet) · [Modèle ncnn](https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1)
 
@@ -114,7 +114,7 @@ NanoDet-Plus 416 × 416 s’exécute sur le CPU avec `ncnn`. La première analys
 2. Dans **Réglages → Calibrer le compteur**, choisir l’eau, le gaz ou l’électricité. Utiliser **Rotation** pour mettre les chiffres à l’horizontale. Utiliser le zoom et le bouton **Déplacer l’image** pour voir le cadran de plus près. Dans **Rouleaux**, indiquer le nombre de chiffres entiers et de chiffres décimaux, puis tracer un seul rectangle autour de tous les rouleaux.
 3. Pour un compteur à rouleaux et aiguilles, cliquer sur **Ajouter un cadran** puis tracer sa zone sur l’image. Commencer par le cadran le plus significatif. Le facteur affiché à côté de chaque cadran dépend des rouleaux décimaux et de son rang. Avec plusieurs cadrans, **Changer l’ordre des cadrans** échange les deux positions.
 4. Sélectionner **Tester** en bas de la fenêtre. Une lecture acceptée remplit l’index de départ. Vérifier cette valeur, régler une hausse maximale réaliste par heure (m³/h ou kWh/h), puis enregistrer. La confirmation de l’index initialise le capteur.
-5. Lancer **Tester la source** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
+5. Lancer **Tester** dans **Résultat** ou définir un intervalle pour la caméra. Le capteur d’index peut être sélectionné dans le tableau de bord Énergie de Home Assistant.
 
 Le moteur local [Tarsius](https://github.com/RaHehl/tarsius), également utilisé par [Local Vision](https://github.com/RaHehl/local-vision), est installé lors du premier test. Une hausse incohérente, une baisse ou une lecture douteuse conserve le dernier index validé, y compris après un redémarrage. L’historique affiche la lecture et son éventuel motif de rejet. Pour reprendre les lectures à partir d’un index vérifié, ouvrir **Index → Recaler l’index** et confirmer la valeur affichée sur le compteur. Le cumul du capteur est conservé au moment du recalage et augmente à nouveau avec les lectures suivantes. L’attribut `meter_index` expose l’index du compteur. Recalibrer si la position de la caméra change. Utiliser une nouvelle analyse pour un nouveau compteur, une autre unité ou un autre nombre de chiffres avant la virgule.
 
@@ -148,7 +148,7 @@ Le premier moteur de **palette** reprend l’extraction existante pour les poche
 
 ## Actions et résultats
 
-L’action `image_lab.analyze` et le bouton **Tester la source** utilisent le même moteur. Le panneau fournit l’identifiant de l’analyse à copier dans l’automatisation. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
+L’action `image_lab.analyze` et le bouton **Tester** utilisent le même moteur. Le panneau fournit l’identifiant de l’analyse à copier dans l’automatisation. [Actions avec données de réponse](https://contributors.home-assistant.io/core/integrations/actions/#return-response-data)
 
 Ce bloc utilise un identifiant d’exemple.
 

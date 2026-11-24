@@ -9,7 +9,7 @@ export const historyMarkup = `
   <p class="secondary" data-history-status role="status" hidden></p>
   <div data-history-entries></div>
   <div data-history-dialog></div>`;
-export const historySettingsMarkup = (standalone = true) => `
+export const historySettingsMarkup = `
   <h3 data-history-settings-title></h3>
   <div class="history-fields">
     <ha-select data-history-mode></ha-select>
@@ -18,10 +18,9 @@ export const historySettingsMarkup = (standalone = true) => `
       <ha-input data-history-limit type="number" min="1" max="100" step="1" required></ha-input>
     </div>
   </div>
-  ${standalone ? '<div class="history-actions"><ha-button data-history-save variant="brand" size="s"></ha-button></div>' : ''}
   <p class="secondary" data-history-save-status role="status" hidden></p>`;
 export const historyStyles = `
-  .history-toolbar, .history-actions {
+  .history-toolbar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   }
   .history-toolbar { justify-content: space-between; }
@@ -34,7 +33,6 @@ export const historyStyles = `
   .history-fields ha-select, .history-fields ha-input { min-width: 0; }
   .history-limit-row ha-input { --ha-input-padding-bottom: 0; }
   .history-limit-row p { margin: 0; font-size: var(--ha-font-size-s, 12px); }
-  .history-actions { justify-content: flex-end; margin-top: var(--ha-space-2, 8px); }
   .history-day { margin: 12px 0 2px; color: var(--secondary-text-color); font-size: .95em; font-weight: 500; }
   .history-list { margin: 0; padding: 0; list-style: none; }
   .history-list li + li { border-top: 1px solid var(--divider-color); }
@@ -275,29 +273,20 @@ export class CaptureHistory {
 export class HistorySettings {
     root;
     comparison;
-    save;
     labels = historyStrings.en;
     value;
-    pending = false;
-    scope;
     mode;
     limit;
-    button;
-    constructor(root, comparison, save) {
+    constructor(root, comparison) {
         this.root = root;
         this.comparison = comparison;
-        this.save = save;
         this.mode = element(root, "mode");
         this.limit = element(root, "limit");
-        this.button = root.querySelector("[data-history-save]");
         this.mode.addEventListener("selected", event => {
             this.mode.value = event.detail.value;
-            this.refresh();
         });
-        this.limit.addEventListener("input", () => this.refresh());
-        this.button?.addEventListener("click", () => void this.submit());
         this.localize();
-        this.refresh();
+        this.setValue();
     }
     localize(language) {
         this.labels = labelsFor(language);
@@ -307,17 +296,14 @@ export class HistorySettings {
         this.mode.label = this.labels.mode;
         const options = this.comparison ? ["all", "changes", "off"] : ["all", "off"];
         this.mode.options = options.map(value => ({ value, label: this.labels[value] }));
-        if (this.button)
-            actionLabel(this.button, this.labels.save, "content-save-outline");
     }
     setValue(value) {
-        this.scope?.abort();
-        this.pending = false;
         this.value = value;
         this.mode.value = value?.mode ?? "";
         this.limit.value = value ? String(value.limit) : "";
         this.status();
-        this.refresh();
+        this.mode.toggleAttribute("disabled", !value);
+        this.limit.toggleAttribute("disabled", !value);
     }
     failed() {
         this.status(this.labels.settingsFailed);
@@ -335,40 +321,5 @@ export class HistorySettings {
         const status = element(this.root, "save-status");
         status.hidden = !message;
         status.textContent = message;
-    }
-    refresh() {
-        const disabled = this.pending || !this.value;
-        this.mode.toggleAttribute("disabled", disabled);
-        this.limit.toggleAttribute("disabled", disabled);
-        this.button?.toggleAttribute("disabled", disabled || !this.changed);
-        this.button?.toggleAttribute("loading", this.pending);
-    }
-    async submit() {
-        if (this.pending || !this.save || !this.limit.reportValidity())
-            return;
-        const value = this.draft;
-        if (!value)
-            return;
-        const { signal } = this.scope = new AbortController();
-        this.pending = true;
-        this.status();
-        this.refresh();
-        try {
-            await this.save(value, signal);
-            if (signal.aborted)
-                return;
-            this.value = value;
-            this.status(this.labels.saved);
-        }
-        catch {
-            if (!signal.aborted)
-                this.failed();
-        }
-        finally {
-            if (!signal.aborted) {
-                this.pending = false;
-                this.refresh();
-            }
-        }
     }
 }

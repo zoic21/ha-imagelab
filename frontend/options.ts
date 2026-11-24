@@ -46,71 +46,62 @@ function showForm(form: ProfileForm, hass: Client, schema: Field[], data: Values
 }
 
 export function editModuleSettings(host: HTMLElement, hass: Client, entry: string,
-  labels: typeof panelStrings.en, signal: AbortSignal) {
+  labels: typeof panelStrings.en, signal: AbortSignal, changed: () => void) {
   const container = document.createElement("div");
   container.innerHTML = `<ha-form hidden></ha-form>
-    <ha-button class="moduleSettingsSave" variant="brand" disabled></ha-button>
-    <p role="status" class="secondary" hidden></p>`;
+    <p role="status" class="secondary" hidden></p>
+    <ha-button appearance="plain" hidden></ha-button>`;
   const form = container.querySelector("ha-form")! as ProfileForm;
-  const button = container.querySelector<HTMLElement>("ha-button")!;
+  const retry = container.querySelector<HTMLElement>("ha-button")!;
   const status = container.querySelector("p")!;
+  actionLabel(retry, labels.retry, "refresh");
   Object.assign(form, { hass, data: {}, schema: [] });
   host.append(container);
   signal.addEventListener("abort", () => container.remove(), { once: true });
 
   let translate: Awaited<ReturnType<typeof profileTranslations>> | undefined;
   let saved: Values | undefined;
-  let busy = false;
   const changes = () => Object.fromEntries(form.schema
     .filter(({ name }) => JSON.stringify(form.data[name]) !== JSON.stringify(saved?.[name]))
     .map(({ name }) => [name, form.data[name] ?? null]));
 
-  async function update() {
-    if (busy || signal.aborted) return;
-    const editing = saved !== undefined;
-    const data = editing ? changes() : undefined;
-    if (data && !Object.keys(data).length) return;
-    busy = true;
-    form.inert = true;
-    status.hidden = true;
-    button.setAttribute("loading", "");
-    actionLabel(button, labels.saveSettings, "content-save-outline");
+  async function update(settings?: Values) {
+    status.hidden = retry.hidden = true;
     try {
       translate ??= await profileTranslations(hass, "config");
-      if (signal.aborted) return;
+      if (signal.aborted) return false;
       const response = await hass.connection.sendMessagePromise<SettingsResponse>({
-        type: "image_lab/module_settings", profile_id: entry, ...(data && { settings: data }),
+        type: "image_lab/module_settings", profile_id: entry, ...(settings && { settings }),
       });
-      if (signal.aborted) return;
+      if (signal.aborted) return false;
       const invalid = Object.keys(response.errors).length > 0;
       showForm(form, hass, response.data_schema, invalid ? { ...form.data } : {},
         response.errors, translate, "config", "source");
-      if (!invalid) saved = { ...form.data };
-      if (editing && !invalid) {
-        status.textContent = labels.settingsSaved;
-        status.hidden = false;
-      }
+      if (!invalid) saved = structuredClone(form.data);
+      return !invalid;
     } catch {
       if (!signal.aborted) {
         status.textContent = labels.optionsError;
         status.hidden = false;
-        if (!editing) actionLabel(button, labels.retry, "refresh");
+        retry.hidden = Boolean(saved);
       }
+      return false;
     } finally {
-      busy = false;
-      form.inert = false;
-      button.removeAttribute("loading");
-      button.toggleAttribute("disabled", Boolean(saved) && !Object.keys(changes()).length);
+      if (!signal.aborted) changed();
     }
   }
 
-  button.addEventListener("click", () => void update());
+  retry.addEventListener("click", () => void update());
   form.addEventListener("value-changed", event => {
     form.data = (event as CustomEvent<{ value: Values }>).detail.value;
     status.hidden = true;
-    button.toggleAttribute("disabled", !Object.keys(changes()).length);
+    changed();
   });
   void update();
+  return {
+    get changed() { return Boolean(saved && Object.keys(changes()).length); },
+    save: () => update(changes()),
+  };
 }
 
 // Reuse Home Assistant's flow schemas and native selectors without leaving the panel.

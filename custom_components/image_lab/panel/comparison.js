@@ -4,7 +4,8 @@ import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, 
 import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
 import { paintRegion } from "./region.js";
-import { profileTab, profileTabsStyles } from "./profile-tabs.js";
+import { analysisTime, resultStyles } from "./result.js";
+import { profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
 const engines = ["pillow", "tarsius"];
 const engineNames = { pillow: "Pillow", tarsius: "Tarsius (ncnn)" };
@@ -14,7 +15,7 @@ const actionIcons = {
     add_state: "plus", cancel: "close", classify: "tag-plus-outline",
     correct: "tag-edit-outline", edit_zone: "crop",
     move: "arrow-right", reload: "refresh", remove: "delete-outline",
-    rename: "pencil-outline", save: "content-save-outline", test: "play-outline",
+    rename: "pencil-outline", save: "content-save-outline",
     upload: "file-upload",
 };
 const template = document.createElement("template");
@@ -38,13 +39,6 @@ template.innerHTML = `
     #thresholdFields ha-input { --ha-input-padding-bottom:0; }
     #thresholdsHint, #dirty { font-size:var(--ha-font-size-s, 12px); }
     #settings:has(#save:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
-    #save {
-      position:fixed; z-index:3;
-      inset-inline-end:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
-      bottom:calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-bottom, 0px) + var(--save-tab-offset, 0px));
-      --ha-button-box-shadow:var(--ha-box-shadow-l);
-    }
-    :host([narrow]) #save { --save-tab-offset:calc(var(--image-lab-tab-height) + 1px); }
     p { margin:8px 0; overflow-wrap:anywhere; }
     #feedback { margin:12px 0; }
     #progress { display:block; --ha-progress-bar-track-height:4px; }
@@ -53,30 +47,20 @@ template.innerHTML = `
       border-top:1px solid var(--divider-color); margin-top:var(--ha-space-3, 12px);
       padding-block:var(--ha-space-3, 12px);
     }
-    #preview { display:grid; gap:var(--ha-space-3, 12px); }
-    .resultHeader {
-      display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start;
-      gap:var(--ha-space-2, 8px);
-    }
-    #test { grid-column:2; justify-self:end; }
+    :host(:has(#preview:not([hidden]))) { margin-top:0; }
+    #preview { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--ha-space-3, 12px); padding-block-start:var(--ha-space-2, 8px); }
     #previewHint, #testHint, #result p, #resultDetails p { margin:0; }
-    #previewHint:empty, #resultDetails:empty { display:none; }
-    #resultTitle { display:block; font-weight:var(--ha-font-weight-medium, 500); overflow-wrap:anywhere; }
-    .recognizedState {
-      display:inline-flex; align-items:center; gap:var(--ha-space-1, 4px); box-sizing:border-box;
-      max-width:calc(100% - var(--ha-space-1, 4px));
-      vertical-align:middle; padding:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
-      margin-inline-start:var(--ha-space-1, 4px); border-radius:var(--ha-border-radius-pill, 999px);
-      background:color-mix(in srgb, var(--success-color, var(--primary-color)) 18%, transparent);
-    }
-    .recognizedState ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
-    #result .secondary { margin-block-start:var(--ha-space-1, 4px); font-size:var(--ha-font-size-s, 12px); }
+    #previewHint:empty, #result:empty, #resultTime:empty, #resultDetails:empty { display:none; }
+    ${resultStyles}
     #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
-    #comparisonImages { min-width:0; }
-    #comparisonImages figure { margin:0 auto; width:min(100%, max(220px, calc(52dvh * var(--ratio, 1)))); }
-    #captureCaption { margin:0 0 var(--ha-space-1, 4px); font-weight:var(--ha-font-weight-medium, 500); }
-    .previewButton { display:block; width:100%; --ha-button-height:auto; }
-    .previewButton::part(base) { padding:0; }
+    #comparisonImages {
+      margin:0 calc(-1 * var(--result-inset, 16px)); min-width:0;
+      background:var(--secondary-background-color);
+    }
+    #imagebox { width:min(100%, calc(72dvh * var(--ratio, 1))); }
+    #frame { border-radius:0; }
+    .previewButton { display:block; width:100%; --ha-button-height:auto; --ha-button-border-radius:0; }
+    .previewButton::part(base) { width:100%; padding:0; }
     .previewButton::part(label) { display:block; width:100%; padding:0; }
     .imagebox { display:block; position:relative; width:min(100%, calc(var(--capture-height, 52dvh) * var(--ratio, 1))); margin:auto; }
     .imagebox img { display:block; width:100%; height:auto; border-radius:var(--ha-border-radius-md, 8px); }
@@ -86,9 +70,8 @@ template.innerHTML = `
     .matchRow {
       display:grid; grid-template-columns:56px minmax(0,1fr) auto; align-items:center;
       gap:var(--ha-space-2, 8px); padding:var(--ha-space-2, 8px);
-      border-bottom:1px solid var(--divider-color); text-align:start;
+      border-top:1px solid var(--divider-color); text-align:start;
     }
-    figure:has(.matchRow:not([hidden])) #frame { border-end-start-radius:0; border-end-end-radius:0; }
     .matchLabel {
       display:flex; flex-wrap:wrap; align-items:center; gap:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
       overflow-wrap:anywhere;
@@ -105,17 +88,21 @@ template.innerHTML = `
       border-radius:var(--ha-border-radius-pill, 999px); font-size:var(--ha-font-size-s, 12px);
     }
     #scoreDetails { --expansion-panel-summary-padding:0; --expansion-panel-content-padding:0; }
+    #scoreDetails, .state { --input-fill-color:transparent; }
+    #scoreDetails::part(summary), .state::part(summary) {
+      background:transparent; -webkit-tap-highlight-color:transparent;
+    }
     #scores > p { margin:0 0 var(--ha-space-1, 4px); }
     .confirmationTitle { margin: 0; font: inherit; font-weight: var(--ha-font-weight-medium, 500); }
     table { width:100%; border-collapse:collapse; }
     td, th { padding:8px; text-align:start; border-bottom:1px solid var(--divider-color); overflow-wrap:anywhere; }
     td:nth-child(n+2), th:nth-child(n+2) { text-align:end; }
-    #gallery { display:grid; gap:8px; margin-top:12px; }
+    #gallery { --reference-input-fill:var(--input-fill-color); display:grid; gap:8px; margin-top:12px; }
     .state {
       --expansion-panel-summary-padding: 0 12px;
       --expansion-panel-content-padding: 0 12px;
     }
-    .stateContent { padding-block: 4px 12px; }
+    .stateContent { --input-fill-color:var(--reference-input-fill); padding-block: 4px 12px; }
     .stateEditor {
       display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:start;
       gap:var(--ha-space-1, 4px);
@@ -167,12 +154,6 @@ template.innerHTML = `
     #captureState { flex:1 1 100px; }
     #stateMessage { margin-bottom:9px; }
   </style>
-  <ha-tab-group id="nav" class="profileTabs" active="preview">
-    ${profileTab("tab-preview", "preview", "preview", "image-outline")}
-    ${profileTab("tab-references", "references", "references", "image-multiple-outline")}
-    ${profileTab("tab-history", "history", "history", "history")}
-    ${profileTab("tab-settings", "settings", "settings", "cog-outline")}
-  </ha-tab-group>
   <ha-progress-bar id="progress" indeterminate hidden></ha-progress-bar>
   <p class="secondary" id="progressText" role="status" hidden></p>
   <ha-alert id="feedback" hidden role="status"></ha-alert>
@@ -181,36 +162,31 @@ template.innerHTML = `
     <ha-button id="confirmReferences" slot="action" appearance="plain"></ha-button>
   </ha-alert>
   <ha-button id="reload" appearance="plain" hidden></ha-button>
-  <section id="preview" role="tabpanel" aria-labelledby="tab-preview">
-    <div class="resultHeader">
-      <div id="result" aria-live="polite" hidden></div>
-      <ha-button id="test" variant="brand"></ha-button>
-    </div>
+  <section id="preview" role="tabpanel">
+    <div id="resultTime" class="resultMeta"></div>
     <p class="secondary" id="previewHint" role="status"></p>
     <p class="secondary" id="testHint" hidden></p>
-    <div id="resultDetails"></div>
     <div id="comparisonImages" hidden>
-      <div id="captureCaption"></div>
-      <figure>
-        <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
-          <span id="openCaptureLabel" class="accessibleLabel"></span>
-          <span class="imagebox" id="imagebox">
-            <img id="frame" alt="" draggable="false">
-            <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
-          </span>
-        </ha-button>
-        <figcaption id="matchRow" class="matchRow" hidden>
-          <span class="matchThumbnail" aria-hidden="true">
-            <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
-          </span>
-          <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
-          <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
-        </figcaption>
-      </figure>
+      <ha-button id="openCapture" class="previewButton" appearance="plain" variant="neutral">
+        <span id="openCaptureLabel" class="accessibleLabel"></span>
+        <span class="imagebox" id="imagebox">
+          <img id="frame" alt="" draggable="false">
+          <span id="region" class="captureRegion" hidden aria-hidden="true"></span>
+        </span>
+      </ha-button>
     </div>
+    <div id="result" class="resultMeta" slot="header" aria-live="polite" hidden></div>
     <ha-expansion-panel id="scoreDetails" hidden><div id="scores"></div></ha-expansion-panel>
+    <div id="resultDetails"></div>
+    <div id="matchRow" class="matchRow" hidden>
+      <span class="matchThumbnail" aria-hidden="true">
+        <ha-icon icon="mdi:image-outline"></ha-icon><img id="matchFrame" alt="">
+      </span>
+      <span class="matchLabel"><span id="matchCaption"></span><span id="matchMeta" class="secondary" hidden></span></span>
+      <ha-icon-button id="matchLink"><ha-icon icon="mdi:link-variant" aria-hidden="true"></ha-icon></ha-icon-button>
+    </div>
   </section>
-  <section id="references" role="tabpanel" aria-labelledby="tab-references" hidden>
+  <section id="references" role="tabpanel" hidden>
     <form id="stateForm" class="row fieldRow">
       <ha-input id="stateName" required maxlength="120" enterkeyhint="done"></ha-input>
       <div class="row fieldActions"><ha-button id="addState" variant="brand"></ha-button></div>
@@ -218,10 +194,10 @@ template.innerHTML = `
     <p id="stateMessage" class="secondary"></p>
     <div id="gallery"></div>
   </section>
-  <section id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
+  <section id="history" role="tabpanel" hidden>
     ${historyMarkup}
   </section>
-  <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+  <section id="settings" role="tabpanel" hidden>
     <div id="settingsFields">
       <div class="analysisHeading">
         <h3 id="analysisSettingsTitle"></h3>
@@ -230,11 +206,13 @@ template.innerHTML = `
       <ha-select id="engine"></ha-select>
       <p id="thresholdsHint" class="secondary"></p>
       <div id="thresholdFields" class="fields"></div>
-      <section id="historySettings">${historySettingsMarkup(false)}</section>
+      <section id="historySettings">${historySettingsMarkup}</section>
       <slot name="profile-settings"></slot>
     </div>
     <p id="dirty" class="secondary" role="status" hidden></p>
-    <ha-button id="save" variant="brand" size="l" hidden></ha-button>
+    <div class="settingsSavePosition">
+      <ha-button id="save" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+    </div>
   </section>
   <ha-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">
@@ -251,6 +229,7 @@ template.innerHTML = `
 export class ImageLabComparison extends HTMLElement {
     images;
     publication;
+    updateTestButton;
     client;
     profile;
     sourceKey;
@@ -271,23 +250,17 @@ export class ImageLabComparison extends HTMLElement {
     history;
     historySettings;
     expandedStates = new Set();
-    constructor(images = new ImageCache(), publication) {
+    constructor(images = new ImageCache(), publication, updateTestButton) {
         super();
         this.images = images;
         this.publication = publication;
+        this.updateTestButton = updateTestButton;
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
         this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
         const historySettings = this.get("historySettings");
         this.historySettings = new HistorySettings(historySettings, true);
         historySettings.addEventListener("selected", () => this.refreshSettings());
         historySettings.addEventListener("input", () => this.refreshSettings());
-        this.get("nav").addEventListener("wa-tab-show", (event) => {
-            const tab = event.detail.name;
-            if (tab !== this.tab) {
-                this.show(tab);
-                this.dispatchEvent(new Event("analysis-tab-changed"));
-            }
-        });
         this.shadowRoot.addEventListener("selected", (event) => {
             const select = event.target;
             if (select instanceof HTMLElement && select.localName === "ha-select") {
@@ -301,7 +274,6 @@ export class ImageLabComparison extends HTMLElement {
             }
         });
         this.onClick("reload", () => this.load());
-        this.onClick("test", () => this.evaluate());
         this.onClick("confirmReferences", () => this.task(async (signal) => {
             const review_id = this.gallery?.reference_review;
             if (review_id)
@@ -427,16 +399,15 @@ export class ImageLabComparison extends HTMLElement {
         this.historySettings.localize(this.client?.locale.language);
         const names = {
             analysisSettingsTitle: "analysis",
-            test: "test",
             captureAdd: "classify",
             addState: "add_state",
             reload: "reload",
-            matchCaption: "closest", captureCaption: "currentCapture",
+            matchCaption: "closest",
             openCaptureLabel: "open_capture",
             save: "save", editZone: "edit_zone",
         };
         for (const tab of tabs)
-            names["tab-" + tab + "-label"] = tab;
+            this.get(tab).setAttribute("aria-label", this.labels[tab]);
         for (const key of ["max_distance", "min_margin"])
             this.get(key).setAttribute("label", this.labels[key]);
         for (const [id, label] of Object.entries(names)) {
@@ -448,7 +419,6 @@ export class ImageLabComparison extends HTMLElement {
         }
         this.get("matchLink").setAttribute("label", this.labels.view_reference);
         this.get("matchLink").title = this.labels.view_reference;
-        this.get("scoreDetails").setAttribute("header", this.labels.state_scores);
         this.get("captureDialog").setAttribute("header-title", this.labels.currentCapture);
         this.get("stateName").setAttribute("label", this.labels.new_state);
         const engine = this.get("engine");
@@ -457,7 +427,6 @@ export class ImageLabComparison extends HTMLElement {
         this.renderEngine();
         this.get("captureState").label = this.labels.state;
         this.get("captureDialogImage").alt = this.labels.currentCapture;
-        this.get("nav").setAttribute("aria-label", "Image Lab");
     }
     reset() {
         this.scope?.abort();
@@ -491,9 +460,7 @@ export class ImageLabComparison extends HTMLElement {
         confirmReferences.textContent = this.labels.confirm_references;
         confirmReferences.toggleAttribute("disabled", busy);
         this.get("preview").setAttribute("aria-busy", String(busy));
-        const test = this.get("test");
-        test.toggleAttribute("disabled", !this.gallery || busy || !this.available);
-        test.toggleAttribute("loading", this.activity === "analyzing");
+        this.updateTestButton?.(!this.gallery || busy || !this.available, this.activity === "analyzing");
         this.get("addState").toggleAttribute("disabled", !this.gallery || busy);
         this.get("references").setAttribute("aria-busy", String(busy));
         this.get("gallery").inert = busy;
@@ -510,15 +477,19 @@ export class ImageLabComparison extends HTMLElement {
         this.get("openCapture").toggleAttribute("disabled", busy);
         const reference = this.gallery?.references.find(ref => ref.id === this.matchId);
         const state = this.gallery?.states.find(item => item.id === reference?.state_id);
-        this.get("matchRow").hidden = !reference;
+        this.get("matchRow").hidden = !reference || !hasFrame;
         this.get("matchMeta").hidden = !state;
         this.get("matchMeta").textContent = state?.name ?? "";
         this.refreshSettings();
     }
+    selectTab(tab) {
+        if (tab !== this.tab)
+            this.show(tab);
+    }
     show(tab) {
+        const changed = tab !== this.tab;
         this.refreshPreview = tab === "preview" && this.tab !== tab && Boolean(this.gallery);
         this.tab = tab;
-        this.get("nav").setAttribute("active", tab);
         for (const key of tabs)
             this.get(key).hidden = tab !== key;
         if (tab !== "history")
@@ -532,6 +503,10 @@ export class ImageLabComparison extends HTMLElement {
         }
         this.refresh();
         this.loadLatestIfNeeded();
+        if (changed)
+            this.dispatchEvent(new CustomEvent("analysis-tab-changed", {
+                detail: tab === "preview" ? "result" : tab,
+            }));
     }
     loadLatestIfNeeded() {
         if (!this.refreshPreview || this.activity)
@@ -757,26 +732,25 @@ export class ImageLabComparison extends HTMLElement {
         scoresPanel.replaceChildren();
         expansion.hidden = true;
         const result = this.result;
+        this.get("resultTime").replaceChildren(...(result?.time ? [analysisTime(result.time, this.client)] : []));
         panel.hidden = !result;
         if (!result)
             return;
-        const title = document.createElement("span");
-        title.id = "resultTitle";
-        if (result.status === "ok") {
-            title.textContent = this.labels.recognized;
-            if (result.data.state) {
-                const state = document.createElement("span");
-                state.className = "recognizedState";
-                state.innerHTML = `<ha-icon icon="mdi:check" aria-hidden="true"></ha-icon><span></span>`;
-                state.lastElementChild.textContent = result.data.state;
-                title.append(" ", state);
-            }
+        const scores = result.data.scores;
+        const hasScores = scores && Object.keys(scores).length > 0;
+        if (hasScores && panel.parentElement !== expansion)
+            expansion.prepend(panel);
+        if (!hasScores && panel.parentElement === expansion)
+            expansion.before(panel);
+        if (result.status === "ok" && result.data.state) {
+            const state = document.createElement("span");
+            state.className = "resultBadge";
+            state.textContent = result.data.state;
+            panel.append(state);
         }
-        else if (result.status === "unknown") {
-            title.textContent = this.labels.unknown;
+        else if (result.status !== "error") {
+            panel.textContent = this.labels.unknown;
         }
-        if (title.textContent)
-            panel.append(title);
         if (result.reason) {
             const message = document.createElement("p");
             const key = result.reason;
@@ -785,26 +759,12 @@ export class ImageLabComparison extends HTMLElement {
                 : this.labels.failed;
             details.append(message);
         }
-        if (result.time) {
-            const date = document.createElement("p");
-            date.className = "secondary";
-            const stamp = document.createElement("time");
-            stamp.dateTime = result.time;
-            stamp.textContent = new Intl.DateTimeFormat(this.client?.locale.language, {
-                timeZone: this.client?.config?.time_zone,
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-            }).format(new Date(result.time));
-            date.append(stamp, ` · ${this.labels[result.manual ? "manualAnalysis" : "automaticAnalysis"]}`);
-            panel.append(date);
-        }
         if (result.confirmation === "disagreed") {
             const retained = document.createElement("p");
             retained.className = "secondary";
             retained.textContent = this.labels.notConfirmed;
             details.append(retained);
         }
-        const scores = result.data.scores;
-        const hasScores = scores && Object.keys(scores).length > 0;
         if (result.data.engine) {
             const engine = document.createElement("p");
             engine.className = "secondary";
@@ -815,14 +775,20 @@ export class ImageLabComparison extends HTMLElement {
             const similarity = result.data.engine === "tarsius";
             const order = (state) => Object.hasOwn(scores, state)
                 ? (similarity ? -scores[state] : scores[state]) : Infinity;
-            const rows = Object.entries(result.data.ref_counts ?? {})
-                .sort(([a], [b]) => order(a) - order(b))
-                .map(([state, count]) => [
+            const counts = result.data.ref_counts ?? {};
+            const states = new Set([...Object.keys(counts), ...Object.keys(scores)]);
+            const rows = [...states]
+                .sort((a, b) => order(a) - order(b))
+                .map(state => [
                 state,
                 Object.hasOwn(scores, state) ? String(scores[state]) : "–",
-                String(count),
+                String(counts[state] ?? "–"),
             ]);
             scoresPanel.append(this.resultTable([this.labels.state, similarity ? this.labels.similarity : this.labels.score, this.labels.count], rows));
+            const description = document.createElement("span");
+            description.className = "accessibleLabel";
+            description.textContent = this.labels.state_scores;
+            panel.append(description);
             expansion.hidden = false;
         }
     }
@@ -860,7 +826,6 @@ export class ImageLabComparison extends HTMLElement {
     }
     openReferences() {
         this.show("references");
-        this.dispatchEvent(new Event("analysis-tab-changed"));
         this.get("stateName").focus({ preventScroll: true });
     }
     renderEngine() {

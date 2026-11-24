@@ -9,6 +9,7 @@ import { editMeter, meterStyles, meterText, type MeterResult } from "./meter.js"
 import { editModuleSettings, runProfileFlow, type ProfileFlowMode } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { PublicationSettings, publicationMarkup, publicationStyles, type PublicationChanges, type PublicationSnapshot } from "./publication.js";
+import { analysisTime, resultStyles } from "./result.js";
 import { SourceThumbnail } from "./source-thumbnail.js";
 import { editZone } from "./zone.js";
 import type { Region } from "./region.js";
@@ -36,6 +37,14 @@ type TestResult = PreviewMetadata | { image_id: null; reason: string };
 type HistoryItem = Capture & { dominant_hex: string | null; count: number | null; meter?: MeterResult; reason?: string | null };
 const panelPath = "/image-lab";
 const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
+
+function detectionColor(label: string): string {
+  if (label === "car") return "#77baff";
+  if (label === "person") return "#be93ea";
+  let hueTenths = 0;
+  for (const char of label) hueTenths = (31 * hueTenths + char.charCodeAt(0)) % 3600;
+  return `hsl(${hueTenths / 10} 75% 70%)`;
+}
 
 interface Profile {
   profile_id: string;
@@ -92,9 +101,11 @@ template.innerHTML = `
     [hidden] { display: none !important; }
     ha-top-app-bar-fixed { height: 100%; }
     .heading { display: inline-flex; align-items: center; gap: var(--ha-space-3, 12px); max-width: 100%; }
+    #profile > .heading { display:flex; font-size:var(--ha-font-size-xl, 20px); }
     .heading img { flex: none; width: 26px; height: 26px; background: none; }
     h1 { display: inline-block; margin: 0; font: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
     #title:focus { outline: none; }
+    #heading #test { flex: none; margin-inline-start: auto; }
     #add {
       position: absolute; z-index: 3;
       inset-inline-end: calc(var(--ha-content-gutter, 16px) + var(--safe-area-inset-right, 0px));
@@ -112,7 +123,7 @@ template.innerHTML = `
     }
     #analysisList { padding-bottom: var(--ha-space-16, 64px); }
     ha-card { min-width: 0; }
-    .content { padding: 16px; }
+    .content { --result-inset: 16px; padding: var(--result-inset); }
     ul { list-style: none; margin: 0; padding: 0; }
     .analysisControls {
       display: flex;
@@ -128,7 +139,8 @@ template.innerHTML = `
     ${historyStyles}
     ${meterStyles}
     #profileHistorySettings { margin-top: var(--ha-space-3, 12px); }
-    .moduleSettingsSave, #zone, #meterSettings { margin-top: 12px; }
+    #settingsPane:has(.settingsSave:not([hidden])) { padding-block-end:var(--ha-space-16, 64px); }
+    #zone, #meterSettings { margin-top: 12px; }
     .secondary { color: var(--secondary-text-color); }
     p { margin: 8px 0; overflow-wrap: anywhere; }
     code { overflow-wrap: anywhere; }
@@ -141,7 +153,7 @@ template.innerHTML = `
       display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-2, 8px);
     }
-    .settingsInfo p { margin: 0; }
+    #status, .settingsInfo p { margin: 0; }
     .sourceRow {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
       gap: var(--ha-space-3, 12px); overflow-wrap: anywhere;
@@ -162,7 +174,14 @@ template.innerHTML = `
     #profileId { display: block; color: var(--secondary-text-color); }
     #copyStatus { margin-top: 0; }
 
-    figure { margin: 16px 0 0; }
+    #profile > #resultPane { padding-block-start: var(--ha-space-2, 8px); }
+    #preview {
+      margin: var(--ha-space-3, 12px) calc(-1 * var(--result-inset)) 0;
+      background: var(--secondary-background-color);
+    }
+    #imageStage { --preview-height: 72dvh; }
+    #imageStage, #image { border-radius: 0; }
+    #meterReading:not([hidden]) { margin-block-start: var(--ha-space-3, 12px); }
     .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
     .image-stage.with-objects {
       width: min(100%, calc(var(--preview-height) * var(--image-aspect)));
@@ -175,7 +194,7 @@ template.innerHTML = `
     }
     .objects-overlay { position: absolute; inset: 0; pointer-events: none; }
     .object-box {
-      position: absolute; box-sizing: border-box; border: 2px solid white;
+      position: absolute; box-sizing: border-box; border: 2px solid var(--object-color);
       box-shadow: 0 0 0 1px #131a22, inset 0 0 0 1px #131a22;
     }
     .object-box span {
@@ -185,12 +204,21 @@ template.innerHTML = `
       font-size: 11px; line-height: 1.5; color: white; background: #131a22;
     }
     .object-list {
-      display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px;
+      display: flex; flex-wrap: wrap; gap: var(--ha-space-2, 8px); margin-top: 12px;
     }
-    .object-list li { margin: 0; }
-    figcaption, ha-alert { margin-top: 8px; }
-    #palette { margin-top: 16px; }
-    #paletteTitle { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
+    ${resultStyles}
+    .object-list .resultBadge {
+      background: color-mix(in srgb, var(--object-color) 22%, transparent);
+      box-shadow: inset 0 0 0 1px var(--object-color);
+    }
+    ha-alert { margin-top: 8px; }
+    #palette {
+      display: flex; flex-wrap: wrap; row-gap: 8px; column-gap: 0; margin-top: 12px;
+    }
+    #palette li { flex: 1 0 8ch; text-align: center; font-family: monospace; font-size: var(--ha-font-size-s, 12px); }
+    #palette .swatch { border: 0; border-radius: 0; height: 24px; }
+    #palette li:first-child .swatch { border-start-start-radius: 6px; border-end-start-radius: 6px; }
+    #palette li:last-child .swatch { border-start-end-radius: 6px; border-end-end-radius: 6px; }
     .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
     .swatches li { min-width: 0; margin: 0; }
     .history-detail .swatches { margin-top: 12px; }
@@ -204,7 +232,14 @@ template.innerHTML = `
 
   <ha-top-app-bar-fixed id="appBar">
   <ha-icon-button-arrow-prev id="back" hidden></ha-icon-button-arrow-prev>
-  <div class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
+  <div id="heading" class="heading" slot="title"><img id="icon" src="/image_lab_icon.png" alt=""><h1 id="title" tabindex="-1">Image Lab</h1></div>
+  <ha-tab-group id="profileNav" class="profileTabs" active="result" hidden>
+    ${profileTab("resultTab", "result", "resultPane", "image-outline")}
+    ${profileTab("referencesTab", "references", "comparisonSlot", "image-multiple-outline")}
+    ${profileTab("historyTab", "history", "historyPane", "history")}
+    ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
+  </ha-tab-group>
+  <ha-button id="test" variant="brand" slot="actionItems" hidden></ha-button>
   <ha-dropdown id="profileMenu" slot="actionItems" placement="bottom-end" hidden>
     <ha-icon-button id="profileMenuButton" slot="trigger" aria-haspopup="menu">
       <ha-icon icon="mdi:dots-vertical" aria-hidden="true"></ha-icon>
@@ -231,34 +266,31 @@ template.innerHTML = `
     <ha-card id="detailCard" hidden>
       <section class="content">
         <div id="profile">
-          <p class="secondary" id="source"></p>
-          <ha-tab-group id="profileNav" class="profileTabs" active="result">
-            ${profileTab("resultTab", "result", "resultPane", "image-outline")}
-            ${profileTab("historyTab", "history", "historyPane", "history")}
-            ${profileTab("settingsTab", "settings", "settingsPane", "cog-outline")}
-          </ha-tab-group>
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
-            <ha-button id="test" variant="brand"></ha-button>
-            <p id="status" class="secondary" role="status"></p>
-            <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
-            <section id="palette" aria-labelledby="paletteTitle" hidden>
-              <h3 id="paletteTitle"></h3>
-              <ul id="swatches" class="swatches"></ul>
-          </section>
-          <figure id="preview" hidden>
-            <div id="imageStage" class="image-stage">
-              <img id="image" />
-              <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
+            <div role="status">
+              <div class="resultMeta" id="resultMeta"></div>
+              <p id="status" class="secondary"></p>
             </div>
-            <figcaption id="dimensions" class="secondary"></figcaption>
-          </figure>
-          <ul id="objectList" class="object-list" hidden></ul>
+            <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
+            <figure id="preview" hidden>
+              <div id="imageStage" class="image-stage">
+                <img id="image" />
+                <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
+              </div>
+            </figure>
+            <span id="meterReading" class="resultBadge" role="status" hidden></span>
+            <ul id="palette" class="swatches" hidden></ul>
+            <ul id="objectList" class="object-list" hidden></ul>
           </section>
           <section id="historyPane" role="tabpanel" aria-labelledby="historyTab" hidden>
             ${historyMarkup}
           </section>
           <div id="comparisonSlot"></div>
           <section id="settingsPane" role="tabpanel" aria-labelledby="settingsTab" hidden>
+            <div class="settingsSavePosition">
+              <ha-button id="settingsSave" class="settingsSave" variant="brand" size="l" hidden></ha-button>
+            </div>
+            <p id="settingsStatus" class="secondary" role="status" hidden></p>
             <section aria-labelledby="analysisSettingsTitle">
               <h3 id="analysisSettingsTitle" class="settingsTitle"></h3>
               <div id="moduleSettings"></div>
@@ -266,7 +298,7 @@ template.innerHTML = `
               <ha-button id="meterSettings" appearance="plain" hidden></ha-button>
               <p class="secondary" id="meterSettingsStatus" role="status" hidden></p>
             </section>
-            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup()}</section>
+            <section id="profileHistorySettings" class="settingsSection">${historySettingsMarkup}</section>
             <div id="profileSettings" slot="profile-settings">
               <section class="settingsSection" aria-labelledby="sourceSettingsTitle">
                 <h3 id="sourceSettingsTitle" class="settingsTitle"></h3>
@@ -319,6 +351,8 @@ class ImageLabPanel extends HTMLElement {
   private previewETag?: string;
   private optionsScope?: AbortController;
   private moduleSettingsScope?: AbortController;
+  private moduleSettings?: ReturnType<typeof editModuleSettings>;
+  private savingSettings = false;
   private zoneScope?: AbortController;
   private strings = strings.en;
   private readonly images = new ImageCache();
@@ -334,25 +368,31 @@ class ImageLabPanel extends HTMLElement {
     this.sourceThumbnail = new SourceThumbnail(this.element("sourceImage"), this.images);
     this.analysisList = new AnalysisList(this.element("analysisGroups"), this.images, id => this.select(id));
     this.captureHistory = new CaptureHistory(this.element("historyPane"), () => void this.loadHistory());
-    this.historySettings = new HistorySettings(this.element("profileHistorySettings"), false, async (value, signal) => {
-      const profile = this.selected;
-      if (!profile || !this._hass) return;
-      const response = await this._hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value), signal,
-      });
-      if (!response.ok) throw new Error();
-    });
+    const historyFields = this.element("profileHistorySettings");
+    this.historySettings = new HistorySettings(historyFields, false);
+    historyFields.addEventListener("selected", () => this.refreshSettingsSave());
+    historyFields.addEventListener("input", () => this.refreshSettingsSave());
+    this.element("settingsSave").addEventListener("click", () => void this.saveSettings());
+    const test = this.element("test");
     this.comparison = new ImageLabComparison(this.images, {
       draft: profile => this.publication.draft(profile),
       save: (profile, changes) => this.savePublication(profile, changes),
       setStates: states => this.publication.setStates(states),
+    }, (disabled, loading) => {
+      if (this.selected?.module !== "comparison") return;
+      test.toggleAttribute("disabled", disabled);
+      test.toggleAttribute("loading", loading);
     });
     this.publication = new PublicationSettings(
-      this.element("publication"), () => this.comparison.refreshSettings(),
-      (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences(),
+      this.element("publication"), () => {
+        if (this.selected?.module === "comparison") this.comparison.refreshSettings();
+        else this.refreshSettingsSave();
+      }, () => this.comparison.openReferences(),
     );
     this.element("comparisonSlot").append(this.comparison);
-    this.comparison.addEventListener("analysis-tab-changed", () => {
+    this.comparison.addEventListener("analysis-tab-changed", (event) => {
+      if (this.selected?.module !== "comparison") return;
+      this.setActiveTab((event as CustomEvent<string>).detail);
       this.resetMobileTabScroll();
       this.updateSourceThumbnail();
     });
@@ -374,7 +414,12 @@ class ImageLabPanel extends HTMLElement {
     });
     this.renderAnalysisControls();
     this.element("profileNav").addEventListener("wa-tab-show", event => {
-      this.showTab((event as CustomEvent<{name: string}>).detail.name);
+      const tab = (event as CustomEvent<{name: "result" | "references" | "history" | "settings"}>).detail.name;
+      if (this.selected?.module === "comparison") {
+        this.comparison.selectTab(tab === "result" ? "preview" : tab);
+      } else if (tab !== "references") {
+        this.showTab(tab);
+      }
     });
     this.element("outputEntity").addEventListener("click", () => {
       const entityId = this.selected?.output_entity_id;
@@ -382,7 +427,10 @@ class ImageLabPanel extends HTMLElement {
         detail: { entityId }, bubbles: true, composed: true,
       }));
     });
-    this.element("test").addEventListener("click", () => void this.loadPreview(true));
+    test.addEventListener("click", () => {
+      if (this.selected?.module === "comparison") void this.comparison.evaluate();
+      else void this.loadPreview(true);
+    });
     this.element("zone").addEventListener("click", () => {
       const profile = this.selected;
       if (!profile || !this._hass) return;
@@ -522,6 +570,11 @@ class ImageLabPanel extends HTMLElement {
   private closeModuleSettings() {
     this.moduleSettingsScope?.abort();
     this.moduleSettingsScope = undefined;
+    this.moduleSettings = undefined;
+    this.savingSettings = false;
+    this.element("settingsPane").inert = false;
+    this.element("settingsStatus").hidden = true;
+    this.element("settingsSave").hidden = true;
   }
 
   private showModuleSettings() {
@@ -532,7 +585,8 @@ class ImageLabPanel extends HTMLElement {
     const moduleSettings = this.element("moduleSettings");
     moduleSettings.hidden = profile.module === "meter";
     if (profile.module !== "meter")
-      editModuleSettings(moduleSettings, hass, profile.profile_id, this.strings, this.moduleSettingsScope.signal);
+      this.moduleSettings = editModuleSettings(moduleSettings, hass, profile.profile_id, this.strings,
+        this.moduleSettingsScope.signal, () => this.refreshSettingsSave());
     void this.loadHistorySettings(profile, hass, this.moduleSettingsScope.signal);
   }
 
@@ -599,11 +653,16 @@ class ImageLabPanel extends HTMLElement {
     if (this.hasAttribute("narrow") && scroller) scroller.scrollTop = 0;
   }
 
+  private setActiveTab(tab: string) {
+    this.element("profileNav").setAttribute("active", tab);
+    this.element("test").hidden = !this.selected || tab !== "result";
+  }
+
   private showTab(tab: string, refresh = true) {
     const previous = this.element("profileNav").getAttribute("active");
     const returning = previous !== "result" || this.element("resultPane").hidden;
     if (refresh && previous !== tab) this.resetMobileTabScroll();
-    this.element("profileNav").setAttribute("active", tab);
+    this.setActiveTab(tab);
     this.element("resultPane").hidden = tab !== "result";
     this.element("historyPane").hidden = tab !== "history";
     this.element("settingsPane").hidden = tab !== "settings";
@@ -628,8 +687,15 @@ class ImageLabPanel extends HTMLElement {
     this.element("status").textContent = "";
     this.element("meterSettingsStatus").hidden = true;
     this.element("error").hidden = true;
+    this.element("copyStatus").hidden = true;
+    this.clearPreview();
+  }
+
+  private clearPreview() {
+    this.element("resultMeta").replaceChildren();
+    this.element("meterReading").hidden = true;
     this.element("palette").hidden = true;
-    this.element("swatches").replaceChildren();
+    this.element("palette").replaceChildren();
     this.element("preview").hidden = true;
     this.element("image").removeAttribute("src");
     this.element("imageStage").classList.remove("with-objects");
@@ -639,7 +705,6 @@ class ImageLabPanel extends HTMLElement {
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
     this.previewUrl = undefined;
     this.previewETag = undefined;
-    this.element("copyStatus").hidden = true;
   }
 
   private analysisTrigger(profile: Profile, manual = this.strings.manualTrigger) {
@@ -724,8 +789,8 @@ class ImageLabPanel extends HTMLElement {
   private render(moveFocus = false) {
     const labels = this.strings;
     for (const [id, message] of Object.entries({
-      idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
-      "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
+      idLabel: labels.id, "resultTab-label": labels.resultTab,
+      "referencesTab-label": labels.referencesTab, "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
       analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
       renameAction: labels.rename,
     })) {
@@ -735,11 +800,13 @@ class ImageLabPanel extends HTMLElement {
       add: [labels.add, "plus"],
       retry: [labels.retry, "refresh"],
       test: [labels.test, "play-outline"],
+      settingsSave: [labels.save, "content-save-outline"],
       zone: [labels.zone, "crop"],
       meterSettings: [this.meterLabels.configure, "gauge"],
     };
     for (const [id, [label, icon]] of Object.entries(actions))
       actionLabel(this.element(id), label, icon);
+    this.element("palette").setAttribute("aria-label", labels.palette);
     this.element("editSource").setAttribute("label", labels.editSource);
     this.element("copy").setAttribute("label", labels.copy);
     this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
@@ -783,8 +850,29 @@ class ImageLabPanel extends HTMLElement {
     const settings = this.element("profileSettings");
     const target = isComparison ? this.comparison : this.element("settingsPane");
     if (settings.parentElement !== target) target.append(settings);
-    this.element("profileNav").hidden = isComparison;
-    const tab = this.element("profileNav").getAttribute("active");
+    const nav = this.element("profileNav");
+    const wideDetail = Boolean(profile) && !this.hasAttribute("narrow");
+    nav.slot = wideDetail ? "title" : "";
+    nav.hidden = !profile;
+    nav.setAttribute("aria-label", profile?.title ?? "Image Lab");
+    for (const [id, pane] of [["resultTab", "resultPane"], ["historyTab", "historyPane"], ["settingsTab", "settingsPane"]])
+      this.element(id).setAttribute("aria-controls", isComparison ? "comparisonSlot" : pane);
+    const referencesTab = this.element("referencesTab");
+    referencesTab.hidden = !isComparison;
+    referencesTab.toggleAttribute("disabled", !isComparison);
+    const heading = this.element("heading");
+    const headingParent = this.element(wideDetail ? "profile" : "appBar");
+    if (heading.parentElement !== headingParent) headingParent.prepend(heading);
+    const test = this.element("test");
+    if (wideDetail && test.parentElement !== heading) {
+      test.removeAttribute("slot");
+      heading.append(test);
+    } else if (!wideDetail && test.parentElement !== this.element("appBar")) {
+      test.slot = "actionItems";
+      this.element("appBar").insertBefore(test, this.element("profileMenu"));
+    }
+    const tab = nav.getAttribute("active");
+    test.hidden = !profile || tab !== "result";
     this.element("resultPane").hidden = isComparison || tab !== "result";
     this.element("historyPane").hidden = isComparison || tab !== "history";
     this.element("settingsPane").hidden = isComparison || tab !== "settings";
@@ -800,8 +888,7 @@ class ImageLabPanel extends HTMLElement {
     this.element("meterSettings").hidden = profile.module !== "meter";
     this.element("meterSettings").toggleAttribute("disabled", !profile.available);
     this.element("profileId").textContent = profile.profile_id;
-    this.element("source").textContent = labels[profile.module];
-    this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
+    if (!isComparison) test.toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
     if (opened) {
       const scroller = this.scrollTarget;
       if (scroller) scroller.scrollTop = 0;
@@ -840,6 +927,71 @@ class ImageLabPanel extends HTMLElement {
         picture = url.href;
       }
       void this.sourceThumbnail.show(picture);
+    }
+  }
+
+  private refreshSettingsSave() {
+    const profile = this.selected;
+    const button = this.element("settingsSave");
+    if (!profile || profile.module === "comparison") {
+      button.hidden = true;
+      return;
+    }
+    let changed = Boolean(this.moduleSettings?.changed || this.historySettings.changed);
+    let invalid = this.historySettings.changed && !this.historySettings.draft;
+    try {
+      if (this.publication.draft(profile.profile_id)) changed = true;
+    } catch (error) {
+      this.publication.showError(error);
+      changed = invalid = true;
+    }
+    button.hidden = !changed && !this.savingSettings;
+    button.toggleAttribute("disabled", invalid || this.savingSettings);
+    button.toggleAttribute("loading", this.savingSettings);
+    if (changed) this.element("settingsStatus").hidden = true;
+  }
+
+  private async saveSettings() {
+    const profile = this.selected;
+    const signal = this.moduleSettingsScope?.signal;
+    const hass = this._hass;
+    if (!profile || !hass || !signal || this.savingSettings) return;
+    const pane = this.element("settingsPane");
+    this.savingSettings = pane.inert = true;
+    this.refreshSettingsSave();
+    try {
+      const publication = this.publication.draft(profile.profile_id);
+      const history = this.historySettings.draft;
+      if (this.historySettings.changed && !history) return;
+      if (this.moduleSettings?.changed && !await this.moduleSettings.save()) return;
+      signal.throwIfAborted();
+      if (this.historySettings.changed && history) {
+        try {
+          const response = await hass.fetchWithAuth(this.previewPath(profile) + "/history_settings", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(history), signal,
+          });
+          if (!response.ok) throw new Error();
+          const stored: HistorySettingsValue = await response.json();
+          signal.throwIfAborted();
+          this.historySettings.setValue(stored);
+        } catch {
+          if (!signal.aborted) this.historySettings.failed();
+          return;
+        }
+      }
+      if (publication) await this.savePublication(profile.profile_id, publication);
+      if (!signal.aborted) {
+        const status = this.element("settingsStatus");
+        status.textContent = this.strings.settingsSaved;
+        status.hidden = false;
+      }
+    } catch (error) {
+      if (!signal.aborted) this.publication.showError(error);
+    } finally {
+      if (!signal.aborted) {
+        this.savingSettings = pane.inert = false;
+        this.refreshSettingsSave();
+      }
     }
   }
 
@@ -917,7 +1069,7 @@ class ImageLabPanel extends HTMLElement {
     stage: HTMLElement, overlay: HTMLElement, results: HTMLElement,
     hass: HomeAssistant, signal: AbortSignal,
   ) {
-    const { width, height, data: { objects, truncated } } = metadata;
+    const { width, height, data: { objects } } = metadata;
     if (!Array.isArray(objects) || width <= 0 || height <= 0) throw new Error("Missing detection result");
     const language = hass.locale.language;
     const { resources }: { resources: Record<string, string> } = objects.length
@@ -935,6 +1087,8 @@ class ImageLabPanel extends HTMLElement {
       const confidence = score.toLocaleString(language, { style: "percent" });
       const box = document.createElement("div");
       box.className = "object-box";
+      const color = detectionColor(label);
+      box.style.setProperty("--object-color", color);
       box.style.setProperty("--label-left", `${x_min * 100}cqw`);
       box.style.left = `${x_min * 100}%`;
       box.style.top = `${y_min * 100}%`;
@@ -944,6 +1098,8 @@ class ImageLabPanel extends HTMLElement {
       caption.textContent = name;
       box.append(caption);
       const item = document.createElement("li");
+      item.className = "resultBadge";
+      item.style.setProperty("--object-color", color);
       item.textContent = `${name} · ${confidence}`;
       list.push(item);
       return box;
@@ -951,9 +1107,6 @@ class ImageLabPanel extends HTMLElement {
     overlay.replaceChildren(...boxes);
     results.replaceChildren(...list);
     results.hidden = !objects.length;
-
-    const summary = this.objectSummary(objects.length);
-    return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
   }
 
   private async readMetadata(hass: HomeAssistant, path: string, imageId: string, signal: AbortSignal) {
@@ -973,12 +1126,6 @@ class ImageLabPanel extends HTMLElement {
     return `/api/image_lab/preview/${encodeURIComponent(profile.profile_id)}`;
   }
 
-  private observationLabel(time: string, manual: boolean) {
-    return new Date(time).toLocaleString(this._hass?.locale.language, {
-      timeZone: this._hass?.config?.time_zone,
-    }) + " · " + this.strings[manual ? "manualAnalysis" : "automaticAnalysis"];
-  }
-
   private async loadHistorySettings(profile: Profile, hass: HomeAssistant, signal: AbortSignal) {
     this.historySettings.localize(hass.locale.language);
     try {
@@ -987,6 +1134,7 @@ class ImageLabPanel extends HTMLElement {
       const settings: HistorySettingsValue = await response.json();
       signal.throwIfAborted();
       this.historySettings.setValue(settings);
+      this.refreshSettingsSave();
     } catch {
       if (!signal.aborted) this.historySettings.failed();
     }
@@ -1044,9 +1192,10 @@ class ImageLabPanel extends HTMLElement {
             stage.append(image, overlay);
             const results = document.createElement("ul");
             results.className = "object-list";
-            const summary = await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
+            await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
+            const summary = this.objectSummary(metadata.data.objects.length);
             const status = document.createElement("p");
-            status.textContent = summary;
+            status.textContent = metadata.data.truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
             content.append(status, results);
           }
         },
@@ -1090,6 +1239,7 @@ class ImageLabPanel extends HTMLElement {
       );
       if (response.status === 304) return;
       if (response.status === 204) {
+        this.clearPreview();
         summary = profile.available && profile.module === "meter" && !profile.meter_initialized
           ? this.meterLabels.reasons.meter_needs_calibration
           : this.strings[profile.available ? "noResult" : "profile_unavailable"];
@@ -1112,30 +1262,38 @@ class ImageLabPanel extends HTMLElement {
       controller.signal.throwIfAborted();
 
       if (metadata.module !== profile.module) throw new Error("Unexpected capture module");
+      const stamp = analysisTime(metadata.time, hass);
+      let notice = "";
       if (metadata.module === "object_detection") {
-        summary = await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"),
+        await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"),
           this.element("objectList"), hass, controller.signal);
         controller.signal.throwIfAborted();
+        if (!metadata.data.objects.length) notice = this.strings.noObjects;
+        else if (metadata.data.truncated) notice = this.strings.objectLimit;
       } else if (metadata.module === "meter") {
-        summary = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
+        const badge = this.element("meterReading");
+        badge.hidden = Boolean(metadata.reason) || metadata.data.value == null;
+        if (!badge.hidden) {
+          badge.textContent = meterText(metadata.data, hass.locale.language, true);
+        } else {
+          notice = meterText({ ...metadata.data, reason: metadata.reason, confidence: null }, hass.locale.language)
+            || this.meterLabels.rejected;
+        }
       } else {
-        this.element("swatches").replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
-        this.element("palette").hidden = false;
-        summary = this.strings.paletteReady;
+        const palette = this.element("palette");
+        palette.replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
+        palette.hidden = false;
       }
+      this.element("resultMeta").replaceChildren(stamp);
       if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
       this.previewETag = etag ?? undefined;
       this.previewUrl = URL.createObjectURL(blob);
       const image = this.element<HTMLImageElement>("image");
       image.src = this.previewUrl;
       image.alt = this.strings.preview;
-      const format = blob.type.split("/")[1]?.toUpperCase();
-      const details = `${metadata.width} × ${metadata.height} px · ${format}`;
-      this.element("dimensions").textContent = this.observationLabel(metadata.time, metadata.manual) + " · " + details;
       this.element("preview").hidden = false;
-      if (metadata.confirmation === "disagreed") {
-        summary += " · " + this.strings.notConfirmed;
-      }
+      summary = [notice, metadata.confirmation === "disagreed" ? this.strings.notConfirmed : ""]
+        .filter(Boolean).join(" · ");
     } catch (error) {
       if (!controller.signal.aborted) {
         const reason = error instanceof Error ? error.message : "";

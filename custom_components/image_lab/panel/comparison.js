@@ -4,6 +4,7 @@ import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, 
 import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
 import { paintRegion } from "./region.js";
+import { analysisTime, resultStyles } from "./result.js";
 import { profileTabsStyles } from "./profile-tabs.js";
 import { editZone } from "./zone.js";
 const engines = ["pillow", "tarsius"];
@@ -54,16 +55,9 @@ template.innerHTML = `
     #test { grid-column:2; justify-self:end; }
     #previewHint, #testHint, #result p, #resultDetails p { margin:0; }
     #previewHint:empty, #resultDetails:empty { display:none; }
-    #resultTitle { display:block; font-weight:var(--ha-font-weight-medium, 500); overflow-wrap:anywhere; }
-    .recognizedState {
-      display:inline-flex; align-items:center; gap:var(--ha-space-1, 4px); box-sizing:border-box;
-      max-width:calc(100% - var(--ha-space-1, 4px));
-      vertical-align:middle; padding:var(--ha-space-1, 4px) var(--ha-space-2, 8px);
-      margin-inline-start:var(--ha-space-1, 4px); border-radius:var(--ha-border-radius-pill, 999px);
-      background:color-mix(in srgb, var(--success-color, var(--primary-color)) 18%, transparent);
-    }
-    .recognizedState ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
-    #result .secondary { margin-block-start:var(--ha-space-1, 4px); font-size:var(--ha-font-size-s, 12px); }
+    ${resultStyles}
+    #result { align-self:center; }
+    .resultBadge ha-icon { color:var(--success-color, var(--primary-color)); flex:none; --mdc-icon-size:16px; }
     #resultDetails { display:grid; gap:var(--ha-space-1, 4px); }
     #comparisonImages { min-width:0; }
     #comparisonImages figure { margin:0 auto; width:min(100%, max(220px, calc(52dvh * var(--ratio, 1)))); }
@@ -170,7 +164,7 @@ template.innerHTML = `
   <ha-button id="reload" appearance="plain" hidden></ha-button>
   <section id="preview" role="tabpanel">
     <div class="resultHeader">
-      <div id="result" aria-live="polite" hidden></div>
+      <div id="result" class="resultMeta" aria-live="polite" hidden></div>
       <ha-button id="test" variant="brand"></ha-button>
     </div>
     <p class="secondary" id="previewHint" role="status"></p>
@@ -749,23 +743,16 @@ export class ImageLabComparison extends HTMLElement {
         panel.hidden = !result;
         if (!result)
             return;
-        const title = document.createElement("span");
-        title.id = "resultTitle";
-        if (result.status === "ok") {
-            title.textContent = this.labels.recognized;
-            if (result.data.state) {
-                const state = document.createElement("span");
-                state.className = "recognizedState";
-                state.innerHTML = `<ha-icon icon="mdi:check" aria-hidden="true"></ha-icon><span></span>`;
-                state.lastElementChild.textContent = result.data.state;
-                title.append(" ", state);
-            }
+        if (result.status === "ok" && result.data.state) {
+            const state = document.createElement("span");
+            state.className = "resultBadge";
+            state.innerHTML = `<ha-icon icon="mdi:check" aria-hidden="true"></ha-icon><span></span>`;
+            state.lastElementChild.textContent = result.data.state;
+            panel.append(state);
         }
-        else if (result.status === "unknown") {
-            title.textContent = this.labels.unknown;
+        else if (result.status !== "error") {
+            panel.textContent = this.labels.unknown;
         }
-        if (title.textContent)
-            panel.append(title);
         if (result.reason) {
             const message = document.createElement("p");
             const key = result.reason;
@@ -774,18 +761,8 @@ export class ImageLabComparison extends HTMLElement {
                 : this.labels.failed;
             details.append(message);
         }
-        if (result.time) {
-            const date = document.createElement("p");
-            date.className = "secondary";
-            const stamp = document.createElement("time");
-            stamp.dateTime = result.time;
-            stamp.textContent = new Intl.DateTimeFormat(this.client?.locale.language, {
-                timeZone: this.client?.config?.time_zone,
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-            }).format(new Date(result.time));
-            date.append(stamp, ` · ${this.labels[result.manual ? "manualAnalysis" : "automaticAnalysis"]}`);
-            panel.append(date);
-        }
+        if (result.time)
+            panel.append(analysisTime(result.time, this.client));
         if (result.confirmation === "disagreed") {
             const retained = document.createElement("p");
             retained.className = "secondary";

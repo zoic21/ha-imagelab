@@ -8,6 +8,7 @@ import { editMeter, meterStyles, meterText } from "./meter.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
 import { PublicationSettings, publicationMarkup, publicationStyles } from "./publication.js";
+import { analysisTime, resultStyles } from "./result.js";
 import { SourceThumbnail } from "./source-thumbnail.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
@@ -114,12 +115,11 @@ template.innerHTML = `
       font-size: 11px; line-height: 1.5; color: white; background: #131a22;
     }
     .object-list {
-      display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px;
+      display: flex; flex-wrap: wrap; gap: var(--ha-space-2, 8px); margin-top: 12px;
     }
-    .object-list li { margin: 0; }
-    figcaption, ha-alert { margin-top: 8px; }
+    ${resultStyles}
+    ha-alert { margin-top: 8px; }
     #palette { margin-top: 16px; }
-    #paletteTitle { font-size: 16px; font-weight: 500; margin: 0 0 8px; }
     .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; }
     .swatches li { min-width: 0; margin: 0; }
     .history-detail .swatches { margin-top: 12px; }
@@ -168,22 +168,21 @@ template.innerHTML = `
         <div id="profile">
           <section id="resultPane" role="tabpanel" aria-labelledby="resultTab">
             <div class="resultHeader">
-              <p id="status" class="secondary" role="status"></p>
+              <div role="status">
+                <div class="resultMeta" id="resultMeta"></div>
+                <p id="status" class="secondary"></p>
+              </div>
               <ha-button id="test" variant="brand"></ha-button>
             </div>
             <ha-alert id="error" alert-type="error" role="alert" hidden></ha-alert>
-            <section id="palette" aria-labelledby="paletteTitle" hidden>
-              <h3 id="paletteTitle"></h3>
-              <ul id="swatches" class="swatches"></ul>
-          </section>
-          <figure id="preview" hidden>
-            <div id="imageStage" class="image-stage">
-              <img id="image" />
-              <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
-            </div>
-            <figcaption id="dimensions" class="secondary"></figcaption>
-          </figure>
-          <ul id="objectList" class="object-list" hidden></ul>
+            <ul id="palette" class="swatches" hidden></ul>
+            <figure id="preview" hidden>
+              <div id="imageStage" class="image-stage">
+                <img id="image" />
+                <div id="objectsOverlay" class="objects-overlay" aria-hidden="true"></div>
+              </div>
+            </figure>
+            <ul id="objectList" class="object-list" hidden></ul>
           </section>
           <section id="historyPane" role="tabpanel" aria-labelledby="historyTab" hidden>
             ${historyMarkup}
@@ -576,8 +575,13 @@ class ImageLabPanel extends HTMLElement {
         this.element("status").textContent = "";
         this.element("meterSettingsStatus").hidden = true;
         this.element("error").hidden = true;
+        this.element("copyStatus").hidden = true;
+        this.clearPreview();
+    }
+    clearPreview() {
+        this.element("resultMeta").replaceChildren();
         this.element("palette").hidden = true;
-        this.element("swatches").replaceChildren();
+        this.element("palette").replaceChildren();
         this.element("preview").hidden = true;
         this.element("image").removeAttribute("src");
         this.element("imageStage").classList.remove("with-objects");
@@ -588,7 +592,6 @@ class ImageLabPanel extends HTMLElement {
             URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = undefined;
         this.previewETag = undefined;
-        this.element("copyStatus").hidden = true;
     }
     analysisTrigger(profile, manual = this.strings.manualTrigger) {
         const labels = this.strings;
@@ -669,7 +672,7 @@ class ImageLabPanel extends HTMLElement {
     render(moveFocus = false) {
         const labels = this.strings;
         for (const [id, message] of Object.entries({
-            idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
+            idLabel: labels.id, "resultTab-label": labels.resultTab,
             "referencesTab-label": labels.referencesTab, "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
             analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
             renameAction: labels.rename,
@@ -686,6 +689,7 @@ class ImageLabPanel extends HTMLElement {
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
+        this.element("palette").setAttribute("aria-label", labels.palette);
         this.element("editSource").setAttribute("label", labels.editSource);
         this.element("copy").setAttribute("label", labels.copy);
         this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
@@ -947,7 +951,7 @@ class ImageLabPanel extends HTMLElement {
         });
     }
     async showObjects(metadata, stage, overlay, results, hass, signal) {
-        const { width, height, data: { objects, truncated } } = metadata;
+        const { width, height, data: { objects } } = metadata;
         if (!Array.isArray(objects) || width <= 0 || height <= 0)
             throw new Error("Missing detection result");
         const language = hass.locale.language;
@@ -975,6 +979,7 @@ class ImageLabPanel extends HTMLElement {
             caption.textContent = name;
             box.append(caption);
             const item = document.createElement("li");
+            item.className = "resultBadge";
             item.textContent = `${name} · ${confidence}`;
             list.push(item);
             return box;
@@ -982,8 +987,6 @@ class ImageLabPanel extends HTMLElement {
         overlay.replaceChildren(...boxes);
         results.replaceChildren(...list);
         results.hidden = !objects.length;
-        const summary = this.objectSummary(objects.length);
-        return truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
     }
     async readMetadata(hass, path, imageId, signal) {
         const response = await hass.fetchWithAuth(`${path}/${encodeURIComponent(imageId)}?metadata=1`, { signal });
@@ -1000,11 +1003,6 @@ class ImageLabPanel extends HTMLElement {
     }
     previewPath(profile) {
         return `/api/image_lab/preview/${encodeURIComponent(profile.profile_id)}`;
-    }
-    observationLabel(time, manual) {
-        return new Date(time).toLocaleString(this._hass?.locale.language, {
-            timeZone: this._hass?.config?.time_zone,
-        }) + " · " + this.strings[manual ? "manualAnalysis" : "automaticAnalysis"];
     }
     async loadHistorySettings(profile, hass, signal) {
         this.historySettings.localize(hass.locale.language);
@@ -1076,9 +1074,10 @@ class ImageLabPanel extends HTMLElement {
                         stage.append(image, overlay);
                         const results = document.createElement("ul");
                         results.className = "object-list";
-                        const summary = await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
+                        await this.showObjects(metadata, stage, overlay, results, hass, detailSignal);
+                        const summary = this.objectSummary(metadata.data.objects.length);
                         const status = document.createElement("p");
-                        status.textContent = summary;
+                        status.textContent = metadata.data.truncated ? `${summary} · ${this.strings.objectLimit}` : summary;
                         content.append(status, results);
                     }
                 },
@@ -1120,6 +1119,7 @@ class ImageLabPanel extends HTMLElement {
             if (response.status === 304)
                 return;
             if (response.status === 204) {
+                this.clearPreview();
                 summary = profile.available && profile.module === "meter" && !profile.meter_initialized
                     ? this.meterLabels.reasons.meter_needs_calibration
                     : this.strings[profile.available ? "noResult" : "profile_unavailable"];
@@ -1143,18 +1143,34 @@ class ImageLabPanel extends HTMLElement {
             controller.signal.throwIfAborted();
             if (metadata.module !== profile.module)
                 throw new Error("Unexpected capture module");
+            const meta = [analysisTime(metadata.time, hass)];
+            let notice = "";
             if (metadata.module === "object_detection") {
-                summary = await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
+                await this.showObjects(metadata, this.element("imageStage"), this.element("objectsOverlay"), this.element("objectList"), hass, controller.signal);
                 controller.signal.throwIfAborted();
+                if (!metadata.data.objects.length)
+                    notice = this.strings.noObjects;
+                else if (metadata.data.truncated)
+                    notice = this.strings.objectLimit;
             }
             else if (metadata.module === "meter") {
-                summary = meterText({ ...metadata.data, reason: metadata.reason }, hass.locale.language);
+                if (!metadata.reason && metadata.data.value != null) {
+                    const badge = document.createElement("span");
+                    badge.className = "resultBadge";
+                    badge.textContent = meterText(metadata.data, hass.locale.language, true);
+                    meta.push(badge);
+                }
+                else {
+                    notice = meterText({ ...metadata.data, reason: metadata.reason, confidence: null }, hass.locale.language)
+                        || this.meterLabels.rejected;
+                }
             }
             else {
-                this.element("swatches").replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
-                this.element("palette").hidden = false;
-                summary = this.strings.paletteReady;
+                const palette = this.element("palette");
+                palette.replaceChildren(...this.paletteSwatches(metadata.data.palette_rgb));
+                palette.hidden = false;
             }
+            this.element("resultMeta").replaceChildren(...meta);
             if (this.previewUrl)
                 URL.revokeObjectURL(this.previewUrl);
             this.previewETag = etag ?? undefined;
@@ -1162,13 +1178,9 @@ class ImageLabPanel extends HTMLElement {
             const image = this.element("image");
             image.src = this.previewUrl;
             image.alt = this.strings.preview;
-            const format = blob.type.split("/")[1]?.toUpperCase();
-            const details = `${metadata.width} × ${metadata.height} px · ${format}`;
-            this.element("dimensions").textContent = this.observationLabel(metadata.time, metadata.manual) + " · " + details;
             this.element("preview").hidden = false;
-            if (metadata.confirmation === "disagreed") {
-                summary += " · " + this.strings.notConfirmed;
-            }
+            summary = [notice, metadata.confirmation === "disagreed" ? this.strings.notConfirmed : ""]
+                .filter(Boolean).join(" · ");
         }
         catch (error) {
             if (!controller.signal.aborted) {

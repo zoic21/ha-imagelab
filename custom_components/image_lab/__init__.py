@@ -61,6 +61,7 @@ from .meter import METER, METER_SEED
 from .meter_api import MeterView
 from .module_settings import async_module_settings
 from .output import OUTPUTS, CameraSchedule, OutputCoordinator
+from .publication import async_set_publication, publication_settings
 from .result_store import (
     SIGNAL_CAPTURE_SAVED, Observation, async_remove_results, get_result_store,
     observation_response,
@@ -93,6 +94,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket_api.async_register_command(hass, async_subscribe_profiles)
     websocket_api.async_register_command(hass, async_subscribe_captures)
     websocket_api.async_register_command(hass, async_set_schedule)
+    websocket_api.async_register_command(hass, async_set_publication)
     websocket_api.async_register_command(hass, async_test_source)
     websocket_api.async_register_command(hass, async_module_settings)
     hass.http.register_view(AnalysisFlowView(hass.config_entries.flow))
@@ -232,6 +234,7 @@ def async_subscribe_profiles(
                 "interval_minutes": (
                     0 if entry.pref_disable_polling else entry.options.get("interval_minutes", 0)
                 ),
+                "publication": publication_settings(entry),
                 CONF_MODULE: entry.data[CONF_MODULE],
                 CONF_SOURCE_TYPE: entry.data[CONF_SOURCE_TYPE],
                 CONF_PALETTE_SIZE: (

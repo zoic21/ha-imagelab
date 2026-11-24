@@ -1,4 +1,4 @@
-import { comparisonStrings as text, panelStrings } from "./translations.js";
+import { comparisonStrings as text, panelStrings, publicationStrings } from "./translations.js";
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
 import { ImageCache } from "./image-cache.js";
@@ -246,7 +246,7 @@ template.innerHTML = `
 `;
 export class ImageLabComparison extends HTMLElement {
     images;
-    schedule;
+    publication;
     client;
     profile;
     sourceKey;
@@ -267,10 +267,10 @@ export class ImageLabComparison extends HTMLElement {
     history;
     historySettings;
     expandedStates = new Set();
-    constructor(images = new ImageCache(), schedule) {
+    constructor(images = new ImageCache(), publication) {
         super();
         this.images = images;
-        this.schedule = schedule;
+        this.publication = publication;
         this.attachShadow({ mode: "open" }).append(template.content.cloneNode(true));
         this.history = new CaptureHistory(this.get("history"), () => void this.loadHistory());
         const historySettings = this.get("historySettings");
@@ -458,7 +458,7 @@ export class ImageLabComparison extends HTMLElement {
         this.get("dialogSlot").replaceChildren();
         this.get("scoreDetails").removeAttribute("expanded");
         this.scope = undefined;
-        this.gallery = undefined;
+        this.setGallery(undefined);
         this.result = undefined;
         this.captured = false;
         this.activity = undefined;
@@ -545,8 +545,9 @@ export class ImageLabComparison extends HTMLElement {
             const { gallery, latest, latest_error } = await this.request("?include_latest=1", signal);
             this.gallery = gallery;
             this.fillSettings();
-            this.historySettings.setValue(this.gallery.history_settings);
+            this.historySettings.setValue(gallery.history_settings);
             this.updateSelectors();
+            this.publication?.setStates(gallery.states);
             if (this.tab === "references")
                 this.renderGallery();
             if (this.tab === "history")
@@ -578,9 +579,7 @@ export class ImageLabComparison extends HTMLElement {
         catch (error) {
             if (!signal.aborted) {
                 const key = error instanceof Error ? error.message : "";
-                this.feedback(Object.hasOwn(this.labels, key)
-                    ? this.labels[key]
-                    : this.labels.failed, true);
+                this.feedback(this.settingsError(key, this.labels.failed), true);
             }
         }
         finally {
@@ -625,8 +624,12 @@ export class ImageLabComparison extends HTMLElement {
         }
     }
     async update(operation, data, signal) {
-        this.gallery = await this.request("/" + operation, signal, data);
+        this.setGallery(await this.request("/" + operation, signal, data));
         this.updateSelectors();
+    }
+    setGallery(gallery) {
+        this.gallery = gallery;
+        this.publication?.setStates(gallery?.states ?? []);
     }
     updateSelectors() {
         const captureState = this.get("captureState");
@@ -648,7 +651,7 @@ export class ImageLabComparison extends HTMLElement {
                 throw new Error(result.reason ?? "failed");
             await this.displayObservation(result, signal);
             if (this.tab === "history") {
-                this.gallery = await this.request("", signal);
+                this.setGallery(await this.request("", signal));
                 this.renderHistory();
             }
             else if (this.tab === "references") {
@@ -850,6 +853,11 @@ export class ImageLabComparison extends HTMLElement {
         match.scrollIntoView({ block: "nearest" });
         match.focus({ preventScroll: true });
     }
+    openReferences() {
+        this.show("references");
+        this.dispatchEvent(new Event("analysis-tab-changed"));
+        this.get("stateName").focus({ preventScroll: true });
+    }
     renderEngine() {
         const tarsius = this.get("engine").value === "tarsius";
         this.get("thresholdFields").hidden = tarsius;
@@ -885,10 +893,8 @@ export class ImageLabComparison extends HTMLElement {
         const history = historyChanged ? this.historySettings.draft : undefined;
         if (historyChanged && !history)
             throw new Error("invalid_history_limit");
-        const minutes = this.profile ? this.schedule?.draft(this.profile) : undefined;
-        if (minutes !== undefined && !Number.isSafeInteger(minutes))
-            throw new Error("invalid_frequency");
-        return { analysis: changed ? analysis : undefined, history, minutes };
+        const publication = this.profile ? this.publication?.draft(this.profile) : undefined;
+        return { analysis: changed ? analysis : undefined, history, publication };
     }
     saveSettings() {
         const gallery = this.gallery;
@@ -896,7 +902,7 @@ export class ImageLabComparison extends HTMLElement {
         if (!gallery || !profile)
             return;
         return this.task(async (signal) => {
-            const { analysis, history, minutes } = this.settingsDraft(gallery);
+            const { analysis, history, publication } = this.settingsDraft(gallery);
             if (analysis) {
                 await this.update("settings", analysis, signal);
                 this.fillSettings();
@@ -905,8 +911,8 @@ export class ImageLabComparison extends HTMLElement {
                 await this.update("history_settings", history, signal);
                 this.historySettings.setValue(this.gallery.history_settings);
             }
-            if (minutes !== undefined)
-                await this.schedule?.save(profile, minutes);
+            if (publication)
+                await this.publication?.save(profile, publication);
             if (!signal.aborted)
                 this.feedback(this.labels.saved);
         }, "savingSettings");
@@ -918,8 +924,8 @@ export class ImageLabComparison extends HTMLElement {
         let valid = true;
         if (this.gallery) {
             try {
-                const { analysis, history, minutes } = this.settingsDraft(this.gallery);
-                changed = Boolean(analysis || history || minutes !== undefined);
+                const { analysis, history, publication } = this.settingsDraft(this.gallery);
+                changed = Boolean(analysis || history || publication);
                 if (changed)
                     status.textContent = this.labels.dirty;
             }
@@ -927,7 +933,7 @@ export class ImageLabComparison extends HTMLElement {
                 changed = true;
                 valid = false;
                 const key = error instanceof Error ? error.message : "";
-                status.textContent = Object.hasOwn(this.labels, key) ? this.labels[key] : this.labels.invalid_settings;
+                status.textContent = this.settingsError(key, this.labels.invalid_settings);
             }
         }
         status.hidden = !status.textContent;
@@ -939,6 +945,13 @@ export class ImageLabComparison extends HTMLElement {
         const hint = this.get("testHint");
         hint.hidden = !status.textContent;
         hint.textContent = this.labels.testSavedSettings;
+    }
+    settingsError(key, fallback) {
+        const publication = publicationStrings[this.labels === text.fr ? "fr" : "en"];
+        if (Object.hasOwn(this.labels, key))
+            return this.labels[key];
+        const label = publication[key];
+        return typeof label === "string" ? label : fallback;
     }
     renderRegion() {
         paintRegion(this.get("region"), this.frameUrl ? this.result?.data.region ?? null : null);
@@ -1015,7 +1028,7 @@ export class ImageLabComparison extends HTMLElement {
     }
     loadHistory() {
         return this.task(async (signal) => {
-            this.gallery = await this.request("", signal);
+            this.setGallery(await this.request("", signal));
             if (this.tab === "history")
                 this.renderHistory();
         });

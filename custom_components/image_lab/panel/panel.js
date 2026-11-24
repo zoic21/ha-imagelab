@@ -7,11 +7,9 @@ import { ImageCache } from "./image-cache.js";
 import { editMeter, meterStyles, meterText } from "./meter.js";
 import { editModuleSettings, runProfileFlow } from "./options.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
+import { PublicationSettings, publicationMarkup, publicationStyles } from "./publication.js";
 import { editZone } from "./zone.js";
 const panelPath = "/image-lab";
-const intervalPresets = [5, 15, 30, 60];
-// Match the backend limit for Python timedelta.
-const maxIntervalMinutes = 999_999_999 * 1440 - 1;
 const sourceIcons = { camera: "cctv", media_player: "music-note", upload: "image-outline" };
 const template = document.createElement("template");
 template.innerHTML = `
@@ -86,20 +84,11 @@ template.innerHTML = `
     .sourceRow ha-icon { --mdc-icon-size: 20px; }
     .sourceRow ha-icon:last-child { color: var(--primary-color); }
     #sourceKind { display: block; font-size: var(--ha-font-size-s, 12px); font-weight: var(--ha-font-weight-normal, 400); }
-    #outputEntity {
-      max-width: 100%; --ha-button-label-overflow: visible;
-      white-space: normal; overflow-wrap: anywhere; text-align: start;
-    }
-    #outputEntity::part(base) { padding-inline: var(--ha-space-2, 8px); }
-    #outputId, #profileId { font-size: var(--ha-font-size-s, 12px); }
-    #outputId { display: block; text-align: start; }
+    ${publicationStyles}
+    #profileId { font-size: var(--ha-font-size-s, 12px); }
     #analysisId { padding-block-end: 0; }
     #profileId { display: block; color: var(--secondary-text-color); }
     #copyStatus { margin-top: 0; }
-    #cameraSchedule { display: grid; gap: var(--ha-space-2, 8px); margin-top: var(--ha-space-2, 8px); }
-    #interval { --ha-input-padding-bottom: 0; }
-    #saveInterval { justify-self: end; }
-    #frequencyStatus:empty { display: none; }
 
     figure { margin: 16px 0 0; }
     .image-stage { position: relative; --preview-height: min(55dvh, 520px); }
@@ -218,27 +207,8 @@ template.innerHTML = `
                   </span>
                 </ha-button>
                 <p id="scheduleHint" class="secondary" hidden></p>
-                <div id="cameraSchedule" hidden>
-                  <ha-select id="intervalMode"></ha-select>
-                  <ha-input id="interval" type="number" min="1" max="${maxIntervalMinutes}" step="1" required hidden></ha-input>
-                  <ha-button id="saveInterval" size="s" variant="brand"></ha-button>
-                  <p id="frequencyStatus" role="status"></p>
-                </div>
               </section>
-              <section class="settingsSection" aria-labelledby="outputTitle">
-                <div class="settingsInfo">
-                  <div>
-                    <h3 id="outputTitle" class="settingsTitle"></h3>
-                    <ha-button id="outputEntity" appearance="plain" size="s" hidden>
-                      <code id="outputId"></code>
-                    </ha-button>
-                    <p id="noOutput" class="secondary"></p>
-                  </div>
-                  <ha-icon-button id="settings">
-                    <ha-icon icon="mdi:cog-outline" aria-hidden="true"></ha-icon>
-                  </ha-icon-button>
-                </div>
-              </section>
+              ${publicationMarkup}
               <div id="analysisId" class="settingsSection">
                 <div class="settingsInfo">
                   <span><span id="idLabel"></span><code id="profileId"></code></span>
@@ -274,12 +244,11 @@ class ImageLabPanel extends HTMLElement {
     previewETag;
     optionsScope;
     moduleSettingsScope;
-    intervalKey;
-    savingInterval = false;
     zoneScope;
     strings = strings.en;
     images = new ImageCache();
     comparison;
+    publication;
     analysisList;
     constructor() {
         super();
@@ -298,26 +267,16 @@ class ImageLabPanel extends HTMLElement {
                 throw new Error();
         });
         this.comparison = new ImageLabComparison(this.images, {
-            draft: profile => this.intervalDraft(profile),
-            save: (profile, minutes) => this.saveSchedule(profile, minutes),
+            draft: profile => this.publication.draft(profile),
+            save: (profile, changes) => this.savePublication(profile, changes),
+            setStates: states => this.publication.setStates(states),
         });
+        this.publication = new PublicationSettings(this.element("publication"), () => this.comparison.refreshSettings(), (profile, changes) => this.savePublication(profile, changes), () => this.comparison.openReferences());
         this.element("comparisonSlot").append(this.comparison);
         this.comparison.addEventListener("analysis-tab-changed", () => this.resetMobileTabScroll());
         this.element("add").addEventListener("click", () => this.openFlow("create"));
         this.element("profileMenu").addEventListener("wa-select", () => this.openFlow("rename"));
         this.element("editSource").addEventListener("click", () => this.openFlow("configure"));
-        this.element("saveInterval").addEventListener("click", () => void this.saveInterval());
-        const scheduleChanged = () => {
-            this.element("frequencyStatus").textContent = "";
-            this.refreshSchedule();
-        };
-        const intervalMode = this.element("intervalMode");
-        intervalMode.addEventListener("selected", event => {
-            intervalMode.value = event.detail.value;
-            scheduleChanged();
-        });
-        this.element("interval").addEventListener("input", scheduleChanged);
-        this.element("settings").addEventListener("click", () => this.openFlow("options"));
         this.element("retry").addEventListener("click", () => this.subscribe());
         this.element("back").addEventListener("click", () => {
             if (history.state?.from === panelPath)
@@ -390,6 +349,9 @@ class ImageLabPanel extends HTMLElement {
         const language = hass.locale.language.startsWith("fr") ? strings.fr : strings.en;
         const languageChanged = this.strings !== language;
         this._hass = hass;
+        const output = this.selected?.output_entity_id;
+        if (output && previous?.states[output]?.attributes.friendly_name !== hass.states[output]?.attributes.friendly_name)
+            this.publication.setEntity(output, hass.states[output]?.attributes.friendly_name);
         if (languageChanged) {
             this.strings = language;
             this.closeModuleSettings();
@@ -759,21 +721,19 @@ class ImageLabPanel extends HTMLElement {
             idLabel: labels.id, paletteTitle: labels.palette, "resultTab-label": labels.resultTab,
             "historyTab-label": labels.historyTab, "settingsTab-label": labels.settingsTab,
             analysisSettingsTitle: labels.analysisSettings, sourceSettingsTitle: labels.sourceSettings,
-            outputTitle: labels.settings, noOutput: labels.noResultEntity, renameAction: labels.rename,
+            renameAction: labels.rename,
         })) {
             this.element(id).textContent = message;
         }
         const actions = {
             add: [labels.add, "plus"],
             retry: [labels.retry, "refresh"],
-            saveInterval: [labels.saveFrequency, "content-save-outline"],
             test: [labels.test, "play-outline"],
             zone: [labels.zone, "crop"],
             meterSettings: [this.meterLabels.configure, "gauge"],
         };
         for (const [id, [label, icon]] of Object.entries(actions))
             actionLabel(this.element(id), label, icon);
-        this.element("settings").setAttribute("label", labels.configure);
         this.element("editSource").title = labels.editSource;
         this.element("copy").setAttribute("label", labels.copy);
         this.element("profileMenuButton").setAttribute("label", labels.profileMenu);
@@ -804,6 +764,9 @@ class ImageLabPanel extends HTMLElement {
             !this.profiles ? labels.loading : this.profiles.length === 0 ? labels.empty : "";
         message.hidden = !message.textContent;
         const isComparison = profile?.module === "comparison";
+        const outputEntityId = profile?.output_entity_id ?? undefined;
+        const outputName = outputEntityId && this._hass?.states[outputEntityId]?.attributes.friendly_name;
+        this.publication.configure(profile, labels === strings.fr ? "fr" : "en", outputEntityId, outputName);
         this.comparison.hidden = !isComparison;
         this.comparison.configure(this._hass, isComparison ? profile.profile_id : undefined, isComparison ? `${profile.source_type}/${profile.entity_id ?? ""}/${profile.image_revision ?? ""}` : undefined, profile?.available);
         const settings = this.element("profileSettings");
@@ -820,38 +783,9 @@ class ImageLabPanel extends HTMLElement {
         if (!profile)
             return;
         const camera = profile.source_type === "camera";
-        const interval = this.element("interval");
-        const intervalMode = this.element("intervalMode");
-        this.element("cameraSchedule").hidden = !camera;
-        this.element("saveInterval").hidden = isComparison;
         const schedule = this.element("scheduleHint");
         schedule.hidden = profile.source_type !== "media_player" || Boolean(profile.output_entity_id);
         schedule.textContent = labels.frequencyMediaInactive;
-        if (camera) {
-            interval.setAttribute("label", labels.intervalLabel);
-            if (intervalMode.label !== labels.triggerColumn) {
-                intervalMode.label = labels.triggerColumn;
-                intervalMode.options = [
-                    { value: "0", label: labels.manualTrigger },
-                    ...intervalPresets.map(minutes => ({
-                        value: String(minutes), label: minutes === 60 ? labels.everyHour :
-                            labels.everyMinutes.replace("{minutes}", String(minutes)),
-                    })),
-                    { value: "custom", label: labels.customInterval },
-                ];
-            }
-            const key = `${profile.profile_id}/${profile.interval_minutes}`;
-            if (key !== this.intervalKey) {
-                this.intervalKey = key;
-                intervalMode.value = profile.interval_minutes === 0 || intervalPresets.includes(profile.interval_minutes)
-                    ? String(profile.interval_minutes) : "custom";
-                interval.value = profile.interval_minutes > 0 ? String(profile.interval_minutes) : "";
-                this.element("frequencyStatus").textContent = "";
-            }
-        }
-        else {
-            this.intervalKey = undefined;
-        }
         const sourceName = profile.entity_id
             ? this._hass?.states[profile.entity_id]?.attributes.friendly_name || profile.entity_id
             : undefined;
@@ -861,14 +795,10 @@ class ImageLabPanel extends HTMLElement {
         this.element("sourceKind").textContent = camera ? labels.cameraLabel : labels[profile.source_type];
         this.element("sourceSummary").textContent =
             [sourceName ?? (profile.source_type !== "upload" ? labels.missingSource : undefined), trigger].filter(Boolean).join(" · ");
-        this.refreshSchedule();
         this.element("zone").hidden = !camera || isComparison || profile.module === "meter";
         this.element("meterSettings").hidden = profile.module !== "meter";
         this.element("meterSettings").toggleAttribute("disabled", !profile.available);
         this.element("profileId").textContent = profile.profile_id;
-        this.element("outputEntity").hidden = !profile.output_entity_id;
-        this.element("noOutput").hidden = Boolean(profile.output_entity_id);
-        this.element("outputId").textContent = profile.output_entity_id ?? "";
         this.element("source").textContent = labels[profile.module];
         this.element("test").toggleAttribute("disabled", !profile.available || Boolean(this.activeTest));
         if (opened) {
@@ -880,74 +810,21 @@ class ImageLabPanel extends HTMLElement {
                 void this.loadPreview();
         }
     }
-    intervalDraft(profileId) {
-        const profile = this.selected;
-        if (profile?.profile_id !== profileId || profile.source_type !== "camera")
-            return;
-        const mode = this.element("intervalMode").value;
-        if (!mode)
-            return;
-        const custom = mode === "custom";
-        const field = this.element("interval");
-        const minutes = Number(custom ? field.value : mode);
-        if (custom && (!field.checkValidity() || !Number.isSafeInteger(minutes) || minutes < 1 || minutes > maxIntervalMinutes))
-            return NaN;
-        return minutes === profile.interval_minutes ? undefined : minutes;
-    }
-    refreshSchedule() {
-        const mode = this.element("intervalMode");
-        const field = this.element("interval");
-        field.hidden = mode.value !== "custom";
-        const profile = this.selected;
-        const draft = profile ? this.intervalDraft(profile.profile_id) : undefined;
-        this.element("saveInterval").toggleAttribute("disabled", this.savingInterval || draft === undefined);
-        this.element("saveInterval").toggleAttribute("loading", this.savingInterval);
-        mode.toggleAttribute("disabled", this.savingInterval);
-        field.toggleAttribute("disabled", this.savingInterval);
-        this.comparison.refreshSettings();
-    }
-    async saveSchedule(profileId, minutes) {
+    async savePublication(profileId, changes) {
         const profile = this.selected;
         const hass = this._hass;
-        if (!hass || profile?.profile_id !== profileId || profile.source_type !== "camera")
+        if (!hass || profile?.profile_id !== profileId)
             throw new Error("profile_not_found");
-        await hass.connection.sendMessagePromise({
-            type: "image_lab/set_schedule", profile_id: profileId, interval_minutes: minutes,
-        });
-        // A profile update normally arrives over the subscription before the command replies.
+        const publication = await hass.connection.sendMessagePromise({
+            type: "image_lab/set_publication", profile_id: profileId, settings: changes,
+        }).catch(error => { throw new Error(error?.code ?? "publication_failed"); });
+        // The subscription normally reports the update before the command replies.
         if (this.selected === profile) {
-            this.profiles = this.profiles?.map(item => item === profile ? { ...item, interval_minutes: minutes } : item);
+            this.profiles = this.profiles?.map(item => item === profile ? {
+                ...item, publication, interval_minutes: publication.settings.interval_minutes,
+            } : item);
             this.renderAnalysisRows();
             this.render();
-        }
-    }
-    async saveInterval() {
-        const profile = this.selected;
-        if (!profile || this.savingInterval)
-            return;
-        const minutes = this.intervalDraft(profile.profile_id);
-        if (minutes === undefined)
-            return;
-        const status = this.element("frequencyStatus");
-        if (!Number.isSafeInteger(minutes)) {
-            this.element("interval").reportValidity();
-            status.textContent = this.strings.invalidFrequency;
-            return;
-        }
-        this.savingInterval = true;
-        this.refreshSchedule();
-        try {
-            await this.saveSchedule(profile.profile_id, minutes);
-            if (this.selectedId === profile.profile_id)
-                status.textContent = this.strings.frequencySaved;
-        }
-        catch {
-            if (this.selectedId === profile.profile_id)
-                status.textContent = this.strings.optionsError;
-        }
-        finally {
-            this.savingInterval = false;
-            this.refreshSchedule();
         }
     }
     showError(message) {

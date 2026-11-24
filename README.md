@@ -37,13 +37,13 @@ Les sources disponibles sont une **capture de caméra Home Assistant**, la **poc
 
 ## Interface
 
-Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source et déclenchement** et **Entité de résultat**. Cliquer sur l’identifiant de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source et déclenchement**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. La comparaison dispose aussi de l’onglet **Références**. Les formulaires et sélecteurs sont ceux de Home Assistant.
+Le tableau affiche le nom, le type, la source et le déclenchement de chaque analyse. La recherche et le tri portent sur ces quatre champs. Par défaut, les analyses qui demandent une intervention apparaissent en tête de liste. Cliquer sur une ligne ouvre sa fiche. L’onglet **Réglages** affiche les paramètres du type d’analyse, **Source** et **Publication**. Cliquer sur le nom de l’entité ouvre sa fiche Home Assistant. L’identifiant de l’analyse se copie en bas de l’onglet. Le menu **⋮ → Renommer** permet de changer le nom. Dans **Source**, choisir **Modifier la source** pour sélectionner une autre caméra ou une autre image. Le type est fixé à la création. La comparaison dispose aussi de l’onglet **Références**. Les formulaires et sélecteurs sont ceux de Home Assistant.
 
 **Résultat** affiche la dernière analyse manuelle ou automatique, avec l’image utilisée, le résultat et la date. Ouvrir la fiche ne déclenche aucune capture. Si l’analyse n’a encore jamais donné de résultat, sélectionner **Tester la source**. Ce bouton utilise les réglages enregistrés, ajoute la capture à l’historique et actualise l’entité configurée.
 
 ### Publier le résultat dans une entité
 
-La publication dans Home Assistant se configure dans **Image Lab → Réglages → Entité de résultat**. Elle est facultative et s’active pour chaque analyse. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement. Un compteur restaure son dernier index validé au démarrage.
+La publication dans Home Assistant se configure dans **Image Lab → Réglages → Publication**. Elle est facultative et s’active pour chaque analyse. Une première analyse initialise l’état de l’entité dès que la source est disponible au chargement. Un compteur restaure son dernier index validé au démarrage.
 
 | Module | Entité disponible |
 | --- | --- |
@@ -52,15 +52,15 @@ La publication dans Home Assistant se configure dans **Image Lab → Réglages �
 | Palette | Couleur dominante au format hexadécimal |
 | Lecture de compteur | Index cumulé pour l’eau, le gaz ou l’électricité, activé à la création |
 
-Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans les options, choisir **Capteur binaire → Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
+Pour suivre un volet, créer les états **Ouvert** et **Fermé** dans **Références**, y classer des captures de la caméra et régler les seuils dans **Réglages**. Dans **Publication**, choisir **Capteur binaire**, sélectionner la classe **Ouverture**, associer **Ouvert** à « activé » et **Fermé** à « désactivé ». Une image ambiguë ou un troisième état donne `unknown`. Une caméra inaccessible donne `unavailable`. Les associations survivent au renommage d’un état.
 
 Le capteur de palette expose toutes les couleurs dans les attributs `palette_hex` et `palette_rgb`. Les deux entités de détection d’objets exposent `objects` (catégorie, confiance et cadre normalisé pour chaque objet), `counts` (nombre par catégorie), `count` et `truncated`.
 
 Une palette publiée par un lecteur multimédia se recalcule au changement de pochette. Les changements de position, de volume ou de lecture qui conservent la même pochette ne lancent pas d’analyse.
 
-Dans la fiche de l’analyse, ouvrir **Réglages → Source et déclenchement**. Avec une caméra, choisir une fréquence ou **Intervalle personnalisé** dans le champ **Déclenchement**. Choisir **Manuel** pour lancer les analyses à la demande. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
+Dans la fiche de l’analyse, ouvrir **Réglages → Publication**. Avec une caméra, choisir une fréquence ou **Personnalisé** dans le champ **Intervalle**. Choisir **Manuel** pour lancer les analyses à la demande. La fréquence s’applique aussi aux analyses qui ne publient aucune entité. Les profils caméra partagent une horloge commune. Une image importée est analysée à la demande. L’action `image_lab.analyze` actualise aussi l’entité de résultat.
 
-Dans les options des profils caméra de comparaison, de palette et de détection, **Délai de confirmation d’un changement** accepte de 1 à 60 secondes (0 par défaut). Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
+Dans **Publication**, le champ **Confirmation** des profils caméra de comparaison, de palette et de détection accepte de 1 à 60 secondes. La valeur 0 désactive la confirmation. Le premier état connu est publié immédiatement. Quand une analyse périodique, un test depuis le panneau ou l’action `image_lab.analyze` détecte ensuite un changement, Image Lab attend le délai choisi et prend une nouvelle photo. Deux valeurs identiques publient le nouvel état. Une seconde valeur différente ou indéterminée conserve l’état précédent jusqu’à la prochaine analyse. Une erreur de caméra rend l’entité indisponible.
 
 L’action renvoie la dernière observation et, lorsqu’une seconde capture a été demandée, le champ `confirmation` vaut `confirmed`, `disagreed` ou `failed`. En comparaison planifiée, les deux prises de vue suivent les réglages de captures automatiques du profil.
 

@@ -214,36 +214,9 @@
     }
   },
   "options": {
-    "step": {
-      "init": {
-        "title": "Result entity",
-        "data": {
-          "output": "Result entity",
-          "confirmation_seconds": "Delay before confirming a change"
-        },
-        "data_description": {
-          "confirmation_seconds": "Wait 1–60 seconds before taking a second snapshot. Publish the change when both results agree. Set to 0 to disable."
-        }
-      },
-      "mapping": {
-        "title": "Map recognised states",
-        "description": "Other states and ambiguous images give an unknown result.",
-        "data": {
-          "binary_class": "Binary sensor class",
-          "on_state": "State for on",
-          "off_state": "State for off"
-        }
-      }
-    },
-    "error": {
-      "different_states": "Choose two different states.",
-      "state_removed": "A state was removed. Select the mapping again.",
-      "invalid_delay": "Enter a whole number of seconds from 0 to 60."
-    },
+    "step": {},
     "abort": {
-      "need_two_states": "Create at least two states in Image Lab → References, then configure the entity again.",
-      "gallery_unavailable": "The comparison gallery could not be read.",
-      "open_panel": "Open [Image Lab](/image-lab) to configure your analyses."
+      "open_panel": "Open [Image Lab](/image-lab), then Settings → Publication."
     }
   }
 }

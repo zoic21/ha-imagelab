@@ -1,4 +1,4 @@
-import { comparisonStrings as text, panelStrings } from "./translations.js";
+import { comparisonStrings as text, panelStrings, publicationStrings } from "./translations.js";
 
 import { actionLabel } from "./action.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles, type Capture, type HistorySettingsValue } from "./history.js";
@@ -6,6 +6,7 @@ import { ImageCache } from "./image-cache.js";
 import { numberField, type NumberField } from "./number-field.js";
 import { paintRegion, type Region } from "./region.js";
 import { profileTab, profileTabsStyles } from "./profile-tabs.js";
+import type { PublicationChanges } from "./publication.js";
 import { editZone } from "./zone.js";
 
 type Engine = "pillow" | "tarsius";
@@ -16,7 +17,7 @@ type Settings = {
   min_margin: number;
 };
 export interface HaSelect extends HTMLElement {
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; disabled?: boolean }[];
   value: string;
   label: string;
 }
@@ -62,9 +63,10 @@ export interface ComparisonClient {
   fetchWithAuth(path: string, init?: RequestInit): Promise<Response>;
 }
 
-interface ComparisonSchedule {
-  draft(profile: string): number | undefined;
-  save(profile: string, minutes: number): Promise<void>;
+interface ComparisonPublication {
+  draft(profile: string): PublicationChanges | undefined;
+  save(profile: string, changes: PublicationChanges): Promise<void>;
+  setStates(states: readonly State[]): void;
 }
 
 type Label = keyof typeof text.en;
@@ -331,7 +333,7 @@ export class ImageLabComparison extends HTMLElement {
   private readonly historySettings: HistorySettings;
   private readonly expandedStates = new Set<string>();
 
-  constructor(private readonly images = new ImageCache(), private readonly schedule?: ComparisonSchedule) {
+  constructor(private readonly images = new ImageCache(), private readonly publication?: ComparisonPublication) {
     super();
     this.attachShadow({ mode: "open" }).append(
       template.content.cloneNode(true),
@@ -527,7 +529,7 @@ export class ImageLabComparison extends HTMLElement {
     this.get("dialogSlot").replaceChildren();
     this.get("scoreDetails").removeAttribute("expanded");
     this.scope = undefined;
-    this.gallery = undefined;
+    this.setGallery(undefined);
     this.result = undefined;
     this.captured = false;
     this.activity = undefined;
@@ -617,8 +619,9 @@ export class ImageLabComparison extends HTMLElement {
       }>("?include_latest=1", signal);
       this.gallery = gallery;
       this.fillSettings();
-      this.historySettings.setValue(this.gallery.history_settings);
+      this.historySettings.setValue(gallery.history_settings);
       this.updateSelectors();
+      this.publication?.setStates(gallery.states);
       if (this.tab === "references") this.renderGallery();
       if (this.tab === "history") this.renderHistory();
       if (latest_error) throw new Error(latest_error);
@@ -646,9 +649,7 @@ export class ImageLabComparison extends HTMLElement {
       if (!signal.aborted) {
         const key = error instanceof Error ? error.message : "";
         this.feedback(
-          Object.hasOwn(this.labels, key)
-            ? this.labels[key as Label]
-            : this.labels.failed,
+          this.settingsError(key, this.labels.failed),
           true,
         );
       }
@@ -703,8 +704,13 @@ export class ImageLabComparison extends HTMLElement {
   }
 
   private async update(operation: string, data: object, signal: AbortSignal) {
-    this.gallery = await this.request<Gallery>("/" + operation, signal, data);
+    this.setGallery(await this.request<Gallery>("/" + operation, signal, data));
     this.updateSelectors();
+  }
+
+  private setGallery(gallery?: Gallery) {
+    this.gallery = gallery;
+    this.publication?.setStates(gallery?.states ?? []);
   }
 
   private updateSelectors() {
@@ -728,7 +734,7 @@ export class ImageLabComparison extends HTMLElement {
       if (result.status === "error") throw new Error(result.reason ?? "failed");
       await this.displayObservation(result, signal);
       if (this.tab === "history") {
-        this.gallery = await this.request<Gallery>("", signal);
+        this.setGallery(await this.request<Gallery>("", signal));
         this.renderHistory();
       } else if (this.tab === "references") {
         this.renderGallery();
@@ -932,6 +938,12 @@ export class ImageLabComparison extends HTMLElement {
     match.focus({ preventScroll: true });
   }
 
+  openReferences() {
+    this.show("references");
+    this.dispatchEvent(new Event("analysis-tab-changed"));
+    this.get("stateName").focus({ preventScroll: true });
+  }
+
   private renderEngine() {
     const tarsius = this.get<HaSelect>("engine").value === "tarsius";
     this.get("thresholdFields").hidden = tarsius;
@@ -971,9 +983,8 @@ export class ImageLabComparison extends HTMLElement {
     const historyChanged = this.historySettings.changed;
     const history = historyChanged ? this.historySettings.draft : undefined;
     if (historyChanged && !history) throw new Error("invalid_history_limit");
-    const minutes = this.profile ? this.schedule?.draft(this.profile) : undefined;
-    if (minutes !== undefined && !Number.isSafeInteger(minutes)) throw new Error("invalid_frequency");
-    return { analysis: changed ? analysis : undefined, history, minutes };
+    const publication = this.profile ? this.publication?.draft(this.profile) : undefined;
+    return { analysis: changed ? analysis : undefined, history, publication };
   }
 
   private saveSettings() {
@@ -981,7 +992,7 @@ export class ImageLabComparison extends HTMLElement {
     const profile = this.profile;
     if (!gallery || !profile) return;
     return this.task(async signal => {
-      const { analysis, history, minutes } = this.settingsDraft(gallery);
+      const { analysis, history, publication } = this.settingsDraft(gallery);
       if (analysis) {
         await this.update("settings", analysis, signal);
         this.fillSettings();
@@ -990,7 +1001,7 @@ export class ImageLabComparison extends HTMLElement {
         await this.update("history_settings", history, signal);
         this.historySettings.setValue(this.gallery!.history_settings);
       }
-      if (minutes !== undefined) await this.schedule?.save(profile, minutes);
+      if (publication) await this.publication?.save(profile, publication);
       if (!signal.aborted) this.feedback(this.labels.saved);
     }, "savingSettings");
   }
@@ -1002,14 +1013,14 @@ export class ImageLabComparison extends HTMLElement {
     let valid = true;
     if (this.gallery) {
       try {
-        const { analysis, history, minutes } = this.settingsDraft(this.gallery);
-        changed = Boolean(analysis || history || minutes !== undefined);
+        const { analysis, history, publication } = this.settingsDraft(this.gallery);
+        changed = Boolean(analysis || history || publication);
         if (changed) status.textContent = this.labels.dirty;
       } catch (error) {
         changed = true;
         valid = false;
         const key = error instanceof Error ? error.message : "";
-        status.textContent = Object.hasOwn(this.labels, key) ? this.labels[key as Label] : this.labels.invalid_settings;
+        status.textContent = this.settingsError(key, this.labels.invalid_settings);
       }
     }
     status.hidden = !status.textContent;
@@ -1021,6 +1032,13 @@ export class ImageLabComparison extends HTMLElement {
     const hint = this.get("testHint");
     hint.hidden = !status.textContent;
     hint.textContent = this.labels.testSavedSettings;
+  }
+
+  private settingsError(key: string, fallback: string) {
+    const publication = publicationStrings[this.labels === text.fr ? "fr" : "en"];
+    if (Object.hasOwn(this.labels, key)) return this.labels[key as Label];
+    const label = publication[key as keyof typeof publication];
+    return typeof label === "string" ? label : fallback;
   }
 
   private renderRegion() {
@@ -1101,7 +1119,7 @@ export class ImageLabComparison extends HTMLElement {
 
   private loadHistory() {
     return this.task(async signal => {
-      this.gallery = await this.request<Gallery>("", signal);
+      this.setGallery(await this.request<Gallery>("", signal));
       if (this.tab === "history") this.renderHistory();
     });
   }

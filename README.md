@@ -2,19 +2,21 @@
 
 Image Lab est une intégration Home Assistant pour comparer des images à des références, en extraire une palette de couleurs, détecter des objets et relever l’index de compteurs mécaniques. Une **analyse** associe une source, un type de traitement et des réglages. Elle se configure dans le panneau Image Lab et peut être lancée à la demande dans une automatisation. Les images sont traitées localement par Home Assistant.
 
-## Installation via HACS
+## Installation via le Marketplace
 
-Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur** et [HACS installé](https://www.hacs.dev/docs/use/download/download/).
+Prérequis · **Home Assistant Core 2026.10.4 ou ultérieur**. Depuis Core 2026.11, le [Marketplace](https://www.home-assistant.io/integrations/marketplace/) est intégré à Home Assistant.
 
-1. Dans **HACS**, rechercher **Image Lab**, ouvrir l’intégration et sélectionner **Télécharger**, puis redémarrer Home Assistant. Tant qu’Image Lab n’apparaît pas dans le catalogue, ouvrir **HACS → ⋮ → Dépôts personnalisés**, ajouter `https://github.com/zoic21/ha-imagelab` dans la catégorie **Intégration**, puis télécharger Image Lab.
-2. Dans **Paramètres → Appareils et services → Ajouter une intégration**, ajouter **Image Lab**. Cette étape ouvre l’accès au panneau dans la barre latérale.
+1. Dans **Paramètres → Marketplace**, rechercher **Image Lab**, ouvrir sa fiche et sélectionner **Installer**. Si Image Lab n’apparaît pas encore dans le catalogue, sélectionner **Ajouter depuis un lien** en haut à droite et saisir `https://github.com/zoic21/ha-imagelab`. L’ajout depuis un lien nécessite de connecter GitHub au Marketplace.
+2. Après l’installation, suivre la configuration proposée. Si elle ne s’ouvre pas, aller dans **Paramètres → Appareils et services → Ajouter une intégration** et choisir **Image Lab**. Cette étape ouvre l’accès au panneau dans la barre latérale.
 3. Ouvrir **Image Lab**, puis **Ajouter une analyse**. Choisir un nom, le type d’analyse et sa source. Pour une image importée, utiliser un JPEG, PNG ou WebP fixe de 10 Mio et 24 mégapixels maximum.
+
+Sur Home Assistant Core 2026.10, utiliser [HACS](https://www.hacs.dev/docs/use/download/download/) pour installer Image Lab depuis le dépôt personnalisé, puis redémarrer Home Assistant avant d’ajouter l’intégration.
 
 Le panneau et les appels manuels à l’action sont réservés aux administrateurs. Les captures et pochettes sont récupérées à chaque analyse. L’original d’une image importée est conservé dans le répertoire de configuration et supprimé avec l’analyse.
 
 ### Mise à jour et restauration
 
-- Pour mettre à jour Image Lab, installer la version proposée par HACS et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
+- Pour mettre à jour Image Lab, installer la version proposée par le Marketplace et redémarrer Home Assistant. Les analyses, leurs identifiants, les réglages et les originaux restent dans le répertoire de configuration Home Assistant.
 - Pour sauvegarder ou restaurer Image Lab, inclure **Home Assistant** dans la [sauvegarde Home Assistant](https://www.home-assistant.io/common-tasks/general/backups/). Cette partie contient les analyses et les images enregistrées. Après restauration, ouvrir le panneau et tester une analyse de comparaison et une analyse de palette.
 - Sur iPad, ouvrir Image Lab avec un compte administrateur. Dans une analyse de comparaison, ouvrir **Réglages → Modifier la zone d’analyse**, tracer le rectangle au doigt et sélectionner **Enregistrer**.
 
@@ -181,9 +183,9 @@ Après l’appel à `image_lab.analyze`, cette condition vérifie la présence d
 | **1. Intégration et panneau** | Ajouter la création d’analyses, le stockage, les sources d’image, le registre de modules et l’action. Réutiliser le thème et les formulaires natifs. | Créer une analyse depuis Home Assistant, la retrouver après redémarrage et récupérer la même source depuis le panneau et l’action. |
 | **2. Comparaison** | Porter le comparateur Pyscript. Ajouter le cadrage tactile, la galerie par état, l’import multiple, le reclassement et les deux seuils. | Rejouer des captures de jour et de nuit avec des images gardées pour le test. Vérifier au moins trois états, un cas ambigu et une caméra indisponible. |
 | **3. Palette** | Porter l’extraction couleur. Afficher l’aperçu des couleurs et exposer le résultat RGB aux automatisations. | Récupérer les palettes de deux lecteurs, vérifier le comportement en l’absence de pochette et rejouer une automatisation existante à cinq couleurs. |
-| **4. Première version installable** | Vérifier l’installation via HACS sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
+| **4. Première version installable** | Vérifier l’installation via le Marketplace sur une instance Home Assistant OS, l’éditeur tactile, les sauvegardes et la restauration. | Réussir une installation propre et une mise à jour avec conservation des analyses et références. Documenter le premier parcours complet. |
 
-La plateforme de validation de la première version est **Home Assistant OS x86‑64**. [Structure d’une intégration HACS](https://hacs.dev/docs/publish/integration/)
+La plateforme de validation de la première version est **Home Assistant OS x86‑64**. [Publier une intégration dans le Marketplace](https://contributors.home-assistant.io/marketplace/how-it-works/)
 
 ## Évolutions possibles
 

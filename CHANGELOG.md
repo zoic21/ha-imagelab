@@ -1,5 +1,9 @@
 # Nouveautés d’Image Lab
 
+## 0.3.3
+
+- **Installation.** Le README décrit le Marketplace intégré à Home Assistant 2026.11, son ajout depuis un lien et le parcours de configuration. L’installation via HACS reste indiquée pour Core 2026.10.
+
 ## 0.3.2
 
 - **Installation.** Home Assistant installe Tarsius et ncnn avec Image Lab avant le chargement de l’intégration, au lieu de les installer lors de la première analyse.

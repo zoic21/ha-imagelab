@@ -5,6 +5,7 @@
     "camera",
     "media_player"
   ],
+  "categories": ["ai_voice.image_recognition"],
   "codeowners": [
     "@zoic21"
   ],

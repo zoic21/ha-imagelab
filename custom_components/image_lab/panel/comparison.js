@@ -1,5 +1,6 @@
 import { comparisonStrings as text, panelStrings, publicationStrings } from "./translations.js";
 import { actionLabel } from "./action.js";
+import { createDialog, dialogStyles } from "./dialog.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
 import { ImageCache } from "./image-cache.js";
 import { numberField } from "./number-field.js";
@@ -21,6 +22,7 @@ const actionIcons = {
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
+    ${dialogStyles}
     :host { display:block; margin-top: 12px; }
     [hidden] { display:none !important; }
     .row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
@@ -206,7 +208,7 @@ template.innerHTML = `
       <ha-button id="save" class="settingsSave" variant="brand" size="l" hidden></ha-button>
     </div>
   </section>
-  <ha-dialog id="captureDialog">
+  <image-lab-dialog id="captureDialog">
     <div class="imagebox" id="captureDialogBox">
       <img id="captureDialogImage" draggable="false">
       <div id="captureDialogRegion" class="captureRegion" hidden aria-hidden="true"></div>
@@ -215,7 +217,7 @@ template.innerHTML = `
       <ha-select id="captureState"></ha-select>
       <ha-button id="captureAdd" appearance="outlined"></ha-button>
     </div>
-  </ha-dialog>
+  </image-lab-dialog>
   <div id="dialogSlot"></div>
 `;
 export class ImageLabComparison extends HTMLElement {
@@ -412,6 +414,7 @@ export class ImageLabComparison extends HTMLElement {
         this.get("matchLink").setAttribute("label", this.labels.view_reference);
         this.get("matchLink").title = this.labels.view_reference;
         this.get("captureDialog").setAttribute("header-title", this.labels.currentCapture);
+        this.get("captureDialog").setAttribute("close-label", this.common.close);
         this.get("stateName").setAttribute("label", this.labels.new_state);
         const engine = this.get("engine");
         engine.label = this.labels.engine;
@@ -915,6 +918,9 @@ export class ImageLabComparison extends HTMLElement {
     renderRegion() {
         paintRegion(this.get("region"), this.frameUrl ? this.result?.data.region ?? null : null);
     }
+    get common() {
+        return this.labels === text.fr ? panelStrings.fr : panelStrings.en;
+    }
     button(label, action) {
         const button = document.createElement("ha-button");
         button.setAttribute("appearance", "plain");
@@ -936,9 +942,8 @@ export class ImageLabComparison extends HTMLElement {
         return button;
     }
     confirmRemoval(question, name, remove) {
-        const dialog = document.createElement("ha-dialog");
+        const dialog = createDialog(this.labels[question], this.common.close);
         dialog.setAttribute("type", "alert");
-        dialog.setAttribute("header-title", this.labels[question]);
         dialog.setAttribute("width", "small");
         dialog.setAttribute("prevent-scrim-close", "");
         dialog.setAttribute("aria-describedby", "removalDescription");
@@ -999,9 +1004,8 @@ export class ImageLabComparison extends HTMLElement {
             if (this.tab !== "references")
                 return;
             const url = URL.createObjectURL(blob);
-            const dialog = document.createElement("ha-dialog");
+            const dialog = createDialog(ref.name, this.common.close);
             dialog.className = "referencePreview";
-            dialog.setAttribute("header-title", ref.name);
             const image = document.createElement("img");
             image.className = "original";
             image.alt = ref.name;
@@ -1037,8 +1041,7 @@ export class ImageLabComparison extends HTMLElement {
         const options = (this.gallery?.states ?? [])
             .filter(state => state.id !== ref.state_id)
             .map(state => ({ value: state.id, label: state.name }));
-        const dialog = document.createElement("ha-dialog");
-        dialog.setAttribute("header-title", this.labels.move_reference);
+        const dialog = createDialog(this.labels.move_reference, this.common.close);
         dialog.setAttribute("width", "small");
         const target = document.createElement("ha-select");
         target.className = "moveTarget";

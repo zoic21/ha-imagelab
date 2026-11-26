@@ -55,7 +55,7 @@ export const publicationStrings = {
 export const panelStrings = {
     en: {
         zone: "Edit analysis region", drawZone: "Draw a rectangle on the image or enter its bounds as percentages.",
-        cancel: "Cancel", save: "Save", fullZone: "Use full image", saveZoneError: "Could not save this zone.",
+        close: "Close", cancel: "Cancel", save: "Save", fullZone: "Use full image", saveZoneError: "Could not save this zone.",
         x: "Left (%)", y: "Top (%)", width: "Width (%)", height: "Height (%)",
         analyses: "Analyses", resultTab: "Result", referencesTab: "References", historyTab: "History", settingsTab: "Settings",
         nameColumn: "Name", typeColumn: "Analysis type", sourceColumn: "Source", triggerColumn: "Trigger",
@@ -117,7 +117,7 @@ export const panelStrings = {
     },
     fr: {
         zone: "Modifier la zone d’analyse", drawZone: "Tracez un rectangle sur l’image ou saisissez ses coordonnées en pourcentage.",
-        cancel: "Annuler", save: "Enregistrer", fullZone: "Utiliser toute l’image", saveZoneError: "Impossible d’enregistrer la zone.",
+        close: "Fermer", cancel: "Annuler", save: "Enregistrer", fullZone: "Utiliser toute l’image", saveZoneError: "Impossible d’enregistrer la zone.",
         x: "Gauche (%)", y: "Haut (%)", width: "Largeur (%)", height: "Hauteur (%)",
         analyses: "Analyses", resultTab: "Résultat", referencesTab: "Références", historyTab: "Historique", settingsTab: "Réglages",
         nameColumn: "Nom", typeColumn: "Type d’analyse", sourceColumn: "Source", triggerColumn: "Déclenchement",

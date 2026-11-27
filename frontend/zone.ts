@@ -1,5 +1,6 @@
 import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
 import { actionLabel } from "./action.js";
+import { createDialog } from "./dialog.js";
 import { numberField, type NumberField } from "./number-field.js";
 import { panelStrings } from "./translations.js";
 
@@ -8,8 +9,7 @@ export async function editZone(
   url: string, request: (url: string, options?: RequestInit) => Promise<Response>,
   signal: AbortSignal, onSaved?: (region: Region | null) => void,
 ) {
-  const dialog = document.createElement("ha-dialog");
-  dialog.setAttribute("header-title", labels.zone);
+  const dialog = createDialog(labels.zone, labels.close);
   dialog.innerHTML = `
     <style>
     .zoneFrame { position:relative; touch-action:none; user-select:none; cursor:crosshair;

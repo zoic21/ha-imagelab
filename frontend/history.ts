@@ -1,6 +1,7 @@
 import { actionLabel } from "./action.js";
+import { createDialog } from "./dialog.js";
 import type { NumberField } from "./number-field.js";
-import { historyStrings } from "./translations.js";
+import { historyStrings, panelStrings } from "./translations.js";
 
 export type Capture = { id: string; time: string; manual?: boolean };
 export type HistorySettingsValue = { mode: "all" | "changes" | "off"; limit: number };
@@ -258,8 +259,8 @@ export class CaptureHistory<T extends Capture> {
     try {
       const blob = await options.image(item.id, signal, false);
       signal.throwIfAborted();
-      const dialog = document.createElement("ha-dialog");
-      dialog.setAttribute("header-title", this.labels.capture);
+      const language = this.labels === historyStrings.fr ? "fr" : "en";
+      const dialog = createDialog(this.labels.capture, panelStrings[language].close);
       const content = document.createElement("div");
       content.className = "history-detail";
       const image = document.createElement("img");

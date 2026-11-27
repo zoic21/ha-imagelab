@@ -1,6 +1,7 @@
 import { meterStrings, panelStrings as strings } from "./translations.js";
 import { ImageLabComparison } from "./comparison.js";
 import { actionLabel } from "./action.js";
+import { dialogStyles } from "./dialog.js";
 import { AnalysisList, analysisListStyles } from "./analysis-list.js";
 import { CaptureHistory, HistorySettings, historyMarkup, historySettingsMarkup, historyStyles } from "./history.js";
 import { ImageCache } from "./image-cache.js";
@@ -26,6 +27,7 @@ function detectionColor(label) {
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
+    ${dialogStyles}
     :host { display: block; position: relative; height: 100dvh; color: var(--primary-text-color); }
     [hidden] { display: none !important; }
     ha-top-app-bar-fixed { height: 100%; }

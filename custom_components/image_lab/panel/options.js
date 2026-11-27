@@ -1,4 +1,5 @@
 import { actionLabel } from "./action.js";
+import { createDialog } from "./dialog.js";
 async function profileTranslations(hass, category) {
     const translations = await Promise.all([category, "selector"].map(section => hass.connection.sendMessagePromise({
         type: "frontend/get_translations", language: hass.locale.language,
@@ -90,9 +91,8 @@ export async function runProfileFlow(host, hass, mode, entry, labels, signal, on
     const start = { handler: "image_lab", ...(entry && { entry_id: entry }) };
     const successReason = mode === "configure" ? "reconfigure_successful" :
         mode === "rename" ? "rename_successful" : undefined;
-    const dialog = document.createElement("ha-dialog");
     const title = { create: labels.add, configure: labels.editSource, rename: labels.rename }[mode];
-    dialog.setAttribute("header-title", title);
+    const dialog = createDialog(title, labels.close);
     dialog.innerHTML = `<p class="description" hidden></p><ha-alert alert-type="error" hidden></ha-alert>
     <ha-form hidden></ha-form>
     <ha-dialog-footer slot="footer"><ha-button slot="primaryAction" variant="brand" disabled></ha-button>

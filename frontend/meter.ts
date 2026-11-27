@@ -1,4 +1,5 @@
 import { actionLabel } from "./action.js";
+import { createDialog } from "./dialog.js";
 import { numberField, type NumberField } from "./number-field.js";
 import { bindRegionDrawing, paintRegion, type Region } from "./region.js";
 import { meterStrings, panelStrings } from "./translations.js";
@@ -182,10 +183,9 @@ export async function editMeter(
 ) {
   const labels = language.startsWith("fr") ? meterStrings.fr : meterStrings.en;
   const common = language.startsWith("fr") ? panelStrings.fr : panelStrings.en;
-  const dialog = document.createElement("ha-dialog");
+  const dialog = createDialog(labels.configure, common.close);
   dialog.className = "meter-dialog";
   dialog.setAttribute("width", "large");
-  dialog.setAttribute("header-title", labels.configure);
   dialog.setAttribute("prevent-scrim-close", "");
   dialog.innerHTML = `
     <div class="meter-editor" data-editor hidden>

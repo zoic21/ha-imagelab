@@ -1,5 +1,6 @@
 import { actionLabel } from "./action.js";
-import { historyStrings } from "./translations.js";
+import { createDialog } from "./dialog.js";
+import { historyStrings, panelStrings } from "./translations.js";
 const labelsFor = (language) => language?.startsWith("fr") ? historyStrings.fr : historyStrings.en;
 export const historyMarkup = `
   <div class="history-toolbar">
@@ -235,8 +236,8 @@ export class CaptureHistory {
         try {
             const blob = await options.image(item.id, signal, false);
             signal.throwIfAborted();
-            const dialog = document.createElement("ha-dialog");
-            dialog.setAttribute("header-title", this.labels.capture);
+            const language = this.labels === historyStrings.fr ? "fr" : "en";
+            const dialog = createDialog(this.labels.capture, panelStrings[language].close);
             const content = document.createElement("div");
             content.className = "history-detail";
             const image = document.createElement("img");
